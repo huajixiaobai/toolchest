@@ -1,0 +1,36 @@
+/* Start screen for the web build. Uses the same palette as the viewer. */
+#boot{
+  position:fixed;inset:0;z-index:120;overflow:auto;
+  display:flex;align-items:center;justify-content:center;padding:24px 16px;
+  background:
+    radial-gradient(1100px 520px at 12% -10%, #1d3040 0%, transparent 60%),
+    radial-gradient(900px 480px at 100% 0%, #241c33 0%, transparent 55%),
+    var(--bg,#10161c);
+  color:var(--fg,#dfe7ee);font-family:var(--sans,"Segoe UI","PingFang SC",system-ui,sans-serif)
+}
+.bootcard{
+  width:100%;max-width:620px;background:linear-gradient(180deg,#18222c,#141c25);
+  border:1px solid var(--line,#26313d);border-radius:14px;padding:26px 26px 22px;box-shadow:0 20px 60px #000a
+}
+.bootcard h1{margin:0 0 12px;font-size:21px;letter-spacing:.5px}
+.bootcard .lead{margin:0 0 10px;font-size:13px;line-height:1.75;color:var(--fg3,#6d7d8d)}
+.bootcard .lead.strong{color:var(--fg2,#9fb0c0)}
+.bootbtns{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 14px}
+.bootbtns .btn{font-size:13.5px;padding:9px 16px}
+.bootdrop{
+  border:1.5px dashed var(--line2,#33414f);border-radius:12px;padding:18px 16px;text-align:center;
+  color:var(--fg3,#6d7d8d);font-size:12.5px;transition:.15s;background:#131c24
+}
+.bootdrop.over{border-color:var(--accent,#4bc292);background:#152a29;color:var(--accent,#4bc292)}
+.bootdrop .big{font-size:22px;line-height:1;margin-bottom:8px;color:var(--accent,#4bc292);opacity:.9}
+.bootnotes{margin:16px 0 0;padding-left:18px;font-size:12px;line-height:1.85;color:var(--fg3,#6d7d8d)}
+.bootstatus{margin-top:16px;font-size:12.5px;line-height:1.7;border-radius:8px;padding:10px 12px}
+.bootstatus.busy{background:#131c24;border:1px solid var(--line,#26313d);color:var(--fg2,#9fb0c0)}
+.bootstatus.bad{background:#2a1616;border:1px solid #5b2b2b;color:#ff9b9b}
+.bootbar{height:5px;border-radius:99px;background:#0d1319;margin-top:8px;overflow:hidden}
+.bootfill{height:100%;background:linear-gradient(90deg,#4bc292,#009dff);transition:width .25s}
+@media(max-width:560px){
+  .bootcard{padding:20px 16px 18px;border-radius:12px}
+  .bootcard h1{font-size:18px}
+  .bootbtns .btn{flex:1 1 auto;text-align:center}
+}

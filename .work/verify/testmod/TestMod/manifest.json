@@ -1,0 +1,12 @@
+{
+  "id": "testmod",
+  "name": "TestMod",
+  "display_name": "测试 Mod",
+  "author": "Mocha",
+  "description": "importer smoke test",
+  "prefix": "tm",
+  "main_file": "TestMod.lua",
+  "version": "1.2.3",
+  "version_number": "1.2.3",
+  "priority": 0
+}

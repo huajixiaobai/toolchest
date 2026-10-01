@@ -1,0 +1,2347 @@
+// Dependency-free Chrome DevTools Protocol driver: loads the built viewer, drives the
+// UI through every view, evaluates in-page assertions and grabs screenshots.
+'use strict'
+const { spawn, execSync } = require('child_process')
+const fs = require('fs')
+const path = require('path')
+
+const ROOT = path.join(__dirname, '..', '..')
+const CHROME = process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe'
+const PORT = 9333
+const PAGE = process.env.BALATRO_PAGE || ('file:///' + path.join(ROOT, 'Balatro素材图鉴.html').replace(/\\/g, '/').replace(/[^\x00-\x7F]/g, (c) => encodeURIComponent(c)))
+const SHOTS = path.join(__dirname, 'shots')
+fs.mkdirSync(SHOTS, { recursive: true })
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+const safeLabel = (s) => String(s).replace(/[\\/:*?"<>|（）()]/g, '').replace(/\\s+/g, '_')
+
+/** Kill anything still listening on the CDP port (a Chrome leaked by an earlier crashed run). */
+function freePort (port) {
+  try {
+    const out = execSync('netstat -ano -p tcp', { encoding: 'latin1', maxBuffer: 8 << 20 })
+    const pids = new Set()
+    for (const line of out.split(/\r?\n/)) {
+      if (!line.includes(':' + port)) continue
+      if (!/LISTENING/i.test(line)) continue
+      const m = /\s(\d+)\s*$/.exec(line.trim())
+      if (m) pids.add(m[1])
+    }
+    for (const pid of pids) {
+      try { execSync('taskkill /F /PID ' + pid, { stdio: 'ignore' }); console.log('freed port ' + port + ' (killed stale pid ' + pid + ')') } catch { /* ignore */ }
+    }
+    if (pids.size) return true
+  } catch { /* netstat unavailable — not fatal */ }
+  return false
+}
+
+async function getJSON (url) {
+  const r = await fetch(url)
+  return r.json()
+}
+
+class CDP {
+  constructor (ws) { this.ws = ws; this.id = 0; this.pending = new Map(); this.events = [] }
+  static async connect (url) {
+    const ws = new WebSocket(url)
+    await new Promise((res, rej) => { ws.onopen = res; ws.onerror = (e) => rej(new Error('ws error')) })
+    const c = new CDP(ws)
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data)
+      if (msg.id && c.pending.has(msg.id)) {
+        const { res, rej } = c.pending.get(msg.id); c.pending.delete(msg.id)
+        msg.error ? rej(new Error(JSON.stringify(msg.error))) : res(msg.result)
+      } else if (msg.method) c.events.push(msg)
+    }
+    return c
+  }
+  send (method, params) {
+    const id = ++this.id
+    return new Promise((res, rej) => {
+      this.pending.set(id, { res, rej })
+      this.ws.send(JSON.stringify({ id, method, params: params || {} }))
+    })
+  }
+  async eval (expression, awaitPromise) {
+    const r = await this.send('Runtime.evaluate', { expression, awaitPromise: !!awaitPromise, returnByValue: true })
+    if (r.exceptionDetails) throw new Error('page exception: ' + JSON.stringify(r.exceptionDetails.exception && r.exceptionDetails.exception.description || r.exceptionDetails))
+    return r.result.value
+  }
+  async shot (name) {
+    const r = await this.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+    fs.writeFileSync(path.join(SHOTS, name + '.png'), Buffer.from(r.data, 'base64'))
+    return name + '.png'
+  }
+}
+
+/* ------------------------------------------------------------- in-page helpers */
+const HELPERS = `
+window.__V = {
+  errors: [],
+  byText(sel, txt){ return [].slice.call(document.querySelectorAll(sel)).filter(e => e.textContent.indexOf(txt) >= 0)[0] },
+  wait(ms){ return new Promise(r => setTimeout(r, ms)) },
+  blank(){
+    const out=[]; let painted=0;
+    [].slice.call(document.querySelectorAll('canvas')).forEach(cv=>{
+      if(!cv.width||!cv.height){out.push('zero');return}
+      try{
+        const d=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data;
+        let nz=0; for(let i=3;i<d.length;i+=4){ if(d[i]>8){nz++; if(nz>40) break} }
+        if(nz<=40) out.push((cv.className||'?')+' '+cv.width+'x'+cv.height); else painted++;
+      }catch(e){ out.push('tainted') }
+    });
+    return {painted:painted, blank:out.length, sample:out.slice(0,6), total:document.querySelectorAll('canvas').length};
+  },
+  async click(sel, txt, ms){ const e = txt ? window.__V.byText(sel,txt) : document.querySelector(sel); if(!e) return false; e.click(); await window.__V.wait(ms||400); return true },
+  hash(cv){ if(!cv) return 0; const d=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data; let h=2166136261; for(let i=0;i<d.length;i+=13){ h^=d[i]; h=Math.imul(h,16777619)>>>0 } return h },
+  diff(a,b){ if(!a||!b||a.width!==b.width||a.height!==b.height) return -1;
+    const x=a.getContext('2d').getImageData(0,0,a.width,a.height).data;
+    const y=b.getContext('2d').getImageData(0,0,b.width,b.height).data;
+    let d=0; for(let i=0;i<x.length;i+=4) d+=Math.abs(x[i]-y[i])+Math.abs(x[i+3]-y[i+3]);
+    return +(d/(x.length/4*510)).toFixed(4) },
+  bbox(cv){ const d=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data;
+    let x0=1e9,y0=1e9,x1=-1,y1=-1;
+    for(let y=0;y<cv.height;y++)for(let x=0;x<cv.width;x++){ if(d[(y*cv.width+x)*4+3]>8){ if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y } }
+    return x1<0?null:{x0,y0,x1,y1} }
+};
+window.addEventListener('error', function(e){ window.__V.errors.push(String(e.message)+' @line '+e.lineno) });
+window.addEventListener('unhandledrejection', function(e){ window.__V.errors.push('rejection: '+String(e.reason && e.reason.message || e.reason)) });
+/* capture every exported blob instead of relying on real downloads */
+window.__CAPTURED__ = [];
+(function(){
+  var origCreate = URL.createObjectURL;
+  URL.createObjectURL = function(blob){ window.__CAPTURED__.push({ name: '', blob: blob }); return origCreate.call(URL, blob) };
+  var origClick = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function(){
+    // createObjectURL runs first, so the newest capture belongs to this download
+    var n = this.getAttribute('download') || '';
+    var last = window.__CAPTURED__[window.__CAPTURED__.length - 1];
+    if (last && !last.name) last.name = n;
+    return origClick.call(this)
+  };
+})();
+window.__GRAB__ = async function(){
+  var out=[];
+  for (var i=0;i<window.__CAPTURED__.length;i++){
+    var rec=window.__CAPTURED__[i];
+    var u8=new Uint8Array(await rec.blob.arrayBuffer());
+    var b64='';
+    if (u8.length < 1600000){
+      var s=''; for(var k=0;k<u8.length;k+=0x8000) s+=String.fromCharCode.apply(null,u8.subarray(k,k+0x8000));
+      b64=btoa(s);
+    }
+    out.push({name:rec.name, size:u8.length, magic:[u8[0],u8[1],u8[2],u8[3]], tail:[u8[u8.length-22],u8[u8.length-21],u8[u8.length-20],u8[u8.length-19]], b64:b64});
+  }
+  return out;
+};
+`;
+
+const SCENARIOS = {
+  codex: `(async()=>{
+     await __V.wait(1200);
+     const r={view:'codex'};
+     r.cells=document.querySelectorAll('.cell').length;
+     r.sidebarCats=document.querySelectorAll('.cat').length;
+     r.canvas=__V.blank();
+     return r })()`,
+  jokers: `(async()=>{
+     await __V.wait(1200);
+     await __V.click('.cat','小丑牌',2200);
+     const r={view:'jokers'};
+     r.cells=document.querySelectorAll('.cell').length;
+     r.canvas=__V.blank();
+     document.querySelector('.cell').click(); await __V.wait(2200);
+     r.detail=document.getElementById('detail').textContent.replace(/\\s+/g,' ').slice(0,400);
+     r.detailCanvas=document.querySelectorAll('#detail canvas').length;
+     r.detailButtons=[].slice.call(document.querySelectorAll('#detail .btn')).map(b=>b.textContent);
+     r.canvas2=__V.blank();
+     return r })()`,
+  tarot: `(async()=>{
+     await __V.wait(1200);
+     await __V.click('.cat','塔罗牌',1800);
+     document.querySelector('.cell').click(); await __V.wait(1800);
+     const r={view:'tarot', cells:document.querySelectorAll('.cell').length};
+     r.detail=document.getElementById('detail').textContent.replace(/\\s+/g,' ').slice(0,400);
+     r.marks=[].slice.call(document.querySelectorAll('#detail .desc .x')).length;
+     r.colored=[].slice.call(document.querySelectorAll('#detail .desc span[style*="color"]')).length;
+     r.canvas=__V.blank();
+     return r })()`,
+  cards: `(async()=>{
+     await __V.wait(1200);
+     await __V.click('.cat','扑克牌',1800);
+     document.querySelector('.cell').click(); await __V.wait(1800);
+     const r={view:'cards', cells:document.querySelectorAll('.cell').length};
+     r.detail=document.getElementById('detail').textContent.replace(/\\s+/g,' ').slice(0,300);
+     r.canvas=__V.blank();
+     return r })()`,
+  forge: `(async()=>{
+     await __V.wait(1200);
+     const clicked=await __V.click('.cat','卡牌合成台',2600);
+     const r={view:'forge', clicked:clicked};
+     r.groups=[].slice.call(document.querySelectorAll('.opt')).map(o=>o.querySelector('h4')?o.querySelector('h4').textContent:'?');
+     r.chips=document.querySelectorAll('.pick').length;
+     r.preview=document.querySelectorAll('.preview canvas').length;
+     r.canvas=__V.blank();
+     if(!r.groups.length) return r;
+     const opts=[].slice.call(document.querySelectorAll('.opt'));
+     const ed=opts.filter(o=>o.querySelector('h4') && /版本/.test(o.querySelector('h4').textContent))[0];
+     if(ed){
+       const btns=[].slice.call(ed.querySelectorAll('.pick'));
+       r.editions=btns.length;
+       for(const b of btns){ b.click(); await __V.wait(430) }
+       r.canvasAfterEditions=__V.blank();
+     }
+     const enh=opts.filter(o=>o.querySelector('h4') && /强化/.test(o.querySelector('h4').textContent))[0];
+     if(enh){
+       const ebtns=[].slice.call(enh.querySelectorAll('.pick'));
+       r.enhancements=ebtns.length;
+       for(const b of ebtns){ b.click(); await __V.wait(220) }
+       r.canvasAfterEnh=__V.blank();
+     }
+     const tg=[].slice.call(document.querySelectorAll('.pick')).filter(b=>/牌背|高对比/.test(b.textContent));
+     for(const b of tg){ b.click(); await __V.wait(350) }
+     r.toggles=tg.length; r.canvasAfterToggles=__V.blank();
+     for(const b of tg){ b.click(); await __V.wait(300) }
+     return r })()`,
+  atlas: `(async()=>{
+     await __V.wait(1500);
+     await __V.click('.cat','图集浏览',1800);
+     const r={view:'atlas'};
+     r.rows=document.querySelectorAll('.atarow').length;
+     const h=document.querySelectorAll('.atahead')[0]; if(h){h.click(); await __V.wait(1500)}
+     r.openedBody=document.querySelectorAll('.atabody').length;
+     r.imgs=document.querySelectorAll('.atabody img').length;
+     r.gridCells=document.querySelectorAll('.atabody .gridov i').length;
+     r.buttons=[].slice.call(document.querySelectorAll('.atabody .btn')).map(b=>b.textContent);
+     return r })()`,
+  hands: `(async()=>{
+     await __V.wait(1200);
+     await __V.click('.cat','牌型数据',2000);
+     const r={view:'hands'};
+     r.rows=document.querySelectorAll('table.data tbody tr').length;
+     r.mini=document.querySelectorAll('table.data canvas').length;
+     r.first=document.querySelector('table.data tbody tr').textContent.replace(/\\s+/g,' ').slice(0,120);
+     r.canvas=__V.blank();
+     return r })()`,
+  data: `(async()=>{
+     await __V.wait(1200);
+     await __V.click('.cat','数据总表',2000);
+     const r={view:'data'};
+     r.rows=document.querySelectorAll('table.data tbody tr').length;
+     r.heads=document.querySelectorAll('table.data th').length;
+     r.buttons=[].slice.call(document.querySelectorAll('.listhead .tbtn')).map(b=>b.textContent);
+     return r })()`,
+  /* Audit the sidebar itself: which categories exist, what a cell looks like, and what
+     happens after clicking one — used to tell a stale test selector from a real UI bug. */
+  /* The toolbox site: homepage at /, viewer mounted at /viewer/. These two verify the
+     generated site (docs/) — including that the viewer really works from a sub-path. */
+  siteHome: `(async()=>{
+     await __V.wait(800);
+     const r={view:'siteHome',path:location.pathname,title:document.title,lang:document.documentElement.lang};
+     r.h1=(document.querySelector('h1')||{}).textContent;
+     r.tools=document.querySelectorAll('.tool').length;
+     r.openable=document.querySelectorAll('a.tool').length;
+     r.planned=document.querySelectorAll('.tool.planned').length;
+     r.tags=document.querySelectorAll('.tag').length;
+     r.hrefs=[].slice.call(document.querySelectorAll('a.tool')).map(a=>a.getAttribute('href'));
+     r.manifest=!!document.querySelector('link[rel=manifest]');
+     r.ogTitle=(document.querySelector('meta[property="og:title"]')||{}).content||null;
+     r.ogImage=(document.querySelector('meta[property="og:image"]')||{}).content||null;
+     r.aboutSections=document.querySelectorAll('.about li').length;
+     r.noExternal=[].slice.call(document.querySelectorAll('script[src],link[href],img[src]'))
+        .map(e=>e.getAttribute('src')||e.getAttribute('href')).filter(u=>/^https?:\\/\\//.test(u)&&u.indexOf(location.origin)!==0);
+     return r })()`,
+  siteViewer: `(async()=>{
+     for(let i=0;i<60 && !document.querySelector('#boot .bootcard');i++) await __V.wait(250);
+     const r={view:'siteViewer',path:location.pathname};
+     r.hasBootScreen=!!document.querySelector('#boot .bootcard');
+     r.buttons=[].slice.call(document.querySelectorAll('#boot .btn')).map(b=>b.textContent);
+     r.inlineData=typeof window.__BALATRO_DATA__!=='undefined';
+     r.pack=(typeof window.__PACK__==='undefined')?'undefined':String(window.__PACK__);
+     r.glshaders=!!window.__GLSHADERS__;
+     r.modimport=!!window.__MODIMPORT__;
+     r.disclaimer=(document.querySelector('#boot .bootnotes')||{}).textContent||'';
+     r.hasDisclaimer=/非官方/.test(r.disclaimer);
+     r.title=document.title;
+     r.errors=window.__V.errors.length;
+     return r })()`,
+  probeCats: `(async()=>{
+     await __V.wait(1500);
+     const cats=[].slice.call(document.querySelectorAll('.cat')).map(e=>e.textContent.trim());
+     const c=document.querySelector('.cell');
+     const r={view:'probeCats', catCount:cats.length, cats, cellsAtStart:document.querySelectorAll('.cell').length};
+     r.cellClasses = c ? [].slice.call(c.querySelectorAll('*')).map(e=>String(e.className)).slice(0,14) : null;
+     r.hasNm = !!document.querySelector('.cell .nm');
+     r.nmSel  = (()=>{ const el=document.querySelector('.cell'); if(!el) return null;
+       const t=[].slice.call(el.querySelectorAll('*')).filter(e=>e.textContent && e.textContent.trim()==='小丑').map(e=>e.className);
+       return t })();
+     for (const name of ['小丑牌','盲注','蜡封','塔罗牌']) {
+       const b=__V.byText('.cat',name);
+       r['found_'+name]=!!b;
+       if(!b) continue;
+       b.click(); await __V.wait(1400);
+       r['cells_'+name]=document.querySelectorAll('.cell').length;
+       r['sel_'+name]=(window.__BALATRO__ && window.__BALATRO__.state || {}).cat;
+     }
+     return r })()`,
+  search: `(async()=>{
+     await __V.wait(1200);
+     const s=document.getElementById('search');
+     const probe=async(q)=>{ s.value=q; s.dispatchEvent(new Event('input')); await __V.wait(700); return document.querySelectorAll('.cell').length };
+     const out={view:'search'};
+     out.all=await probe('');
+     out.q1=await probe('joker');
+     out.q2=await probe('cat:Joker rarity:1 cost>=4');
+     out.q3=await probe('钢');
+     out.q4=await probe('atlas:Joker pos:0,0');
+     out.q5=await probe('zzzznotfound');
+     out.q6=await probe('cat:Tarot');
+     out.canvas=__V.blank();
+     return out })()`,
+  editions: `(async()=>{
+     await __V.wait(1200);
+     await __V.click('.cat','卡牌合成台',2600);
+     const opts=[].slice.call(document.querySelectorAll('.opt'));
+     const ed=opts.filter(o=>o.querySelector('h4') && /版本/.test(o.querySelector('h4').textContent))[0];
+     if(!ed) return {error:'edition group missing'};
+     window.__EDBTNS__ = [].slice.call(ed.querySelectorAll('.pick'));
+     return {count:window.__EDBTNS__.length, labels:window.__EDBTNS__.map(b=>b.textContent.trim())} })()`,
+  langs: `(async()=>{
+     await __V.wait(1200);
+     const clicked=await __V.click('.cat','小丑牌',1600); const nm0=document.querySelector('.cell .nm'); if(!nm0) return {view:'langs',fatal:'点击「小丑牌」后没有条目格子',clicked,cells:document.querySelectorAll('.cell').length,tab:(window.__BALATRO__&&window.__BALATRO__.state||{}).tab,hash:location.hash};
+     const first=()=>document.querySelector('.cell .nm').textContent;
+     const r={view:'langs'};
+     r.zh=first();
+     const sel=document.getElementById('langSel');
+     for(const code of ['en-us','zh_TW','ja','ko','zh_CN']){
+       sel.value=code; sel.dispatchEvent(new Event('change')); await __V.wait(1500);
+       r[code]=first();
+     }
+     r.canvas=__V.blank();
+     return r })()`,
+  sort: `(async()=>{
+     await __V.wait(1200);
+     await __V.click('.cat','小丑牌',1800);
+     const names=()=>[].slice.call(document.querySelectorAll('.cell .nm')).slice(0,4).map(e=>e.textContent);
+     const r={view:'sort'};
+     const sel=document.querySelector('.listhead select');
+     r.options=[].slice.call(sel.options).map(o=>o.value);
+     for(const v of ['cost','rarity','name','id','order']){
+       sel.value=v; sel.dispatchEvent(new Event('change')); await __V.wait(1600);
+       r[v]=names();
+     }
+     return r })()`,
+  atlasExport: `(async()=>{
+     await __V.wait(1200);
+     await __V.click('.cat','图集浏览',1800);
+     const heads=[].slice.call(document.querySelectorAll('.atahead'));
+     const target=heads.filter(h=>h.textContent.indexOf('chips.png')>=0)[0];
+     if(!target) return {error:'chips.png row missing'};
+     target.click(); await __V.wait(1200);
+     const row=target.parentElement;
+     const btn=[].slice.call(row.querySelectorAll('.btn')).filter(b=>/切片/.test(b.textContent))[0];
+     const r={view:'atlasExport', hasBtn:!!btn};
+     if(btn){ btn.click(); await __V.wait(4000) }
+     r.blobs=await window.__GRAB__();
+     r.canvas=__V.blank();
+     return r })()`,
+  shaders: `(async()=>{
+     await __V.wait(1200);
+     await __V.click('.cat','着色器',2000);
+     const rows=[].slice.call(document.querySelectorAll('.atarow'));
+     const r={view:'shaders', rows:rows.length};
+     const live=rows.filter(x=>/实时预览/.test(x.textContent));
+     r.liveRows=live.length;
+     // expand every shader row so each source is parsed
+     for(const x of rows){ const h=x.querySelector('.atahead'); if(h){h.click(); await __V.wait(160)} }
+     r.opened=document.querySelectorAll('.atabody pre').length;
+     r.sourceBytes=[].slice.call(document.querySelectorAll('.atabody pre')).reduce((a,p)=>a+p.textContent.length,0);
+     r.previews=document.querySelectorAll('.atabody canvas').length;
+     r.exportBtns=document.querySelectorAll('.atabody .btn').length;
+     r.hashes=[].slice.call(document.querySelectorAll('.atabody canvas')).map(c=>__V.hash(c));
+     r.canvas=__V.blank();
+     // export one shader source
+     const b=[].slice.call(document.querySelectorAll('.atabody .btn')).filter(x=>/导出 \\.fs/.test(x.textContent))[0];
+     if(b){ b.click(); await __V.wait(1200) }
+     r.blobs=await window.__GRAB__();
+     return r })()`,
+  blind: `(async()=>{
+     await __V.wait(1200);
+     const clicked=await __V.click('.cat','盲注',1800); const r={view:'blind',clicked,cells:document.querySelectorAll('.cell').length}; const c0=document.querySelector('.cell'); if(!c0) return Object.assign(r,{fatal:'点击「盲注」后没有条目格子',tab:(window.__BALATRO__&&window.__BALATRO__.state||{}).tab,hash:location.hash}); c0.click(); await __V.wait(1800);
+     const sl=document.querySelector('#detail input[type=range]');
+     r.hasSlider=!!sl;
+     r.max=sl?sl.max:null;
+     const pv=()=>document.querySelector('#detail .row1 canvas');
+     r.f0=__V.hash(pv());
+     const hashes=[];
+     for(const v of [1,5,10,15,20]){ sl.value=String(v); sl.dispatchEvent(new Event('input')); await __V.wait(350); hashes.push([v,__V.hash(pv())]) }
+     r.frames=hashes;
+     r.distinct=new Set(hashes.map(x=>x[1])).size;
+     const play=[].slice.call(document.querySelectorAll('#detail .btn')).filter(b=>/播放/.test(b.textContent))[0];
+     r.hasPlay=!!play;
+     if(play){ play.click(); await __V.wait(900); play.click(); await __V.wait(200) }
+     r.label=document.querySelector('#detail .mono').textContent;
+     // export the current frame
+     const png=[].slice.call(document.querySelectorAll('#detail .btn')).filter(b=>/PNG 2x/.test(b.textContent))[0];
+     if(png){ png.click(); await __V.wait(1500) }
+     r.blobs=await window.__GRAB__();
+     r.canvas=__V.blank();
+     return r })()`,
+  // ---- regression tests for the reported bugs -----------------------------
+  sealSticker: `(async()=>{
+     await __V.wait(1500);
+     const A=window.__BALATRO__;
+     const r={view:'sealSticker'};
+     if(!A) return {fatal:'no __BALATRO__ handle'};
+     const paint=()=>{const cv=document.querySelector('.preview canvas'); return cv?__V.hash(cv):0};
+     await __V.click('.cat','卡牌合成台',2600);
+     const opts=[].slice.call(document.querySelectorAll('.opt'));
+     const grp=(re)=>opts.filter(o=>o.querySelector('h4')&&re.test(o.querySelector('h4').textContent))[0];
+     const seal=grp(/蜡封/), stick=grp(/贴纸/);
+     r.sealChips=seal?seal.querySelectorAll('.pick').length:0;
+     r.stickerChips=stick?stick.querySelectorAll('.pick').length:0;
+     // walk every seal option, the preview must change each time
+     const sh=[]; for(const b of [].slice.call(seal.querySelectorAll('.pick'))){ b.click(); await __V.wait(420); sh.push([b.textContent.trim(), paint()]) }
+     r.sealHashes=sh; r.sealDistinct=new Set(sh.map(x=>x[1])).size;
+     const th=[]; for(const b of [].slice.call(stick.querySelectorAll('.pick'))){ b.click(); await __V.wait(330); th.push([b.textContent.trim(), paint()]) }
+     r.stickerHashesOnCard=th; r.stickerDistinctOnCard=new Set(th.map(x=>x[1])).size;
+     r.stickerDisabledOnCard=[].slice.call(stick.querySelectorAll('.pick')).every(b=>b.disabled);
+     // stickers are joker-only, so repeat the walk with a joker as the base
+     const tsel=document.querySelector('.opt select');
+     tsel.value='Joker'; tsel.dispatchEvent(new Event('change')); await __V.wait(2400);
+     const opts2=[].slice.call(document.querySelectorAll('.opt'));
+     const stick2=opts2.filter(o=>o.querySelector('h4')&&/贴纸/.test(o.querySelector('h4').textContent))[0];
+     const seal2=opts2.filter(o=>o.querySelector('h4')&&/蜡封/.test(o.querySelector('h4').textContent))[0];
+     r.stickerDisabledOnJoker=[].slice.call(stick2.querySelectorAll('.pick')).every(b=>b.disabled);
+     r.sealDisabledOnJoker=[].slice.call(seal2.querySelectorAll('.pick')).every(b=>b.disabled);
+     const jh=[]; for(const b of [].slice.call(stick2.querySelectorAll('.pick'))){ b.click(); await __V.wait(330); jh.push([b.textContent.trim(), paint()]) }
+     r.stickerHashesOnJoker=jh; r.stickerDistinctOnJoker=new Set(jh.map(x=>x[1])).size;
+     // the data model must agree: compose attaches these keys
+     const spec=A.compose;
+     const sealItem=A.byId['seal_Gold'], stickItem=A.byId['sticker_eternal'];
+     r.composition=A.data.composition && Object.keys(A.data.composition.sealPos).join(',');
+     r.stickerPos=Object.keys(A.data.composition.stickerPos).join(',');
+     // direct check: card alone vs card + gold seal must differ
+     const base=A.compose({center:{atlas:'centers',pos:A.data.composition.baseCenter.pos},front:{atlas:'cards_1',pos:{x:12,y:3}}},2,12);
+     const withSeal=A.compose({center:{atlas:'centers',pos:A.data.composition.baseCenter.pos},front:{atlas:'cards_1',pos:{x:12,y:3}},seal:'Gold'},2,12);
+     r.sealDelta=diffRatio(base,withSeal);
+     const withSticker=A.compose({center:{atlas:'centers',pos:A.data.composition.baseCenter.pos},front:{atlas:'cards_1',pos:{x:12,y:3}},sticker:'eternal'},2,12);
+     r.stickerDelta=diffRatio(base,withSticker);
+     r.sealItemKey=sealItem.key; r.stickItemKey=stickItem.key;
+     function diffRatio(a,b){ const A1=a.getContext('2d').getImageData(0,0,a.width,a.height).data, B1=b.getContext('2d').getImageData(0,0,b.width,b.height).data;
+       let n=0,t=0; for(let i=0;i<A1.length;i+=4){ t++; if(Math.abs(A1[i]-B1[i])>8||Math.abs(A1[i+3]-B1[i+3])>8) n++ } return +(n/t).toFixed(3) }
+     return r })()`,
+  legendary: `(async()=>{
+     await __V.wait(1500);
+     const A=window.__BALATRO__;
+     if(!A) return {fatal:'no handle'};
+     const r={view:'legendary'};
+     const ids=['j_caino','j_triboulet','j_yorick','j_chicot','j_perkeo','j_hologram','c_soul','j_joker','c_black_hole'];
+     r.items=[];
+     const diff=(a,b)=>{ const x=a.getContext('2d').getImageData(0,0,a.width,a.height).data, y=b.getContext('2d').getImageData(0,0,b.width,b.height).data;
+       let n=0,t=0; for(let i=0;i<x.length;i+=4){ t++; if(Math.abs(x[i]-y[i])>8||Math.abs(x[i+3]-y[i+3])>8) n++ } return +(n/t).toFixed(3) };
+     for(const id of ids){
+       const it=A.byId[id]; if(!it){ r.items.push({id,missing:true}); continue }
+       const spec=A.specForItem(it);
+       const withSoul=A.compose(spec,2,12);
+       const noSoul=A.compose(Object.assign({},spec,{soul:null}),2,12);
+       r.items.push({ id, hasSoul:!!spec.soul, soulPos:spec.soul?spec.soul.pos:null, setShader:spec.setShader||null,
+                      soulContribution: spec.soul?diff(withSoul,noSoul):0, anim:A.hasAnim(it) });
+     }
+     r.overlayItems=A.items.filter(i=>i.cat==='Overlay').map(i=>i.id);
+     r.soulCarriers=A.data.composition.soulCarriers.map(c=>c.key);
+     // the soul sprite must differ from the base card, and shader programs must include the new ones
+     r.programs=A.shaderPrograms;
+     return r })()`,
+  forgeTypes: `(async()=>{
+     await __V.wait(1500);
+     await __V.click('.cat','卡牌合成台',2600);
+     const sel=document.querySelector('#content .opt[data-gkey="basetype"] select');
+     const r={view:'forgeTypes', options:[].slice.call(sel.options).map(o=>o.value)};
+     const paint=()=>{const cv=document.querySelector('.preview canvas'); return cv?__V.hash(cv):0};
+     const walks=[];
+     for(const t of ['Joker','Spectral','Voucher','Booster','Tarot','Collab','PlayingCard']){
+       sel.value=t; sel.dispatchEvent(new Event('change')); await __V.wait(2200);
+       const opts=[].slice.call(document.querySelectorAll('.opt'));
+       const grp=(re)=>opts.filter(o=>o.querySelector('h4')&&re.test(o.querySelector('h4').textContent))[0];
+       const sealBox=document.querySelector('#content .opt[data-gkey="seal"]'), stickBox=document.querySelector('#content .opt[data-gkey="stick"]');
+       const disabled=(box)=>box?[].slice.call(box.querySelectorAll('.pick')).every(b=>b.disabled):null;
+       walks.push({ type:t, hash:paint(), baseChips:document.querySelectorAll('#content .opt[data-gkey="base"] .pick').length,
+                    sealDisabled:disabled(sealBox), stickerDisabled:disabled(stickBox) });
+     }
+     r.walks=walks;
+     r.distinctTypes=new Set(walks.map(w=>w.hash)).size;
+     r.canvas=__V.blank();
+     return r })()`,
+  animExport: `(async()=>{
+     await __V.wait(1500);
+     const A=window.__BALATRO__;
+     if(!A) return {fatal:'no handle'};
+     const r={view:'animExport'};
+     // 1) APNG of a foil card
+     const spec=A.specForItem(A.byId['j_joker']);
+     const foil=Object.assign({},spec,{edition:'e_foil'});
+     const frames=[]; for(let i=0;i<12;i++) frames.push(A.compose(foil,1,i/10));
+     const bytes=await A.encodeAPNG(frames,80);
+     r.apngSize=bytes?bytes.length:0;
+     r.apngSig=[].slice.call(bytes.slice(0,8));
+     // parse chunk list to prove APNG structure
+     const dv=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+     const chunks=[]; let p=8; while(p+8<=bytes.length){ const len=dv.getUint32(p); const type=String.fromCharCode(bytes[p+4],bytes[p+5],bytes[p+6],bytes[p+7]); chunks.push(type+':'+len); p+=12+len; if(type==='IEND')break }
+     r.chunks=chunks;
+     r.hasActl=chunks.some(c=>c.startsWith('acTL'));
+     r.fctl=chunks.filter(c=>c.startsWith('fcTL')).length;
+     r.fdat=chunks.filter(c=>c.startsWith('fdAT')).length;
+     // 2) frames really differ
+     const h=frames.map(f=>__V.hash(f));
+     r.frameDistinct=new Set(h).size;
+     // 3) blind 21-frame animation
+     const blind=A.byId['bl_small'];
+     const bf=[]; for(let i=0;i<21;i++) bf.push(A.compose({standalone:{atlas:'blind_chips',pos:{x:i,y:blind.pos.y}}},1,0));
+     r.blindDistinct=new Set(bf.map(f=>__V.hash(f))).size;
+     // 4) UI export buttons exist
+     A.state.tab='codex'; A.state.cat='Joker'; A.state.q='caino'; A.render();
+     await __V.wait(1200);
+     document.querySelector('.cell').click(); await __V.wait(1600);
+     r.detailButtons=[].slice.call(document.querySelectorAll('#detail .btn')).map(b=>b.textContent.trim());
+     const apngBtn=[].slice.call(document.querySelectorAll('#detail .btn')).filter(b=>/APNG/.test(b.textContent))[0];
+     if(apngBtn){ apngBtn.click(); await __V.wait(6000) }
+     const gifBtn=[].slice.call(document.querySelectorAll('#detail .btn')).filter(b=>/GIF/.test(b.textContent))[0];
+     if(gifBtn){ gifBtn.click(); await __V.wait(9000) }
+     r.blobs=await window.__GRAB__();
+     return r })()`,
+  showcase: `(async()=>{
+     await __V.wait(1600);
+     const A=window.__BALATRO__;
+     if(!A) return {fatal:'no handle'};
+     const ids=['j_caino','j_triboulet','j_yorick','j_chicot','j_perkeo','j_hologram','c_soul','c_black_hole','v_hone','p_buffoon_mega_1'];
+     const host=document.createElement('div');
+     host.id='showcase';
+     host.style.cssText='position:fixed;inset:0;z-index:9999;background:#12181e;padding:24px;overflow:auto;display:flex;flex-wrap:wrap;gap:22px;align-content:flex-start';
+     const mk=(label,cv,sub)=>{
+       const box=document.createElement('div'); box.style.cssText='text-align:center';
+       const holder=document.createElement('div');
+       holder.style.cssText='padding:12px;border-radius:10px;background:repeating-conic-gradient(#1a242e 0% 25%,#141d26 0% 50%) 50%/16px 16px';
+       cv.style.cssText='display:block;image-rendering:pixelated';
+       holder.appendChild(cv); box.appendChild(holder);
+       const t=document.createElement('div'); t.style.cssText='color:#dfe7ee;font-size:12px;margin-top:8px'; t.textContent=label; box.appendChild(t);
+       if(sub){const s=document.createElement('div');s.style.cssText='color:#6d7d8d;font-size:10.5px';s.textContent=sub;box.appendChild(s)}
+       return box;
+     };
+     for(const id of ids){
+       const it=A.byId[id]; if(!it) continue;
+       const cv=A.compose(A.specForItem(it),3,12);
+       cv.style.width='142px'; cv.style.height='auto';
+       host.appendChild(mk(it.name, cv, id+(it.soul?' · 含悬浮立绘':'')+(it.setShader?' · '+it.setShader:'') ));
+     }
+     // seal + sticker composites
+     const base={center:{atlas:'centers',pos:A.data.composition.baseCenter.pos},front:{atlas:'cards_1',pos:{x:12,y:3}}};
+     for(const s of ['Gold','Red','Blue','Purple']){
+       const cv=A.compose(Object.assign({},base,{seal:s}),3,12); cv.style.width='142px'; cv.style.height='auto';
+       host.appendChild(mk(s+' Seal', cv, '扑克牌 + 蜡封'));
+     }
+     for(const s of ['eternal','perishable','rental','White','Gold']){
+       const cv=A.compose({center:{atlas:'Joker',pos:{x:0,y:0}},sticker:s},3,12); cv.style.width='142px'; cv.style.height='auto';
+       host.appendChild(mk(s+' Sticker', cv, '小丑牌 + 贴纸'));
+     }
+     document.body.appendChild(host);
+     await __V.wait(600);
+     return {view:'showcase', tiles:host.children.length};
+  })()`,
+  shaderProbe: `(async()=>{
+     await __V.wait(1500);
+     const A=window.__BALATRO__;
+     const live=A.data.shaders.filter(s=>s.live).map(s=>s.name);
+     const out=[];
+     for(const n of live){
+       const c=A.shaderPreview(n);
+       const d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;
+       let nz=0; for(let i=3;i<d.length;i+=4) if(d[i]>8) nz++;
+       const h=__V.hash(c);
+       out.push({name:n, opaquePct:+(nz/(c.width*c.height)).toFixed(3), hash:h});
+     }
+     const distinct=new Set(out.map(o=>o.hash)).size;
+     return {view:'shaderProbe', previews:out, distinct:distinct};
+  })()`,
+  allItems: `(async()=>{
+     await __V.wait(2000);
+     const A=window.__BALATRO__;
+     if(!A) return {fatal:'no handle'};
+     const blank=[], missing=[], cats={};
+     for(const it of A.items){
+       const spec=A.specForItem(it);
+       if(!spec){ missing.push(it.id); cats[it.cat+':nospec']=(cats[it.cat+':nospec']||0)+1; continue }
+       let cv;
+       try{ cv=A.compose(spec,2,12) }catch(e){ blank.push(it.id+'(throw:'+e.message.slice(0,40)+')'); continue }
+       const d=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data;
+       let nz=0; for(let i=3;i<d.length;i+=4){ if(d[i]>8){ nz++; if(nz>40) break } }
+       if(nz<=40){ blank.push(it.id+' ['+it.cat+'->'+it.atlas+']'); cats[it.cat]=(cats[it.cat]||0)+1 }
+     }
+     return { view:'allItems', total:A.items.length, blankCount:blank.length, blank:blank.slice(0,40),
+              blankByCat:cats, noSpec:missing.length, noSpecSample:missing.slice(0,10) };
+  })()`,
+  apngTest: `(async()=>{
+     await __V.wait(1500);
+     const A=window.__BALATRO__;
+     if(!A) return {fatal:'no handle'};
+     const r={view:'apngTest'};
+     const b64=(u8)=>{let s='';for(let i=0;i<u8.length;i+=0x8000)s+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000));return btoa(s)};
+     // 1) tiny two-frame APNG with obviously different colours
+     const mk=(col)=>{const c=document.createElement('canvas');c.width=64;c.height=64;const g=c.getContext('2d');g.fillStyle=col;g.fillRect(0,0,64,64);return c};
+     const tiny=await A.encodeAPNG([mk('#ff0000'),mk('#0000ff')],200);
+     r.tinySize=tiny.length; r.tinyB64=b64(tiny);
+     // 2) do the j_caino frames actually differ?
+     const spec=A.specForItem(A.byId['j_caino']);
+     const fr=[]; for(let i=0;i<6;i++) fr.push(A.compose(spec,2,i/20));
+     r.cainoHashes=fr.map(f=>__V.hash(f));
+     r.cainoDistinct=new Set(r.cainoHashes).size;
+     // 3) same for a foil card
+     const foil=Object.assign({},A.specForItem(A.byId['j_joker']),{edition:'e_foil'});
+     const ff=[]; for(let i=0;i<6;i++) ff.push(A.compose(foil,2,i/20));
+     r.foilDistinct=new Set(ff.map(f=>__V.hash(f))).size;
+     // 4) full UI export for comparison
+     const full=await A.encodeAPNG(fr,50);
+     r.fullSize=full.length;
+     return r })()`,
+  gif3d: `(async()=>{
+     await __V.wait(1600);
+     const A=window.__BALATRO__;
+     if(!A) return {fatal:'no handle'};
+     const r={view:'gif3d'};
+     const b64=(u8)=>{let s='';for(let i=0;i<u8.length;i+=0x8000)s+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000));return btoa(s)};
+     // ---- GIF (transparent) ----
+     const spec=Object.assign({},A.specForItem(A.byId['j_caino']));
+     const fr=[]; for(let i=0;i<16;i++) fr.push(A.compose(spec,1,i/16));
+     r.frameDistinct=new Set(fr.map(f=>__V.hash(f))).size;
+     const gifT=A.encodeGIF(fr,60,null);
+     r.gifTransparentSize=gifT.length; r.gifTransparentB64=b64(gifT);
+     r.gifMagic=String.fromCharCode(gifT[0],gifT[1],gifT[2],gifT[3],gifT[4],gifT[5]);
+     // ---- GIF (dark background) ----
+     const gifB=A.encodeGIF(fr,60,[18,24,30]);
+     r.gifDarkSize=gifB.length; r.gifDarkB64=b64(gifB);
+     // ---- GIF of a foil card (heavy gradients -> exercises quantisation) ----
+     const foil=[]; const fspec=Object.assign({},A.specForItem(A.byId['j_joker']),{edition:'e_foil'});
+     for(let i=0;i<16;i++) foil.push(A.compose(fspec,1,i/16));
+     const gifF=A.encodeGIF(foil,60,null);
+     r.gifFoilSize=gifF.length; r.gifFoilB64=b64(gifF);
+     // ---- the 3D preview was removed: the original game has no multi-angle view ----
+     r.hasTilt = typeof A.tiltRender;
+     return r })()`,
+  stickers: `(async()=>{
+     await __V.wait(1600);
+     const A=window.__BALATRO__;
+     if(!A) return {fatal:'no handle'};
+     const r={view:'stickers'};
+     const base=(o)=>A.compose(Object.assign({center:{atlas:"Joker",pos:{x:0,y:0}}},o),2,12);
+     const combos={none:[],eternal:["eternal"],perishable:["perishable"],rental:["rental"],
+                   eternal_rental:["eternal","rental"],perishable_rental:["perishable","rental"],
+                   eternal_rental_gold:["eternal","rental","Gold"],
+                   eternal_perishable_rental_gold:["eternal","perishable","rental","Gold"]};
+     const canvases={}; r.combos={};
+     for(const k of Object.keys(combos)){ canvases[k]=base({stickers:combos[k]}); r.combos[k]=__V.hash(canvases[k]) }
+     r.distinctCombos=new Set(Object.values(r.combos)).size;
+     r.comboTotal=Object.keys(combos).length;
+     r.deltaVsNone={}; for(const k of Object.keys(combos)) if(k!=="none") r.deltaVsNone[k]=__V.diff(canvases.none,canvases[k]);
+     r.eternalVsPerishable=__V.diff(canvases.eternal,canvases.perishable);
+     // eternal and perishable are painted into the same slot on the card — which is
+     // exactly why the game forbids them from coexisting.
+     const tiles={}; for(const k of ["eternal","perishable","rental","Gold","White"]){
+       const t=A.tileLayer({atlas:"stickers",pos:A.data.composition.stickerPos[k]},142,190); tiles[k]=__V.bbox(t) }
+     r.slots={ tiles, sameSlotEternalPerishable: !!(tiles.eternal&&tiles.perishable&&tiles.eternal.x0===tiles.perishable.x0&&tiles.eternal.y0===tiles.perishable.y0),
+                rentalSeparate: !!(tiles.rental&&tiles.eternal&&tiles.rental.y0!==tiles.eternal.y0),
+                colouredSeparate: !!(tiles.Gold&&tiles.eternal&&(tiles.Gold.x0!==tiles.eternal.x0)) };
+     // per-sticker pixel contribution
+     r.perStickerDelta={};
+     for(const k of ["eternal","perishable","rental","White","Gold"]) r.perStickerDelta[k]=__V.diff(canvases.none, base({stickers:[k]}));
+     // UI: multi-select with eternal/perishable as a radio pair
+     A.state.tab="forge"; A.state.forge.baseType="Joker"; A.state.forge.base="j_joker";
+     A.state.forge.stickers={eternal:true,perishable:false,rental:false,color:""}; A.render();
+     await __V.wait(2400);
+     const opts=[].slice.call(document.querySelectorAll(".opt"));
+     const box=opts.filter(o=>o.querySelector("h4")&&/贴纸/.test(o.querySelector("h4").textContent))[0];
+     r.stickerBoxFound=!!box;
+     if(box){
+       const flags=[].slice.call(box.querySelectorAll(".pick[data-kind=flag]"));
+       r.flagChips=flags.map(b=>b.dataset.key);
+       const et=flags.find(b=>b.dataset.key==="eternal"), pe=flags.find(b=>b.dataset.key==="perishable");
+       r.initial={eternal:et.classList.contains("on"),perishable:pe.classList.contains("on")};
+       pe.click(); await __V.wait(350);
+       r.afterPerishableClick={eternalOn:et.classList.contains("on"), perishableOn:pe.classList.contains("on")};
+       et.click(); await __V.wait(350);
+       r.afterEternalClick={eternalOn:et.classList.contains("on"), perishableOn:pe.classList.contains("on")};
+       const gold=[].slice.call(box.querySelectorAll(".pick[data-kind=color]")).find(b=>b.dataset.key==="Gold");
+       gold.click(); await __V.wait(350);
+       r.goldOn=gold.classList.contains("on");
+       // rental must be able to coexist with the flag + colour
+       const re=flags.find(b=>b.dataset.key==="rental"); re.click(); await __V.wait(350);
+       r.finalState=JSON.parse(JSON.stringify(A.state.forge.stickers));
+       const rentalHash=__V.hash(document.querySelector(".preview canvas"));
+       re.click(); await __V.wait(350);
+       r.rentalChangesPreview = rentalHash !== __V.hash(document.querySelector(".preview canvas"));
+     }
+     return r })()`,
+  stickerProbe: `(async()=>{
+     await __V.wait(1600);
+     const A=window.__BALATRO__;
+     const out={};
+     const C={center:{atlas:"Joker",pos:{x:0,y:0}}};
+     out.tiles={};
+     for(const k of ["eternal","perishable","rental","Gold","White","Red","Blue","Purple","Orange","Green","Black"]){
+       const t=A.tileLayer({atlas:"stickers",pos:A.data.composition.stickerPos[k]},142,190);
+       const d=t.getContext("2d").getImageData(0,0,142,190).data;
+       let n=0; for(let i=3;i<d.length;i+=4) if(d[i]>8) n++;
+       out.tiles[k]={pos:A.data.composition.stickerPos[k], nonzeroPixels:n, bbox:__V.bbox(t)};
+     }
+     const shot=(arr)=>A.compose(Object.assign({},C,{stickers:arr}),2,12);
+     const seq=[["none",[]],["eternal",["eternal"]],["eternal+rental",["eternal","rental"]],
+                ["eternal+rental+Gold",["eternal","rental","Gold"]]];
+     out.chain=[]; let prev=null;
+     for(const [label,arr] of seq){ const cv=shot(arr);
+       out.chain.push({label, hash:__V.hash(cv), stepDiff: prev?__V.diff(prev,cv):null}); prev=cv }
+     out.stickerCount=Object.keys(A.data.composition.stickerPos).length;
+     return out })()`,
+  loops: `(async()=>{
+     await __V.wait(1600);
+     const A=window.__BALATRO__;
+     if(!A) return {fatal:'no handle'};
+     const r={view:'loops'};
+     const probe=(label,spec)=>{
+       const out={label};
+       for(const pp of [true,false]){
+         const f=A.buildAnimFrames(spec,1,{speed:4,seconds:2.5,pingpong:pp}).frames;
+         const m=A.loopSeamRatio(f);
+         out[pp?"pingpong":"forward"]={frames:f.length, seam:+m.seam.toFixed(5), avg:+m.avg.toFixed(5), ratio:+m.ratio.toFixed(2)};
+       }
+       const slow=A.buildAnimFrames(spec,1,{speed:1,seconds:2.5,pingpong:true}).frames;
+       out.speed1AvgStep=+A.loopSeamRatio(slow).avg.toFixed(5);
+       return out;
+     };
+     r.caino=probe("j_caino float", A.specForItem(A.byId["j_caino"]));
+     r.foil=probe("foil", Object.assign({},A.specForItem(A.byId["j_joker"]),{edition:"e_foil"}));
+     r.holo=probe("holo", Object.assign({},A.specForItem(A.byId["j_joker"]),{edition:"e_holo"}));
+     r.soul=probe("The Soul", A.specForItem(A.byId["c_soul"]));
+     const ff=A.buildAnimFrames(Object.assign({},A.specForItem(A.byId["j_joker"]),{edition:"e_foil"}),1,{speed:4,seconds:2.5,pingpong:false}).frames;
+     const d=(a,b)=>{const x=a.getContext("2d").getImageData(0,0,a.width,a.height).data,y=b.getContext("2d").getImageData(0,0,b.width,b.height).data;let s=0;for(let i=0;i<x.length;i+=4)s+=Math.abs(x[i]-y[i]);return +(s/(x.length/4*255)).toFixed(4)};
+     r.foilTravel={startToMid:d(ff[0],ff[Math.floor(ff.length/2)]), startToEnd:d(ff[0],ff[ff.length-1])};
+     return r })()`,
+  mobile: `(async()=>{
+     await __V.wait(2000);
+     const r={view:"mobile"};
+     r.viewport={w:innerWidth,h:innerHeight};
+     r.navToggleVisible=(()=>{const b=document.getElementById("navToggle");return !!b && getComputedStyle(b).display!=="none"})();
+     r.sidebarOffscreen=(()=>document.getElementById("sidebar").getBoundingClientRect().left < 0)();
+     document.getElementById("navToggle").click();
+     await __V.wait(600);
+     r.navOpen=document.body.classList.contains("nav-open");
+     r.sidebarOnScreen=(()=>{const b=document.getElementById("sidebar").getBoundingClientRect();return b.left>=-2 && b.right<=innerWidth+2})();
+     r.backdropOpacity=getComputedStyle(document.getElementById("backdrop")).opacity;
+     const c=[].slice.call(document.querySelectorAll(".cat")).filter(e=>e.textContent.indexOf("小丑牌")>=0)[0];
+     c.click(); await __V.wait(1500);
+     r.navClosedAfterPick=!document.body.classList.contains("nav-open");
+     r.cells=document.querySelectorAll(".cell").length;
+     document.querySelector(".cell").click(); await __V.wait(1600);
+     r.detailOpen=document.body.classList.contains("detail-open");
+     r.detailOnScreen=(()=>{const b=document.getElementById("detail").getBoundingClientRect();return b.left<innerWidth && b.width>0})();
+     r.closeBtnVisible=(()=>{const b=document.getElementById("detailClose");return !!b && getComputedStyle(b).display!=="none"})();
+     const cb=document.getElementById("detailClose"); if(cb){cb.click(); await __V.wait(700)}
+     r.detailClosedAfterX=!document.body.classList.contains("detail-open");
+     r.docWidth=document.documentElement.scrollWidth;
+     r.noHScroll=document.documentElement.scrollWidth <= innerWidth+2;
+     const A=window.__BALATRO__; A.state.tab="forge"; A.render(); await __V.wait(2400);
+     r.forgeCols=getComputedStyle(document.querySelector(".forge")).gridTemplateColumns.split(" ").length;
+     r.forgeLayout=getComputedStyle(document.querySelector(".forge")).display;
+     r.forgeBar=(()=>{const b=document.querySelector(".pvtop");if(!b)return null;const r0=b.getBoundingClientRect();return {h:Math.round(r0.height),pos:getComputedStyle(b).position,share:+(r0.height/innerHeight).toFixed(2)}})();
+     r.forgeHeavyBelowOpts=(()=>{const o=document.querySelector(".forge .opts").getBoundingClientRect().top;return ["summary","export","anim"].every(k=>document.querySelector('#content .opt[data-gkey="'+k+'"]').getBoundingClientRect().top>=o-2)})();
+     r.oversizedControls=[].slice.call(document.querySelectorAll("#topbar .tbtn, #topbar select, .forge .btn")).filter(e=>e.getBoundingClientRect().width>innerWidth).length;
+     r.toolbarScrollable=(()=>{const t=document.querySelector(".tbtools");return t.scrollWidth>=t.clientWidth})();
+     // --- forge on a phone: the preview must stay in view and the groups must be collapsible
+     A.state.tab='forge'; A.state.forge.open=null; A.render(); await __V.wait(2600);
+     const fc=document.querySelector('#content');
+     const opts=()=>[].slice.call(document.querySelectorAll('#content .opt[data-gkey]'));
+     r.forge={ sticky:getComputedStyle(document.querySelector('.forge .preview')).position,
+               navSticky:getComputedStyle(document.querySelector('.forgenav')).position,
+               collapsedAtStart:opts().filter(e=>e.classList.contains('collapsed')).map(e=>e.dataset.gkey),
+               groups:opts().length, heightStart:fc.scrollHeight, cols:getComputedStyle(document.querySelector('.forge')).gridTemplateColumns,
+               canvasW:Math.round((document.querySelector('.preview canvas')||{getBoundingClientRect:()=>({width:0})}).getBoundingClientRect().width) };
+     __V.byText('.forgenav .nv','全部展开').click(); await __V.wait(900);
+     r.forge.heightExpanded=fc.scrollHeight;
+     __V.byText('.forgenav .nv','收起').click(); await __V.wait(700);
+     r.forge.heightCollapsed=fc.scrollHeight;
+     __V.byText('.forgenav .nv','牌型').click(); await __V.wait(700);
+     r.forge.afterNavClick=opts().filter(e=>!e.classList.contains('collapsed')).map(e=>e.dataset.gkey);
+     r.forge.oversized=fc.scrollWidth>innerWidth+2;
+     r.canvas=__V.blank();
+     r.errors=window.__V.errors;
+     return r })()`,
+  soulArt: `(async()=>{
+     await __V.wait(1600);
+     const A=window.__BALATRO__;
+     if(!A) return {fatal:"no handle"};
+     const r={view:"soulArt"};
+     const W=142,H=190;
+     // orientation of the floating art via second moments of the difference mask
+     const orient=(a,b)=>{
+       const da=a.getContext("2d").getImageData(0,0,W,H).data;
+       const db=b.getContext("2d").getImageData(0,0,W,H).data;
+       let n=0,sx=0,sy=0,m20=0,m02=0,m11=0;
+       for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+         const i=(y*W+x)*4;
+         const d=Math.abs(da[i]-db[i])+Math.abs(da[i+1]-db[i+1])+Math.abs(da[i+2]-db[i+2])+Math.abs(da[i+3]-db[i+3]);
+         if(d>60){ n++; sx+=x; sy+=y }
+       }
+       if(!n) return null;
+       const cx=sx/n, cy=sy/n;
+       for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+         const i=(y*W+x)*4;
+         const d=Math.abs(da[i]-db[i])+Math.abs(da[i+1]-db[i+1])+Math.abs(da[i+2]-db[i+2])+Math.abs(da[i+3]-db[i+3]);
+         if(d>60){ const dx=x-cx, dy=y-cy; m20+=dx*dx; m02+=dy*dy; m11+=dx*dy }
+       }
+       m20/=n; m02/=n; m11/=n;
+       const theta=0.5*Math.atan2(2*m11, m20-m02);
+       return { deg:+(theta*180/Math.PI).toFixed(3), px:n };
+     };
+     // base card alone (no floating layer) is the reference
+     const caino=A.specForItem(A.byId["j_caino"]);
+     const baseOnly=A.compose(Object.assign({},caino,{soul:null}),2,0);
+     r.orient={};
+     for(const t of [0, 1.288, 3.865]){
+       const withSoul=A.compose(caino,2,t);
+       r.orient["t="+t]=orient(withSoul,baseOnly);
+     }
+     // expected rotations: 0.05*sin(1.219t) radians
+     r.expectedDeg={};
+     for(const t of [0,1.288,3.865]) r.expectedDeg["t="+t]=+(0.05*Math.sin(1.219*t)*180/Math.PI).toFixed(3);
+     // drop shadow: near-black pixels that the base card did not have
+     const withSoul=A.compose(caino,2,0);
+     const dw=withSoul.getContext("2d").getImageData(0,0,W,H).data;
+     const db=baseOnly.getContext("2d").getImageData(0,0,W,H).data;
+     // render the same card without the shadow pass and diff, so the shadow is isolated
+     const noShadow=A.compose(Object.assign({},caino,{soulNoShadow:true}),2,0);
+     const ns=noShadow.getContext("2d").getImageData(0,0,W,H).data;
+     let shPx=0, shSumY=0, artPx=0, artSumY=0, maxD=0;
+     for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+       const i=(y*W+x)*4;
+       const d=Math.abs(dw[i]-ns[i])+Math.abs(dw[i+1]-ns[i+1])+Math.abs(dw[i+2]-ns[i+2])+Math.abs(dw[i+3]-ns[i+3]);
+       if(d>12){ shPx++; shSumY+=y; if(d>maxD)maxD=d }
+       const e=Math.abs(ns[i]-db[i])+Math.abs(ns[i+1]-db[i+1])+Math.abs(ns[i+2]-db[i+2])+Math.abs(ns[i+3]-db[i+3]);
+       if(e>60){ artPx++; artSumY+=y }
+     }
+     r.shadow={ pixelsDiffFromNoShadow:shPx, meanY: shPx? +(shSumY/shPx).toFixed(1):null,
+                artPixels:artPx, artMeanY: artPx? +(artSumY/artPx).toFixed(1):null, maxDelta:maxD };
+     r.shadowBelowArtwork = !!(shPx && artPx && (shSumY/shPx) > (artSumY/artPx));
+     r.diffWithShadow=__V.diff(withSoul,noShadow);
+     // expected shadow offset at t=0: 0.1 world units = 0.1*190/2.7512 px
+     r.expectedShadowOffsetPx=+(0.1*H/2.7512).toFixed(2);
+     // the composed art must be bigger than the raw tile (scale_mod 0.07)
+     const soulTile=A.tileLayer(caino.soul,142,190);
+     const bboxOf=(cv)=>{const d=cv.getContext("2d").getImageData(0,0,cv.width,cv.height).data;
+       let x0=1e9,y0=1e9,x1=-1,y1=-1;
+       for(let y=0;y<cv.height;y++)for(let x=0;x<cv.width;x++){ if(d[(y*cv.width+x)*4+3]>8){ if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y } }
+       return x1<0?null:{w:x1-x0+1,h:y1-y0+1};};
+     r.soulTileBox=bboxOf(soulTile);
+     r.soulScaledBox=bboxOf(A.compose({center:{atlas:"centers",pos:A.data.composition.baseCenter.pos},soul:caino.soul},2,0));
+     // phase 0 must be the neutral pose for every carrier
+     r.neutral={};
+     for(const id of ["j_caino","j_triboulet","j_yorick","j_chicot","j_perkeo","j_hologram","c_soul"]){
+       const it=A.byId[id]; const sp=A.specForItem(it);
+       const a=A.compose(sp,2,0); const b=A.compose(sp,2,1.288);
+       r.neutral[id]=__V.diff(a,b);
+     }
+     return r })()`,
+  forgeSummary: `(async()=>{
+     await __V.wait(1600);
+     const A=window.__BALATRO__;
+     const r={view:"forgeSummary"};
+     A.state.tab="forge"; A.state.forge.baseType="PlayingCard"; A.state.forge.base="S_A";
+     A.state.forge.enhancement="m_glass"; A.state.forge.edition="e_foil"; A.state.forge.seal="Gold";
+     A.state.forge.stickers={eternal:false,perishable:false,rental:false,color:""};
+     A.render(); await __V.wait(2400);
+     const read=()=>{ const box=document.querySelector(".pvsummary"); if(!box) return null;
+       return [].slice.call(box.querySelectorAll("tr")).map(tr=>[tr.children[0].textContent, tr.children[1].textContent]) };
+     r.rowsCard=read();
+     r.hasHeader=!!document.querySelector('#content .opt[data-gkey="summary"] h4');
+     // switch to a legendary joker and check the panel follows
+     A.state.forge.baseType="Joker"; A.state.forge.base="j_perkeo";
+     A.state.forge.stickers={eternal:true,perishable:false,rental:true,color:"Gold"};
+     A.render(); await __V.wait(2400);
+     r.rowsJoker=read();
+     // and it must update live when a chip is clicked
+     const opts=[].slice.call(document.querySelectorAll(".opt"));
+     const ed=opts.filter(o=>o.querySelector("h4")&&/版本/.test(o.querySelector("h4").textContent))[0];
+     const none=[].slice.call(ed.querySelectorAll(".pick")).filter(b=>/无/.test(b.textContent))[0];
+     none.click(); await __V.wait(600);
+     r.rowsAfterNoEdition=read();
+     const box=document.querySelector(".pvsummary");
+     r.summaryInsidePreviewColumn=!!(box && box.closest(".preview"));
+     r.summaryWidth=box?Math.round(box.getBoundingClientRect().width):0;
+     r.canvas=__V.blank();
+     return r })()`,
+  soulCompare: `(async()=>{
+     await __V.wait(1800);
+     const A=window.__BALATRO__;
+     if(!A) return {fatal:"no handle"};
+     const r={view:"soulCompare"};
+     const host=document.createElement("div");
+     host.id="soulcmp";
+     host.style.cssText="position:fixed;inset:0;z-index:9999;background:#12181e;padding:26px;overflow:auto;display:flex;gap:26px;align-items:flex-start";
+     const mk=(label,cv,sub)=>{
+       const box=document.createElement("div"); box.style.cssText="text-align:center";
+       const h=document.createElement("div");
+       h.style.cssText="padding:14px;border-radius:10px;background:repeating-conic-gradient(#1a242e 0% 25%,#141d26 0% 50%) 50%/16px 16px";
+       cv.style.cssText="display:block;image-rendering:pixelated";
+       h.appendChild(cv); box.appendChild(h);
+       const t=document.createElement("div"); t.style.cssText="color:#dfe7ee;font-size:13px;margin-top:9px;font-weight:600"; t.textContent=label; box.appendChild(t);
+       const s2=document.createElement("div"); s2.style.cssText="color:#6d7d8d;font-size:11px"; s2.textContent=sub||""; box.appendChild(s2);
+       return box;
+     };
+     for(const id of ["j_caino","j_perkeo","c_soul"]){
+       const it=A.byId[id];
+       const sp=A.specForItem(it);
+       const shadowsOn=A.compose(sp,3,0);
+       const shadowsOff=A.compose(Object.assign({},sp,{soulNoShadow:true}),3,0);
+       shadowsOn.style.width="150px"; shadowsOn.style.height="auto";
+       shadowsOff.style.width="150px"; shadowsOff.style.height="auto";
+       const col=document.createElement("div"); col.style.cssText="display:flex;gap:12px";
+       col.appendChild(mk(it.name+" · 相位0（当前）", shadowsOn, "立绘摆正 + 原版投影"));
+       col.appendChild(mk(it.name+" · 无投影对照", shadowsOff, "仅用于对比"));
+       host.appendChild(col);
+     }
+     document.body.appendChild(host);
+     await __V.wait(700);
+     return {view:"soulCompare", tiles:host.children.length};
+  })()`,
+  cardBox: `(async()=>{
+     await __V.wait(1800);
+     const A=window.__BALATRO__;
+     if(!A) return {fatal:"no handle"};
+     const r={view:"cardBox"};
+     const bbox=(cv)=>{const d=cv.getContext("2d").getImageData(0,0,cv.width,cv.height).data;
+       let x0=1e9,y0=1e9,x1=-1,y1=-1;
+       for(let y=0;y<cv.height;y++)for(let x=0;x<cv.width;x++){ if(d[(y*cv.width+x)*4+3]>8){ if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y } }
+       return x1<0?null:{w:x1-x0+1,h:y1-y0+1};};
+     r.items={};
+     const ids=["j_joker","j_wee","j_half","j_photograph","j_square","j_caino","p_buffoon_normal_1","p_arcana_mega_1","c_fool"];
+     for(const id of ids){
+       const it=A.byId[id]; if(!it) continue;
+       const sp=A.specForItem(it);
+       const on=A.compose(sp,2,0);
+       const off=A.compose(Object.assign({},sp,{box:null}),2,0);
+       r.items[id]={box:it.box||null, boxed:bbox(on), raw:bbox(off), diff:__V.diff(on,off)};
+     }
+     // expected fractions
+     r.expected={ "j_wee":"0.700 x 0.700", "j_half":"1.000 x 0.588", "j_photograph":"1.000 x 0.833",
+                  "j_square":"1.000 x 0.745", "p_buffoon_normal_1":"1.270 x 1.270", "j_joker":"1.000 x 1.000" };
+     // the raw-size toggle must restore the full box
+     A.state.rawSize=true;
+     const wee=A.byId["j_wee"];
+     r.rawToggle={ boxedWithToggle: bbox(A.compose(A.specForItem(wee),2,0)) };
+     A.state.rawSize=false;
+     r.rawToggle.boxedWithoutToggle=bbox(A.compose(A.specForItem(wee),2,0));
+     // animation settings are exposed
+     r.anim={fps:A.state.anim.fps, speed:A.state.anim.speed, seconds:A.state.anim.seconds, pingpong:A.state.anim.pingpong};
+     const fr=A.buildAnimFrames(A.specForItem(A.byId["j_joker"]),1,{fps:20,speed:4,seconds:2.5,pingpong:true});
+     r.framesAt20={n:fr.frames.length, delay:fr.delay};
+     const fr30=A.buildAnimFrames(A.specForItem(A.byId["j_joker"]),1,{fps:30,speed:4,seconds:2.5,pingpong:true});
+     r.framesAt30={n:fr30.frames.length, delay:fr30.delay};
+     const frSlow=A.buildAnimFrames(A.specForItem(A.byId["j_joker"]),1,{fps:20,speed:0.5,seconds:2.5,pingpong:true});
+     r.framesAtHalfSpeed={n:frSlow.frames.length, delay:frSlow.delay};
+     return r })()`,
+  boxCompare: `(async()=>{
+     await __V.wait(1800);
+     const A=window.__BALATRO__;
+     if(!A) return {fatal:"no handle"};
+     const host=document.createElement("div");
+     host.id="boxcmp";
+     host.style.cssText="position:fixed;inset:0;z-index:9999;background:#12181e;padding:24px;overflow:auto;display:flex;flex-wrap:wrap;gap:20px;align-content:flex-start";
+     const mk=(label,cv,sub)=>{
+       const box=document.createElement("div"); box.style.cssText="text-align:center";
+       const h=document.createElement("div");
+       h.style.cssText="padding:12px;border-radius:10px;background:repeating-conic-gradient(#1a242e 0% 25%,#141d26 0% 50%) 50%/16px 16px;display:flex;align-items:flex-end;min-height:230px";
+       cv.style.cssText="display:block;image-rendering:pixelated;margin:auto";
+       h.appendChild(cv); box.appendChild(h);
+       const t=document.createElement("div"); t.style.cssText="color:#dfe7ee;font-size:12px;margin-top:8px;font-weight:600"; t.textContent=label; box.appendChild(t);
+       const s2=document.createElement("div"); s2.style.cssText="color:#6d7d8d;font-size:10.5px"; s2.textContent=sub||""; box.appendChild(s2);
+       return box;
+     };
+     const ids=["j_joker","j_wee","j_half","j_photograph","j_square","p_buffoon_normal_1"];
+     A.state.rawSize=false;
+     for(const id of ids){
+       const it=A.byId[id]; if(!it) continue;
+       const onRaw=A.compose(Object.assign({},A.specForItem(it),{box:null}),3,0);
+       const on=A.compose(A.specForItem(it),3,0);
+       onRaw.style.width="120px"; onRaw.style.height="auto";
+       on.style.width=(120*on.width/onRaw.width)+"px"; on.style.height="auto";
+       const col=document.createElement("div"); col.style.cssText="display:flex;gap:10px;align-items:flex-end";
+       col.appendChild(mk(it.name+" 原版尺", on, it.box? "box "+it.box.w.toFixed(3)+" x "+it.box.h.toFixed(3) : "默认"));
+       col.appendChild(mk(it.name+" 原始贴图", onRaw, "142x190"));
+
+       host.appendChild(col);
+     }
+     document.body.appendChild(host);
+     await __V.wait(700);
+     return {view:"boxCompare", groups:host.children.length};
+  })()`,
+  export: `(async()=>{
+     await __V.wait(1800);
+     const r={};
+     r.clicked=await __V.click('.cat','蜡封',1500);
+     r.cells=document.querySelectorAll('.cell').length;
+     const c0=document.querySelector('.cell');
+     if(!c0) return Object.assign(r,{fatal:'点击「蜡封」后没有条目格子', tab:(window.__BALATRO__&&window.__BALATRO__.state||{}).tab, hash:location.hash});
+     c0.click(); await __V.wait(1500);
+     const btns=[].slice.call(document.querySelectorAll('#detail .btn'));
+     r.detailBtns=btns.map(b=>b.textContent.trim());
+     const png=btns.filter(b=>/PNG 2x/.test(b.textContent))[0]; if(png){png.click(); await __V.wait(1800)}
+     const zip=btns.filter(b=>/单张 ZIP/.test(b.textContent))[0]; if(zip){zip.click(); await __V.wait(1800)}
+     const svg=btns.filter(b=>/SVG/.test(b.textContent))[0]; if(svg){svg.click(); await __V.wait(1800)}
+     await __V.wait(500);
+     const bulk=__V.byText('.listhead .tbtn','导出当前结果'); if(bulk){bulk.click(); await __V.wait(4000)}
+     await __V.click('.cat','数据总表',1500);
+     const csv=__V.byText('.listhead .tbtn','CSV'); if(csv){csv.click(); await __V.wait(2000)}
+     const json=__V.byText('.listhead .tbtn','JSON'); if(json){json.click(); await __V.wait(2000)}
+     const md=__V.byText('.listhead .tbtn','Markdown'); if(md){md.click(); await __V.wait(2000)}
+     r.done=true;
+     r.blobs=await window.__GRAB__();
+     return r })()`,
+  modImport: `(async()=>{
+    const r = {};
+    const B = window.__BALATRO__;
+    const TM = window.__TESTMOD__;
+    const u8 = (b64) => { const s = atob(b64); const u = new Uint8Array(s.length); for (let i=0;i<s.length;i++) u[i] = s.charCodeAt(i); return u };
+    const mkFiles = (pack) => Object.keys(pack).map((p) => {
+      const f = new File([u8(pack[p])], p.split('/').pop());
+      Object.defineProperty(f, '__rel', { value: p });
+      return f;
+    });
+    r.baseline = { items: B.items.length, atlases: Object.keys(B.atlases).length };
+
+    // ---- the panel exists and is reachable from the sidebar
+    B.state.tab = 'mods'; B.render();
+    await __V.wait(300);
+    r.panel = { drop: !!document.querySelector('#modDrop'), pickDir: !!document.querySelector('#modPickDir'), log: !!document.querySelector('#modLogBox') };
+    r.panelShot = true;
+
+    // ---- 1) folder import
+    const folder = await B.importBatch(mkFiles(TM.folder), 'TestMod');
+    r.folder = folder && { ok: folder.ok, items: folder.items, atlases: folder.atlases, id: folder.mod.id, prefix: folder.mod.prefix, warnings: folder.mod.warnings.length, stats: folder.mod.stats };
+    await __V.wait(400);
+    r.afterFolder = { items: B.items.length, mods: B.mods.length, atlases: Object.keys(B.atlases).length };
+    r.modItems = B.items.filter((i) => i.source === 'testmod').length;
+
+    // ---- 2) every mod entry must paint something (or be a knowingly artless one)
+    const painted = { ok: 0, blank: [], noArt: [] };
+    for (const it of B.items.filter((i) => i.source === 'testmod')) {
+      const sp = B.specForItem(it);
+      if (!sp) { painted.noArt.push(it.id); continue }
+      const cv = B.compose(sp, 2, 0);
+      const box = __V.bbox(cv);
+      if (box) painted.ok++; else painted.blank.push(it.id);
+    }
+    r.painted = painted;
+
+    // ---- 3) sidebar shows the mod source + the new category
+    const sbText = document.getElementById('sidebar').textContent;
+    r.sidebar = { hasSource: sbText.indexOf('测试 Mod') >= 0, hasType: sbText.indexOf('Mod 新增类型') >= 0, hasMusical: sbText.indexOf('Musical') >= 0, hasTool: sbText.indexOf('导入 Mod') >= 0 };
+
+    // ---- 4) filtering by source
+    const srcBtn = __V.byText('#sidebar .cat', '测试 Mod');
+    if (srcBtn) { srcBtn.click(); await __V.wait(500) }
+    r.sourceView = { state: B.state.source, cells: document.querySelectorAll('#content .cell').length, head: (document.querySelector('.listhead h2')||{}).textContent };
+    r.sourceBadges = document.querySelectorAll('#content .cell .modtag').length;
+
+    // ---- 5) switching to the mod's own category
+    const catBtn = __V.byText('#sidebar .cat', 'Musical');
+    if (catBtn) { catBtn.click(); await __V.wait(500) }
+    r.typeView = { cat: B.state.cat, cells: document.querySelectorAll('#content .cell').length, names: [].slice.call(document.querySelectorAll('#content .cell .nm')).map((e) => e.textContent) };
+
+    // ---- 6) detail panel of a mod card
+    B.state.tab = 'codex'; B.state.cat = 'all'; B.state.source = 'testmod'; B.render();
+    await __V.wait(400);
+    const alpha = document.querySelector('#content .cell[data-id="j_tm_alpha"]');
+    if (alpha) { alpha.click(); await __V.wait(600) }
+    const dt = document.getElementById('detail').textContent;
+    r.detail = { open: B.state.sel, hasMod: dt.indexOf('MOD') >= 0, hasSource: dt.indexOf('测试 Mod') >= 0, hasFile: dt.indexOf('TestMod.lua') >= 0, title: (document.querySelector('#detail .dhead h3')||{}).textContent };
+
+    // ---- 7) search operators see mod entries
+    B.state.q = 'source:testmod'; B.state.source = 'all'; B.render();
+    await __V.wait(400);
+    r.search = { hits: document.querySelectorAll('#content .cell').length };
+    B.state.q = 'cat:Musical'; B.render();
+    await __V.wait(400);
+    r.searchType = { hits: document.querySelectorAll('#content .cell').length };
+    B.state.q = ''; B.state.cat = 'all'; B.render();
+    await __V.wait(300);
+
+    // ---- 8) categories that only exist because of the mod
+    B.state.tab = 'mods'; B.render();
+    await __V.wait(300);
+    r.blankAfterAll = __V.blank();
+
+    // ---- 9) remove, then re-import through the zip path
+    B.removeMod('testmod');
+    await __V.wait(500);
+    r.afterRemove = { items: B.items.length, mods: B.mods.length, atlases: Object.keys(B.atlases).length };
+    const zipFile = new File([u8(TM.zip)], 'TestMod.zip');
+    Object.defineProperty(zipFile, '__rel', { value: 'TestMod.zip' });
+    const zres = await B.importBatch([zipFile]);
+    await __V.wait(500);
+    r.zip = zres && { ok: zres.ok, items: zres.items, atlases: zres.atlases, root: zres.mod.root, id: zres.mod.id };
+    r.afterZip = { items: B.items.length, mods: B.mods.length, atlases: Object.keys(B.atlases).length };
+
+    // ---- 10) the mod atlas actually decodes to the pixels we put in it
+    const a = B.atlases['mod_jokers'];
+    r.modAtlas = a && { file: a.file, w: a.w, h: a.h, px: a.px, py: a.py, scale: a.scale, cols: a.cols, rows: a.rows, kind: a.kind };
+    const noteAtlas = B.atlases['mod_notes'];
+    r.noteAtlas = noteAtlas && { w: noteAtlas.w, h: noteAtlas.h, scale: noteAtlas.scale, cols: noteAtlas.cols, rows: noteAtlas.rows };
+
+    // ---- 11) export a mod category as a ZIP (every blob is captured by the harness)
+    B.state.tab = 'codex'; B.state.source = 'testmod'; B.state.cat = 'Joker'; B.render();
+    await __V.wait(400);
+    const zipBtn = document.getElementById('btnZip');
+    if (zipBtn) { zipBtn.click(); await __V.wait(2500) }
+    r.exported = (await window.__GRAB__()).map((b) => ({ name: b.name, size: b.size, magic: b.magic }));
+
+    // ---- 12) the mod card renders through the shader path too (edition overlay)
+    const beta = B.byId['j_tm_beta'];
+    const sp = B.specForItem(beta); sp.edition = 'e_polychrome';
+    const cv1 = B.compose(sp, 2, 0);
+    sp.edition = null;
+    const cv0 = B.compose(sp, 2, 0);
+    r.editionDiff = __V.diff(cv0, cv1);
+
+    // ---- 13) soul art of a mod legendary
+    r.soul = !!beta.soul && beta.soul.pos.x === 0 && beta.soul.pos.y === 1;
+
+    // final screenshot of the panel with a mod loaded
+    B.state.tab = 'mods'; B.render();
+    await __V.wait(300);
+    r.final = { mods: B.mods.map((m) => m.id + ':' + m.items), logLines: (document.getElementById('modLogBox')||{}).textContent.split('\\n').length };
+    r.blank = __V.blank();
+    return r })()`,
+  modProbe: `(async()=>{
+    const r = {};
+    const B = window.__BALATRO__;
+    const TM = window.__TESTMOD__;
+    const u8 = (b64) => { const s = atob(b64); const u = new Uint8Array(s.length); for (let i=0;i<s.length;i++) u[i] = s.charCodeAt(i); return u };
+    const mkFiles = (pack) => Object.keys(pack).map((p) => {
+      const f = new File([u8(pack[p])], p.split('/').pop());
+      Object.defineProperty(f, '__rel', { value: p });
+      return f;
+    });
+    await B.importBatch(mkFiles(TM.folder));
+    await __V.wait(600);
+
+    const px = (cv, x, y) => { const d = cv.getContext('2d').getImageData(x, y, 1, 1).data; return [d[0],d[1],d[2],d[3]] };
+    const opaque = (cv) => { const d = cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data; let n=0; for(let i=3;i<d.length;i+=4) if(d[i]>8) n++; return n };
+    const test = (label, tile) => {
+      const sh = B.shade(tile, 'polychrome', 6);
+      return { label, tileOpaque: opaque(tile), shadeOpaque: sh ? opaque(sh) : -1, diff: sh ? __V.diff(tile, sh) : -1,
+        tilePx: px(tile, 70, 95), shadePx: sh ? px(sh, 70, 95) : null };
+    };
+
+    // mod tile and vanilla tile built the same way
+    const modTile = B.tileLayer({ atlas: 'mod_jokers', pos: { x: 1, y: 0 } }, 142, 190);
+    const vanTile = B.tileLayer({ atlas: 'Joker', pos: { x: 0, y: 0 } }, 142, 190);
+    r.modTile = test('mod', modTile);
+    r.vanTile = test('van', vanTile);
+
+    // is the mod image itself decoded?
+    const file = B.atlases['mod_jokers'].file;
+    const im = document.querySelector('img'); // just to touch the DOM
+    r.atlasFile = file;
+    r.imgLoaded = await new Promise((res) => {
+      const i = new Image(); i.onload = () => res([i.naturalWidth, i.naturalHeight]); i.onerror = () => res('error'); i.src = B.atlases['mod_jokers'] && '' ;
+      res('skipped');
+    });
+
+    // a shader over a plain opaque canvas (no atlas involved at all)
+    const flat = document.createElement('canvas'); flat.width = 142; flat.height = 190;
+    const g = flat.getContext('2d'); g.fillStyle = '#c86432'; g.fillRect(0,0,142,190);
+    r.flat = test('flat', flat);
+
+    // canvas-tainting check: read a blob-url image straight into a canvas
+    const raw = document.createElement('canvas'); raw.width = 142; raw.height = 190;
+    const rg = raw.getContext('2d');
+    let taint = 'n/a';
+    try {
+      const im2 = new Image();
+      await new Promise((res) => { im2.onload = res; im2.onerror = res; im2.src = B.atlases['mod_jokers'].file.startsWith('blob:') ? '' : '' });
+      taint = 'skipped';
+    } catch (e) { taint = String(e.message) }
+    r.taint = taint;
+
+    // the gloss must land on mod art too — use the artless-soul joker, because a full-card
+    // soul sprite legitimately covers the edition layer (checked separately below)
+    const modIt = B.byId['j_tm_alpha'];
+    const spA = B.specForItem(modIt);
+    const spB = B.specForItem(modIt); spB.edition = 'e_polychrome';
+    r.composeMod = { diff: __V.diff(B.compose(spA,2,6), B.compose(spB,2,6)) };
+    const vanIt = B.byId['j_joker'];
+    const vA = B.specForItem(vanIt);
+    const vB = B.specForItem(vanIt); vB.edition = 'e_polychrome';
+    r.composeVan = { diff: __V.diff(B.compose(vA,2,6), B.compose(vB,2,6)) };
+    r.specs = { mod: JSON.stringify(B.specForItem(modIt)), van: JSON.stringify(B.specForItem(vanIt)) };
+
+    // the legendary's floating art is an overlay on top of the card
+    const beta = B.byId['j_tm_beta'];
+    const withSoul = B.compose(B.specForItem(beta), 2, 0);
+    const noSoulSp = B.specForItem(beta); noSoulSp.soul = null;
+    const noSoul = B.compose(noSoulSp, 2, 0);
+    r.soulOverlay = { diff: __V.diff(noSoul, withSoul), box: __V.bbox(withSoul) };
+    return r })()`,
+  modView: `(async()=>{
+    const B = window.__BALATRO__;
+    const TM = window.__TESTMOD__;
+    const u8 = (b64) => { const s = atob(b64); const u = new Uint8Array(s.length); for (let i=0;i<s.length;i++) u[i] = s.charCodeAt(i); return u };
+    const mkFiles = (pack) => Object.keys(pack).map((p) => {
+      const f = new File([u8(pack[p])], p.split('/').pop());
+      Object.defineProperty(f, '__rel', { value: p });
+      return f;
+    });
+    const r = {};
+    await B.importBatch(mkFiles(TM.folder));
+    await __V.wait(700);
+
+    // narrow-width sanity for the import panel (the mobile media query only trims padding)
+    B.state.tab = 'mods'; B.render();
+    await __V.wait(400);
+    const content = document.getElementById('content');
+    const keep = content.style.maxWidth;
+    content.style.maxWidth = '340px';
+    await __V.wait(250);
+    const v = document.querySelector('.modsview');
+    r.narrow = v ? { view: v.scrollWidth, box: v.clientWidth, overflow: v.scrollWidth - v.clientWidth } : null;
+    const btns = document.querySelector('.dropbtns');
+    r.narrow.btnsWrapped = btns ? (btns.scrollWidth <= btns.clientWidth + 2) : null;
+    content.style.maxWidth = keep;
+    await __V.wait(250);
+
+    // land on the codex filtered to the mod, so the final screenshot shows mod entries
+    B.state.tab = 'codex'; B.state.source = 'testmod'; B.state.cat = 'Joker'; B.state.q = ''; B.state.sel = null;
+    B.render();
+    await __V.wait(1600);
+    r.cells = document.querySelectorAll('#content .cell').length;
+    r.badges = document.querySelectorAll('#content .cell .modtag').length;
+    r.catBadges = [].slice.call(document.querySelectorAll('#content .cell .badge')).map((e) => e.textContent);
+    r.crumbs = (document.querySelector('.listhead h2')||{}).textContent;
+    r.sidebar = [].slice.call(document.querySelectorAll('#sidebar .catgroup')).map((e) => e.textContent);
+    r.blank = __V.blank();
+    return r })()`,
+  modDrop: `(async()=>{
+    const B = window.__BALATRO__;
+    const TM = window.__TESTMOD__;
+    const r = {};
+    const u8 = (b64) => { const s = atob(b64); const u = new Uint8Array(s.length); for (let i=0;i<s.length;i++) u[i] = s.charCodeAt(i); return u };
+    const mk = (p, b64) => {
+      const f = new File([u8(b64)], p.split('/').pop());
+      try { Object.defineProperty(f, '__rel', { value: p, configurable: true }) } catch (e) { /* ignore */ }
+      return f;
+    };
+
+    // ---- 1) folder-picker path: webkitRelativePath is what <input webkitdirectory> provides
+    const rel = Object.keys(TM.folder).map((p) => {
+      const f = mk(p, TM.folder[p]);
+      Object.defineProperty(f, 'webkitRelativePath', { value: p, configurable: true });
+      return f;
+    });
+    const res = await B.importBatch(rel, 'picker');
+    r.picker = res && { ok: res.ok, items: res.items, root: res.mod.root, id: res.mod.id };
+    await __V.wait(400);
+    B.removeMod('testmod');
+    await __V.wait(300);
+
+    // ---- 2) real drop on the import panel's drop zone
+    B.state.tab = 'mods'; B.render();
+    await __V.wait(400);
+    let dt = null;
+    try { dt = new DataTransfer() } catch (e) { r.noDataTransfer = String(e.message) }
+    if (dt) {
+      for (const p of Object.keys(TM.folder)) dt.items.add(mk(p, TM.folder[p]));
+      r.dtItems = dt.items.length;
+      r.dtFiles = dt.files.length;
+      let entry = null;
+      try { entry = dt.items[0].webkitGetAsEntry() } catch (e) { entry = null }
+      r.syntheticEntry = entry ? (entry.isDirectory ? 'dir' : 'file') : 'null';
+      const zone = document.querySelector('#modDrop');
+      r.zoneFound = !!zone;
+      zone.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      await __V.wait(2200);
+      r.afterPanelDrop = { mods: B.mods.map((m) => m.id + ':' + m.items), items: B.items.length };
+      r.overlayGone = !document.body.classList.contains('dropping');
+    }
+
+    // ---- 3) drop somewhere else entirely: must import, not navigate away
+    if (dt) {
+      const zipFile = mk('TestMod.zip', TM.zip);
+      try { zipFile.__rel = 'TestMod.zip' } catch (e) { Object.defineProperty(zipFile, '__rel', { value: 'TestMod.zip' }) }
+      const dt2 = new DataTransfer();
+      dt2.items.add(zipFile);
+      const before = B.mods.length;
+      document.getElementById('content').dispatchEvent(new DragEvent('drop', { dataTransfer: dt2, bubbles: true, cancelable: true }));
+      await __V.wait(2200);
+      r.globalDrop = { modsBefore: before, modsAfter: B.mods.map((m) => m.id + ':' + m.items), tab: B.state.tab, duplicateRefused: B.mods.length === before };
+    }
+
+    // ---- 4) dragover shows the full-page hint and never leaves the page
+    const dt3 = new DataTransfer(); dt3.items.add(mk('manifest.json', TM.folder['TestMod/manifest.json']));
+    window.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt3, bubbles: true, cancelable: true }));
+    await __V.wait(150);
+    r.hintOn = document.body.classList.contains('dropping');
+    window.dispatchEvent(new DragEvent('dragleave', { dataTransfer: dt3, bubbles: true, cancelable: true }));
+    await __V.wait(150);
+    r.hintOff = !document.body.classList.contains('dropping');
+
+    r.log = (document.getElementById('modLogBox') || {}).textContent || '';
+    r.logHasPanel = r.log.indexOf('已导入') >= 0;
+    return r })()`,
+  modFlat: `(async()=>{
+    const B = window.__BALATRO__;
+    const TM = window.__TESTMOD__;
+    const r = {};
+    const u8 = (b64) => { const s = atob(b64); const u = new Uint8Array(s.length); for (let i=0;i<s.length;i++) u[i] = s.charCodeAt(i); return u };
+    // strip every folder: exactly what an odd distribution looks like
+    const flat = Object.keys(TM.folder).map((p) => new File([u8(TM.folder[p])], p.split('/').pop()));
+    const res = await B.importBatch(flat, 'flat');
+    await __V.wait(800);
+    r.imported = res && { ok: res.ok, items: res.items, atlases: res.atlases };
+    r.stats = res && res.mod.stats;
+    r.warnings = res && res.mod.warnings;
+    r.modAtlas = B.atlases['mod_jokers'] && { w: B.atlases['mod_jokers'].w, h: B.atlases['mod_jokers'].h, scale: B.atlases['mod_jokers'].scale, cols: B.atlases['mod_jokers'].cols, rows: B.atlases['mod_jokers'].rows };
+    const painted = { ok: 0, blank: [], noArt: [] };
+    for (const it of B.items.filter((i) => i.source === 'testmod')) {
+      const sp = B.specForItem(it);
+      if (!sp) { painted.noArt.push(it.id); continue }
+      if (__V.bbox(B.compose(sp, 2, 0))) painted.ok++; else painted.blank.push(it.id);
+    }
+    r.painted = painted;
+    r.blank = __V.blank();
+    return r })()`,
+  modCryptid: `(async()=>{
+    const B = window.__BALATRO__;
+    const r = {};
+    // the input's change handler started the import; wait for it to land (or fail)
+    for (let i = 0; i < 240 && !B.mods.length; i++) await __V.wait(400);
+    r.logText = (document.getElementById('modLogBox') || {}).textContent || '';
+    r.toast = (document.getElementById('toast') || {}).textContent || '';
+    const mod = B.mods[0];
+    if (!mod) return { fatal: 'no mod registered', logText: r.logText, toast: r.toast };
+    r.mod = { id: mod.id, name: mod.name, version: mod.version, author: mod.author, items: mod.items, atlases: mod.atlasKeys.length, warnings: mod.warnings.length, stats: mod.stats };
+    r.warnings = mod && mod.warnings;
+
+    const mine = B.items.filter((i) => i.source === mod.id);
+    r.total = mine.length;
+    const byCat = {};
+    for (const i of mine) byCat[i.cat] = (byCat[i.cat] || 0) + 1;
+    r.byCat = byCat;
+
+    const painted = { ok: 0, blank: [], noArt: [] };
+    for (const it of mine) {
+      const sp = B.specForItem(it);
+      if (!sp) { painted.noArt.push(it.id + '(' + it.cat + ')'); continue }
+      const cv = B.compose(sp, 2, 0);
+      if (__V.bbox(cv)) painted.ok++; else painted.blank.push(it.id + '(' + it.cat + ')');
+    }
+    r.painted = { ok: painted.ok, blank: painted.blank.length, blankList: painted.blank.slice(0, 8), noArt: painted.noArt.length, noArtList: painted.noArt.slice(0, 8) };
+
+    const sample = ['j_cry_dropshot', 'j_cry_CodeJoker', 'bl_cry_oldox', 'v_cry_copies', 'p_cry_code_normal_1', 'sleeve_cry_very_fair_sleeve', 'b_cry_encoded', 'tag_cry_console', 'c_cry_crash', 'stk_cry_pink'];
+    r.sampleHashes = sample.map((id) => {
+      const it = B.byId[id];
+      if (!it) return id + ':MISSING';
+      return id + ':' + __V.hash(B.compose(B.specForItem(it), 2, 0));
+    });
+    r.distinctSamples = new Set(r.sampleHashes.map((x) => x.split(':')[1])).size;
+
+    const a = B.atlases['atlasone'];
+    r.atlas = a && { w: a.w, h: a.h, px: a.px, py: a.py, scale: a.scale, cols: a.cols, rows: a.rows };
+
+    B.state.tab = 'codex'; B.state.source = mod.id; B.state.cat = 'Joker'; B.state.q = ''; B.state.sel = null;
+    B.render();
+    await __V.wait(2200);
+    r.codex = { cells: document.querySelectorAll('#content .cell').length, badges: document.querySelectorAll('#content .cell .modtag').length };
+    r.sidebar = [].slice.call(document.querySelectorAll('#sidebar .cat')).map((e) => e.textContent.replace(/\\s+/g, ' ').trim()).filter((t) => /Cryptid|Code|Sleeve|Tier|Meme|Food|Unique|新增/.test(t));
+
+    const cell = document.querySelector('#content .cell[data-id="j_cry_dropshot"]');
+    if (cell) { cell.click(); await __V.wait(1000) }
+    const dt = document.getElementById('detail').textContent;
+    r.detail = { title: (document.querySelector('#detail .dhead h3') || {}).textContent, hasMod: dt.indexOf('Cryptid') >= 0, hasFile: dt.indexOf('misc_joker.lua') >= 0 };
+
+    B.state.cat = 'Blind'; B.render();
+    await __V.wait(1200);
+    const btn = document.getElementById('btnZip');
+    if (btn) { btn.click(); await __V.wait(3000) }
+    const blobs = await window.__GRAB__();
+    r.exported = blobs.map((b) => ({ name: b.name, size: b.size, magic: b.magic })).slice(-3);
+
+    // can Cryptid entries actually be used in the forge?
+    B.state.tab = 'forge'; B.state.forge.open = null; B.render();
+    await __V.wait(2600);
+    const ftypes = [].slice.call(document.querySelectorAll('#content .opt[data-gkey="basetype"] option')).map((o) => o.value);
+    r.forge = { types: ftypes.slice(0, 20), hasCode: ftypes.indexOf('Code') >= 0, hasSleeve: ftypes.indexOf('Sleeve') >= 0 };
+    const fsel = document.querySelector('#content .opt[data-gkey="basetype"] select');
+    fsel.value = 'Code'; fsel.dispatchEvent(new Event('change'));
+    await __V.wait(1600);
+    const picks = document.querySelectorAll('#content .opt[data-gkey="base"] .pick');
+    r.forge.picks = picks.length;
+    r.forge.modBadges = document.querySelectorAll('#content .opt[data-gkey="base"] .pickmod').length;
+    if (picks.length) { picks[0].click(); await __V.wait(1400) }
+    const pcv = document.querySelector('.preview canvas');
+    r.forge.previewBox = pcv ? __V.bbox(pcv) : null;
+    r.forge.nowLine = (document.querySelector('.pvnow') || {}).textContent || '';
+    r.forge.header = (document.querySelector('#content .opt[data-gkey="base"] h4') || {}).textContent || '';
+    r.forge.height = document.querySelector('#content').scrollHeight;
+    r.forge.blank = __V.blank();
+
+    // leave the page on Cryptid's jokers so the screenshot shows mod content
+    B.state.tab = 'codex'; B.state.source = mod.id; B.state.cat = 'Joker'; B.state.sel = null;
+    B.render();
+    await __V.wait(2200);
+    r.blank = __V.blank();
+    return r })()`,
+  modPicker: `(async()=>{
+    const B = window.__BALATRO__;
+    const r = {};
+
+    // ---- the zip input (this is the path that reported "没有读到文件")
+    for (let i = 0; i < 40 && !B.mods.length; i++) await __V.wait(400);
+    r.afterZip = { mods: B.mods.map((m) => m.id + ':' + m.items), items: B.items.length };
+    r.zipToast = (document.getElementById('toast') || {}).textContent || '';
+
+    B.removeMod('testmod');
+    await __V.wait(500);
+
+    // ---- the folder input
+    const dir = document.getElementById('modDirInput');
+    r.dirInputExists = !!dir;
+    dir.click();                       // opens nothing in headless, but proves the handler is wired
+    await __V.wait(200);
+    for (let i = 0; i < 40 && !B.mods.length; i++) await __V.wait(400);
+    r.afterDir = { mods: B.mods.map((m) => m.id + ':' + m.items), items: B.items.length };
+    const m = B.mods[0];
+    r.dirStats = m && m.stats;
+    r.dirWarnings = m && m.warnings;
+    r.dirLog = (document.getElementById('modLogBox') || {}).textContent.split('\\n').slice(-6).join(' | ');
+    return r })()`,
+  forgeUx: `(async()=>{
+    const B = window.__BALATRO__;
+    const r = {};
+    await __V.click('.cat', '卡牌合成台', 2600);
+    const q = (sel) => document.querySelector(sel);
+    const groups = () => [].slice.call(document.querySelectorAll('#content .opt[data-gkey]'));
+    r.groupKeys = groups().map((e) => e.dataset.gkey);
+    r.collapsedAtStart = groups().filter((e) => e.classList.contains('collapsed')).map((e) => e.dataset.gkey);
+    r.navChips = [].slice.call(document.querySelectorAll('.forgenav .nv')).map((e) => e.textContent);
+    r.previewSticky = getComputedStyle(q('.forge .preview')).position;
+    r.navSticky = getComputedStyle(q('.forgenav')).position;
+
+    // headers carry the current pick
+    r.headers = [].slice.call(document.querySelectorAll('#content .opt[data-gkey] h4')).map((h) => h.textContent.replace(/\\s+/g, ' ').trim());
+    r.nowLine = (q('.pvnow') || {}).textContent;
+
+    // collapsing really hides the body and survives a repaint
+    const enh = q('#content .opt[data-gkey="enh"]');
+    enh.querySelector('h4').click();
+    await __V.wait(250);
+    r.enhCollapsed = enh.classList.contains('collapsed');
+    r.enhBodyHidden = getComputedStyle(enh.querySelector('.obody')).display === 'none';
+    const navEnh = __V.byText('.forgenav .nv', '强化');
+    navEnh.click(); await __V.wait(300);
+    r.enhReopened = !q('#content .opt[data-gkey="enh"]').classList.contains('collapsed');
+
+    // quick actions
+    const rand = __V.byText('.forgenav .nv', '随机搭配');
+    const before = __V.hash(q('.preview canvas'));
+    rand.click(); await __V.wait(900);
+    r.randomChanged = __V.hash(q('.preview canvas')) !== before;
+    const reset = __V.byText('.forgenav .nv', '重置');
+    reset.click(); await __V.wait(900);
+    r.resetNow = (q('.pvnow') || {}).textContent;
+
+    // collapse everything, then check the page is short
+    __V.byText('.forgenav .nv', '收起').click();
+    await __V.wait(400);
+    r.allCollapsed = groups().every((e) => e.classList.contains('collapsed'));
+    r.tallAfterCollapse = q('#content').scrollHeight;
+    __V.byText('.forgenav .nv', '全部展开').click();
+    await __V.wait(500);
+    r.tallAfterExpand = q('#content').scrollHeight;
+    r.optCount = document.querySelectorAll('#content .opt[data-gkey]').length;
+    r.canvas = __V.blank();
+    return r })()`,
+
+  modForge: `(async()=>{
+    const B = window.__BALATRO__;
+    const TM = window.__TESTMOD__;
+    const u8 = (b64) => { const s = atob(b64); const u = new Uint8Array(s.length); for (let i=0;i<s.length;i++) u[i] = s.charCodeAt(i); return u };
+    const mkFiles = (pack) => Object.keys(pack).map((p) => {
+      const f = new File([u8(pack[p])], p.split('/').pop());
+      Object.defineProperty(f, '__rel', { value: p });
+      return f;
+    });
+    const r = {};
+    await B.importBatch(mkFiles(TM.folder));
+    await __V.wait(800);
+    await __V.click('.cat', '卡牌合成台', 2600);
+
+    // the mod's new category must be offered as a forge subject
+    const types = [].slice.call(document.querySelectorAll('#content .opt[data-gkey="basetype"] option')).map((o) => o.value);
+    r.types = types;
+    r.hasModType = types.includes('Musical');
+    r.jokerCount = (document.querySelector('#content .opt[data-gkey="basetype"] option[value="Joker"]') || {}).textContent;
+
+    // pick the mod category, then a mod card
+    const sel = document.querySelector('#content .opt[data-gkey="basetype"] select');
+    sel.value = 'Musical'; sel.dispatchEvent(new Event('change'));
+    await __V.wait(1200);
+    const picks = document.querySelectorAll('#content .opt[data-gkey="base"] .pick');
+    r.musicalPicks = picks.length;
+    r.picksHaveModBadge = document.querySelectorAll('#content .opt[data-gkey="base"] .pick .pickmod').length;
+    if (picks.length) { picks[0].click(); await __V.wait(900) }
+    r.nowLine = (document.querySelector('.pvnow') || {}).textContent;
+    const cv = document.querySelector('.preview canvas');
+    r.previewBox = cv ? __V.bbox(cv) : null;
+    r.baseHeader = (document.querySelector('#content .opt[data-gkey="base"] h4') || {}).textContent.replace(/\\s+/g, ' ').trim();
+    r.summary = [].slice.call(document.querySelectorAll('.pvsummary tr')).map((tr) => tr.textContent.replace(/\\s+/g, ' ').trim()).slice(0, 6);
+    r.canvas = __V.blank();
+    return r })()`,
+
+  srcBack: `(async()=>{
+    const B = window.__BALATRO__;
+    const TM = window.__TESTMOD__;
+    const u8 = (b64) => { const s = atob(b64); const u = new Uint8Array(s.length); for (let i=0;i<s.length;i++) u[i] = s.charCodeAt(i); return u };
+    const mkFiles = (pack) => Object.keys(pack).map((p) => {
+      const f = new File([u8(pack[p])], p.split('/').pop());
+      Object.defineProperty(f, '__rel', { value: p });
+      return f;
+    });
+    const r = {};
+    await B.importBatch(mkFiles(TM.folder));
+    await __V.wait(700);
+    B.state.tab = 'codex'; B.state.source = 'testmod'; B.state.cat = 'all'; B.render();
+    await __V.wait(1200);
+    const chip = document.querySelector('.listhead .srcchip');
+    r.chip = chip ? chip.textContent.replace(/\\s+/g, ' ').trim() : null;
+    r.filtered = { source: B.state.source, cells: document.querySelectorAll('#content .cell').length };
+    if (chip) { chip.click(); await __V.wait(1000) }
+    r.afterChip = { source: B.state.source, cells: document.querySelectorAll('#content .cell').length, chipGone: !document.querySelector('.listhead .srcchip') };
+
+    // the detail-panel button is a two-way toggle
+    B.state.source = 'testmod'; B.state.cat = 'Joker'; B.render();
+    await __V.wait(900);
+    const cell = document.querySelector('#content .cell[data-id="j_tm_alpha"]');
+    if (cell) { cell.click(); await __V.wait(800) }
+    const btn = [].slice.call(document.querySelectorAll('#detail .btn')).filter((b) => /只看这个 Mod|显示全部来源/.test(b.textContent))[0];
+    r.detailBtn = btn ? btn.textContent : null;
+    if (btn) { btn.click(); await __V.wait(1000) }
+    r.afterDetailBtn = { source: B.state.source, btn: ([].slice.call(document.querySelectorAll('#detail .btn')).filter((b) => /只看这个 Mod|显示全部来源/.test(b.textContent))[0] || {}).textContent };
+    return r })()`,
+  forgePhone: `(async()=>{
+    const B = window.__BALATRO__;
+    const r = {};
+    await __V.wait(1600);
+    B.state.tab='forge'; B.state.forge.open=null; B.render();
+    await __V.wait(2600);
+    const content = document.getElementById('content');
+    const rect = (e) => { if (!e) return null; const b = e.getBoundingClientRect(); return { t: Math.round(b.top), b: Math.round(b.bottom), h: Math.round(b.height) } };
+    r.viewport = { w: innerWidth, h: innerHeight };
+    r.display = getComputedStyle(document.querySelector('.forge')).display;
+    r.bar = Object.assign(rect(document.querySelector('.pvtop')), { pos: getComputedStyle(document.querySelector('.pvtop')).position });
+    r.barShare = +(r.bar.h / innerHeight).toFixed(2);
+    r.canvas = rect(document.querySelector('.preview canvas'));
+    r.opts = rect(document.querySelector('.forge .opts'));
+    r.scrollHeight = content.scrollHeight;
+
+    /* order in the DOM flow: the three heavy sections must come after the options on a phone */
+    const order = [].slice.call(document.querySelectorAll('.forge .pvtop, .forge .opts, .forge .preview > .opt'))
+      .map((e) => (e.dataset.gkey || e.className.split(' ')[0]) + '#' + getComputedStyle(e).order);
+    r.visualOrder = order;
+
+    /* every option group must be reachable: scroll its header under the bar and tap-test it */
+    const groups = [].slice.call(document.querySelectorAll('#content .opts .opt'));
+    const reach = [];
+    for (const g of groups) {
+      const barH = document.querySelector('.pvtop').getBoundingClientRect().height;
+      const cTop = content.getBoundingClientRect().top;
+      const top = g.getBoundingClientRect().top - cTop + content.scrollTop - barH - 8;
+      content.scrollTop = Math.max(0, top);
+      await __V.wait(140);
+      const h = g.querySelector('h4');
+      const b = h.getBoundingClientRect();
+      const hit = document.elementFromPoint(Math.round(b.left + 24), Math.round(b.top + b.height / 2));
+      reach.push({ g: g.dataset.gkey, y: Math.round(b.top), ok: !!(hit && h.contains(hit)) });
+    }
+    r.reachable = reach;
+    r.unreachable = reach.filter((x) => !x.ok).map((x) => x.g);
+    r.maxScroll = Math.round(content.scrollTop);
+
+    /* the last option group must still be usable near the bottom */
+    content.scrollTop = content.scrollHeight;
+    await __V.wait(300);
+    const last = groups[groups.length - 1].querySelector('h4');
+    const lb = last.getBoundingClientRect();
+    const lhit = document.elementFromPoint(Math.round(lb.left + 24), Math.round(lb.top + lb.height / 2));
+    r.lastGroup = { key: groups[groups.length - 1].dataset.gkey, y: Math.round(lb.top), clickable: !!(lhit && last.contains(lhit)) };
+
+    /* the three heavy sections must be below the options */
+    const sec = ['summary', 'export', 'anim'].map((k) => ({ k, ...rect(document.querySelector('#content .opt[data-gkey="' + k + '"]')) }));
+    r.heavySections = sec;
+    r.heavyBelowOpts = sec.every((x) => x.t >= r.opts.t - 2);
+
+    /* tapping the bar zooms the preview instead of breaking anything */
+    const bar = document.querySelector('.pvtop');
+    const before = Math.round(document.querySelector('.preview canvas').getBoundingClientRect().width);
+    bar.click(); await __V.wait(500);
+    r.zoom = { before, after: Math.round(document.querySelector('.preview canvas').getBoundingClientRect().width) };
+    bar.click(); await __V.wait(400);
+
+    content.scrollTop = 0;
+    await __V.wait(300);
+    r.blank = __V.blank();
+    return r })()`,
+  holoProbe: `(async()=>{
+    const B = window.__BALATRO__;
+    const r = {};
+    const opaque = (cv) => { if(!cv) return -1; const d = cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data; let n=0; for(let i=3;i<d.length;i+=4) if(d[i]>8) n++; return n };
+    const meanA = (cv) => { const d = cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data; let s=0,n=0; for(let i=3;i<d.length;i+=4){ if(d[i]>8){s+=d[i];n++} } return n? +(s/n).toFixed(1) : 0 };
+
+    const holo = B.byId['j_hologram'];
+    r.hologramItem = { id: holo.id, atlas: holo.atlas, pos: holo.pos, soul: holo.soul, setShader: holo.setShader, soulHologramInSpec: B.specForItem(holo).soulHologram };
+
+    // the raw floating tile, its shader pass, and the full composite with / without the overlay
+    const rawTile = B.tileLayer({ atlas: 'Joker', pos: { x: 2, y: 9 } }, 142, 190);
+    const shaded = B.shade(rawTile, 'hologram', 0, B.uvRectOf({ atlas: 'Joker', pos: { x: 2, y: 9 } }));
+    r.holoRaw = { opaque: opaque(rawTile), meanA: meanA(rawTile) };
+    r.holoShaded = shaded ? { opaque: opaque(shaded), meanA: meanA(shaded), diff: __V.diff(rawTile, shaded) } : null;
+
+    const withSoul = B.compose(B.specForItem(holo), 2, 0);
+    const noSoulSpec = B.specForItem(holo); noSoulSpec.soul = null;
+    const noSoul = B.compose(noSoulSpec, 2, 0);
+    r.hologramComposite = { withSoul: opaque(withSoul), withoutSoul: opaque(noSoul), diff: __V.diff(noSoul, withSoul), box: __V.bbox(withSoul) };
+
+    // a legendary, for comparison
+    const caino = B.byId['j_caino'];
+    const cw = B.compose(B.specForItem(caino), 2, 0);
+    const cs = B.specForItem(caino); cs.soul = null;
+    r.cainoComposite = { diff: __V.diff(B.compose(cs, 2, 0), cw), box: __V.bbox(cw) };
+
+    // raw tiles of all six floating sprites
+    r.tiles = ['j_hologram','j_caino','j_triboulet','j_yorick','j_chicot','j_perkeo'].map((id) => {
+      const it = B.byId[id];
+      const t = B.tileLayer(it.soul, 142, 190);
+      const sh = B.shade(t, id === 'j_hologram' ? 'hologram' : 'dissolve', 0, B.uvRectOf(it.soul));
+      return id + ' raw=' + opaque(t) + ' meanA=' + meanA(t) + (sh ? ' shaded=' + opaque(sh) : ' shaded=null');
+    });
+
+    // the Overlay category entries
+    r.overlays = B.items.filter((i) => i.cat === 'Overlay').map((i) => {
+      const sp = B.specForItem(i);
+      const cv = sp ? B.compose(sp, 2, 0) : null;
+      return i.id + ' spec=' + JSON.stringify(sp) + ' opaque=' + opaque(cv) + ' box=' + JSON.stringify(__V.bbox(cv));
+    });
+    r.blank = __V.blank();
+    return r })()`,
+  holoShot: `(async()=>{
+    const B = window.__BALATRO__;
+    const holo = B.byId['j_hologram'];
+    const caino = B.byId['j_caino'];
+    const shot = (spec, scale) => B.compose(spec, scale || 4, 0).toDataURL('image/png');
+    const out = {
+      hologramFull: shot(B.specForItem(holo)),
+      hologramNoSoul: (() => { const sp = B.specForItem(holo); sp.soul = null; return shot(sp) })(),
+      hologramSoulOnly: (() => { const t = B.tileLayer(holo.soul, 284, 380); return t.toDataURL('image/png') })(),
+      hologramSoulShaded: (() => { const t = B.tileLayer({ atlas: 'Joker', pos: { x: 2, y: 9 } }, 284, 380); const sh = B.shade(t, 'hologram', 0, B.uvRectOf({ atlas: 'Joker', pos: { x: 2, y: 9 } })) || t; return sh.toDataURL('image/png') })(),
+      cainoFull: shot(B.specForItem(caino)),
+      overlayHolo: shot(B.specForItem(B.byId['overlay_j_hologram'])),
+    };
+    return out })()`,
+  shaderCompile: `(async()=>{
+    const B = window.__BALATRO__;
+    const G = window.__GLSHADERS__;
+    if (!G) return { fatal: 'window.__GLSHADERS__ missing' };
+    const r = {};
+    const gl2 = document.createElement('canvas').getContext('webgl2');
+    const gl = gl2 || document.createElement('canvas').getContext('webgl');
+    r.webgl2 = !!gl2;
+    r.vanilla = G.selftest(gl, !!gl2, B.data.shaders.map((x) => ({ name: x.name, source: x.source })));
+    r.vanillaFail = r.vanilla.results.filter((x) => !x.ok).map((x) => x.name + ' :: ' + x.log.replace(/\s+/g, ' ').slice(0, 150));
+    const mod = window.__MODSHADERS__ || [];
+    r.modCount = mod.length;
+    r.mod = G.selftest(gl, !!gl2, mod);
+    r.modFail = r.mod.results.filter((x) => !x.ok).map((x) => x.name + ' :: ' + x.log.replace(/\s+/g, ' ').slice(0, 200));
+    r.flavour = mod.map((m) => m.name + '→' + String(G.flavourUniform(m.source)));
+    return r })()`,
+  holoDebug: `(async()=>{
+    const B = window.__BALATRO__;
+    const r = {};
+    const holo = B.byId['j_hologram'];
+    const sp = B.specForItem(holo);
+    r.spec = { center: sp.center, soul: sp.soul, soulHologram: sp.soulHologram, box: sp.box || null };
+    const opaque = (cv) => { if (!cv) return -1; const d = cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data; let n = 0; for (let i=3;i<d.length;i+=4) if (d[i]>8) n++; return n };
+    const t = B.shadeTile(sp.soul, 142, 190, 'hologram', 0);
+    r.shaded = t ? { w: t.width, h: t.height, opaque: opaque(t) } : null;
+    r.tile = { opaque: opaque(B.tileLayer(sp.soul, 142, 190)) };
+    const withSoul = B.compose(sp, 2, 0);
+    const sp2 = B.specForItem(holo); sp2.soul = null;
+    const noSoul = B.compose(sp2, 2, 0);
+    r.composite = { withSoul: opaque(withSoul), withoutSoul: opaque(noSoul), diff: __V.diff(noSoul, withSoul), urlSame: withSoul.toDataURL() === noSoul.toDataURL() };
+    // does the legendary path work?
+    const caino = B.byId['j_caino'];
+    const c1 = B.compose(B.specForItem(caino), 2, 0);
+    const c2s = B.specForItem(caino); c2s.soul = null;
+    const c2 = B.compose(c2s, 2, 0);
+    r.caino = { diff: __V.diff(c2, c1), box: __V.bbox(c1) };
+    // and the dissolve shadow for the legendaries
+    const sil = B.shadeTile(B.byId['j_caino'].soul, 142, 190, 'dissolve', 0, { shadow: true });
+    r.shadow = sil ? { opaque: opaque(sil) } : null;
+    r.programs = B.shaderPrograms;
+    return r })()`,
+  modShader: `(async()=>{
+    const B = window.__BALATRO__;
+    const TM = window.__TESTMOD__;
+    const r = {};
+    const u8 = (b64) => { const s = atob(b64); const u = new Uint8Array(s.length); for (let i=0;i<s.length;i++) u[i] = s.charCodeAt(i); return u };
+    const mkFiles = (pack) => Object.keys(pack).map((p) => {
+      const f = new File([u8(pack[p])], p.split('/').pop());
+      Object.defineProperty(f, '__rel', { value: p, configurable: true });
+      return f;
+    });
+    B.state.tab = 'mods'; B.render(); await __V.wait(400);
+    const res = await B.importBatch(mkFiles(TM.folder));
+    await __V.wait(900);
+    r.logText = (document.getElementById("modLogBox") || {}).textContent || "";
+    r.toast = (document.getElementById("toast") || {}).textContent || "";
+    r.imported = res && { ok: res.ok, items: res.items, atlases: res.atlases };
+    r.shaderFiles = res && res.mod.stats.shaders;
+    r.shaders = res && res.mod.shaders ? res.mod.shaders.map((x) => x.key) : [];
+    r.modShaders = Object.keys(B.modShaders);
+    r.programs = B.shaderPrograms.filter((n) => /tint/.test(n));
+    r.warnings = res && res.mod.warnings.filter((w) => /着色器/.test(w));
+
+    // the edition must resolve to the mod shader and change the card
+    const ed = B.byId['e_tm_tinted'] || B.items.filter((i) => i.cat === 'Edition' && i.source === 'testmod')[0];
+    r.editionItem = ed ? { id: ed.id, shader: ed.shader, resolved: B.editionShaderOf(ed) } : null;
+    if (ed) {
+      const plain = B.byId['S_A'];
+      const specPlain = { center: { atlas: 'centers', pos: B.data.composition.baseCenter.pos }, front: { atlas: 'cards_1', pos: plain.pos } };
+      const withEd = Object.assign({}, specPlain, { edition: B.editionShaderOf(ed) });
+      const a = B.compose(specPlain, 2, 0);
+      const c = B.compose(withEd, 2, 0);
+      r.editionDiff = __V.diff(a, c);
+      r.editionHash = __V.hash(c);
+      r.editionOpaque = (() => { const d = c.getContext('2d').getImageData(0,0,c.width,c.height).data; let n=0; for(let i=3;i<d.length;i+=4) if(d[i]>8)n++; return n })();
+    }
+    // and it must be usable in the forge
+    B.state.tab = 'forge'; B.state.forge.open = null; B.render();
+    await __V.wait(1800);
+    const sel = document.querySelector('#content .opt[data-gkey="basetype"] select');
+    sel.value = 'Edition'; sel.dispatchEvent(new Event('change'));
+    await __V.wait(1400);
+    const picks = [].slice.call(document.querySelectorAll('#content .opt[data-gkey="ed"] .pick'));
+    r.forgeEditions = picks.map((b) => b.textContent.replace(/\s+/g, ' ').trim()).slice(0, 8);
+    const modPick = picks.filter((b) => /Tinted|染色/.test(b.textContent))[0];
+    r.forgeHasModEdition = !!modPick;
+    if (modPick) {
+      const before = __V.hash(document.querySelector('.preview canvas'));
+      modPick.click(); await __V.wait(900);
+      r.forgePreviewChanged = __V.hash(document.querySelector('.preview canvas')) !== before;
+    }
+    r.canvas = __V.blank();
+    return r })()`,
+  cryptidEditions: `(async()=>{
+    const B = window.__BALATRO__;
+    const r = {};
+    await __V.wait(2000);
+    for (let i = 0; i < 240 && !B.mods.length; i++) await __V.wait(400);
+    if (!B.mods.length) return { skipped: 'Cryptid.zip not available' };
+    const gl = window.__GLSHADERS__;
+    void gl;
+    const eds = B.items.filter((i) => i.cat === 'Edition' && i.source);
+    r.count = eds.length;
+    r.list = eds.map((it) => {
+      const key = B.editionShaderOf(it);
+      const prog = B.shaderPrograms.indexOf(key) >= 0;
+      const base = { center: { atlas: 'centers', pos: B.data.composition.baseCenter.pos }, front: { atlas: 'cards_1', pos: B.byId['S_A'].pos } };
+      const a = B.compose(base, 2, 0);
+      const c = B.compose(Object.assign({}, base, { edition: key }), 2, 0);
+      return it.id + ' shader=' + it.shader + ' → ' + key + (prog ? ' [compiled]' : ' [MISSING]') + ' diff=' + __V.diff(a, c) + ' note=' + (it.note ? 'yes' : 'no');
+    });
+    r.missing = r.list.filter((x) => x.indexOf('MISSING') >= 0);
+    r.allDiff = r.list.every((x) => !/diff=0( |$)/.test(x));
+    r.canvas = __V.blank();
+    // a sample render of one Cryptid edition, for a visual check
+    const one = eds[0];
+    if (one) {
+      const base = { center: { atlas: 'centers', pos: B.data.composition.baseCenter.pos }, front: { atlas: 'cards_1', pos: B.byId['S_A'].pos } };
+      r.samplePng = B.compose(Object.assign({}, base, { edition: B.editionShaderOf(one) }), 4, 6).toDataURL('image/png');
+      r.plainPng = B.compose(base, 4, 6).toDataURL('image/png');
+      r.sampleId = one.id;
+    }
+    return r })()`,
+  gifQuality: `(async()=>{
+    const A = window.__BALATRO__;
+    const r = {};
+    const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s) };
+    const frames = [];
+    const spec = Object.assign({}, A.specForItem(A.byId['j_joker']), { edition: 'e_polychrome' });
+    for (let i = 0; i < 3; i++) frames.push(A.compose(spec, 2, i * 3));
+    r.src = frames.map((f) => f.toDataURL('image/png'));
+    const t0 = performance.now();
+    const plain = A.encodeGIF(frames, 60, null, { dither: false, colors: 256 });
+    const t1 = performance.now();
+    const dith = A.encodeGIF(frames, 60, null, { dither: true, colors: 256 });
+    const t2 = performance.now();
+    const d128 = A.encodeGIF(frames, 60, null, { dither: true, colors: 128 });
+    const t3 = performance.now();
+    const d64 = A.encodeGIF(frames, 60, null, { dither: true, colors: 64 });
+    r.times = { plain: Math.round(t1 - t0), dither: Math.round(t2 - t1), d128: Math.round(t3 - t2) };
+    r.plain = { size: plain.length, b64: b64(plain) };
+    r.dither = { size: dith.length, b64: b64(dith) };
+    r.c128 = { size: d128.length, b64: b64(d128) };
+    r.c64 = { size: d64.length, b64: b64(d64) };
+    return r })()`,
+  previewSpeed: `(async()=>{
+    const B = window.__BALATRO__;
+    const r = {};
+    await __V.click('.cat', '卡牌合成台', 2600);
+    // open the animation section and start the live preview
+    __V.byText('.forgenav .nv', '全部展开').click();
+    await __V.wait(600);
+    const animBtn = __V.byText('.btn', '实时动画预览');
+    r.hasAnimBtn = !!animBtn;
+    if (!animBtn) return r;
+    const measure = async (speed) => {
+      B.state.anim.speed = speed;
+      if (!B.state.anim.on) animBtn.click();
+      await __V.wait(300);
+      const t0 = B.state.anim.t;
+      await __V.wait(1200);
+      const dt = B.state.anim.t - t0;
+      return +dt.toFixed(2);
+    };
+    r.dt1 = await measure(1);
+    r.dt4 = await measure(4);
+    r.dt8 = await measure(8);
+    r.ratio8 = +(r.dt8 / Math.max(0.001, r.dt1)).toFixed(2);
+    r.ratio4 = +(r.dt4 / Math.max(0.001, r.dt1)).toFixed(2);
+    // and the preview canvas must actually be repainting
+    // paintPreview() swaps in a fresh canvas each frame, so re-query before hashing
+    const h1 = __V.hash(document.querySelector('.preview canvas'));
+    await __V.wait(400);
+    r.repainting = __V.hash(document.querySelector('.preview canvas')) !== h1;
+    if (B.state.anim.on) animBtn.click();
+    // a legendary joker animates its floating art with a real short period
+    B.state.forge.baseType = 'Joker'; B.state.forge.base = 'j_caino';
+    B.state.forge.stickers = { eternal: false, perishable: false, rental: false, color: '' };
+    const t0 = performance.now();
+    B.render();
+    r.forgeRenderMs = Math.round(performance.now() - t0);
+    await __V.wait(5000);
+    r.legendaryReadout = (document.querySelector('.preview .hint.mono') || {}).textContent || '';
+    r.detected = (() => {
+      const sp = B.specForItem(B.byId['j_caino']);
+      return typeof B.detectPeriod === 'function' ? B.detectPeriod(sp) : 'not exposed';
+    })();
+    // with the leftover foil edition the card really has no short loop — that is the honest
+    // answer; clear it to see the detector's positive case
+    r.withFoil = B.detectPeriod(B.forgeSpec());
+    B.state.forge.edition = '';
+    B.render();
+    await __V.wait(2600);
+    r.legendaryReadoutNoEd = (document.querySelector('.preview .hint.mono') || {}).textContent || '';
+    r.specs = {
+      item: JSON.stringify(B.specForItem(B.byId['j_caino'])),
+      forge: JSON.stringify(B.forgeSpec()),
+    };
+    r.itemPeriod = B.detectPeriod(B.specForItem(B.byId['j_caino']));
+    r.forgePeriod = B.detectPeriod(B.forgeSpec());
+    r.forgeOpts = JSON.stringify(B.animOpts(B.forgeSpec()));
+    // repeat renders must be cheap: the period is cached, and the forge re-render should not
+    // re-run the whole search
+    const t1 = performance.now();
+    B.render();
+    r.secondRenderMs = Math.round(performance.now() - t1);
+    await __V.wait(2500);
+    r.legendaryReadout2 = (document.querySelector('.preview .hint.mono') || {}).textContent || '';
+    // the loop readout should mention the detected loop point when there is one
+    r.readout = (document.querySelector('.preview .hint.mono') || {}).textContent || '';
+    r.loopLabel = ([].slice.call(document.querySelectorAll('.btn')).filter((b) => /循环/.test(b.textContent))[0] || {}).textContent || '';
+    return r })()`,
+  audit: `(async()=>{
+    const B = window.__BALATRO__;
+    const r = { errors: [] };
+    const fail = (m) => r.errors.push(m);
+    const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+
+    // 1) every view renders without throwing and without blank canvases
+    const views = ['codex', 'forge', 'atlas', 'hands', 'shaders', 'data', 'mods'];
+    r.views = {};
+    for (const v of views) {
+      try {
+        B.state.tab = v; B.render();
+        await sleep(v === 'forge' ? 2600 : 1200);
+        const b = __V.blank();
+        r.views[v] = { canvases: b.total, blank: b.blank, forced: document.body.getAttribute('data-forced') || null };
+        if (b.blank) fail('view ' + v + ' has ' + b.blank + ' blank canvases: ' + b.sample.join(', '));
+      } catch (e) { fail('view ' + v + ' threw: ' + e.message) }
+    }
+
+    // 2) every vanilla item composes to something non-empty and every atlas resolves
+    let noSpec = 0; let blank = 0;
+    const blankSample = [];
+    for (const it of B.items) {
+      const sp = B.specForItem(it);
+      if (!sp) { noSpec++; continue }
+      const cv = B.compose(sp, 1, 0);
+      const box = __V.bbox(cv);
+      if (!box) { blank++; if (blankSample.length < 8) blankSample.push(it.id) }
+    }
+    r.items = { total: B.items.length, noSpec, blank, blankSample };
+    if (blank) fail(blank + ' items compose to a blank canvas: ' + blankSample.join(', '));
+
+    // 3) referenced atlases must exist
+    const missingAtlas = [];
+    for (const it of B.items) {
+      if (it.atlas && !B.atlases[it.atlas]) missingAtlas.push(it.id + '→' + it.atlas);
+      if (it.soul && it.soul.atlas && !B.atlases[it.soul.atlas]) missingAtlas.push(it.id + ' soul→' + it.soul.atlas);
+    }
+    r.missingAtlas = missingAtlas.slice(0, 10);
+    if (missingAtlas.length) fail(missingAtlas.length + ' items point at a missing atlas');
+
+    // 4) export helpers round-trip
+    try {
+      const cv = B.compose(B.specForItem(B.byId['j_joker']), 2, 0);
+      const png = await B.canvasBytes(cv);
+      r.png = { bytes: png.length, sig: [].slice.call(png.slice(1, 4)).map((x) => String.fromCharCode(x)).join('') };
+      if (r.png.sig !== 'PNG') fail('canvasBytes did not produce a PNG');
+      const z = B.zipStore([{ name: 'a.png', data: png }]);
+      r.zip = { bytes: z.length, magic: [].slice.call(z.slice(0, 2)).map((x) => String.fromCharCode(x)).join('') };
+      if (r.zip.magic !== 'PK') fail('zipStore did not produce a zip');
+      const csv = B.toCSV([B.byId['j_joker']]);
+      r.csv = csv.split('\\n').length;
+      const js = JSON.stringify(B.itemJSON(B.byId['j_joker']));
+      r.json = js.length;
+    } catch (e) { fail('export helpers threw: ' + e.message) }
+
+    // 5) the shader programs must all be usable (no missing uniform crashes)
+    r.shaders = B.shaderPrograms.length;
+    for (const name of B.shaderPrograms) {
+      try { const o = B.shadeTile({ atlas: 'Joker', pos: { x: 0, y: 0 } }, 71, 95, name, 1.7); if (!o) fail('shadeTile returned nothing for ' + name) } catch (e) { fail('shader ' + name + ' threw: ' + e.message) }
+    }
+
+    // 6) the loop detector must be deterministic and cached
+    const sp = B.specForItem(B.byId['j_caino']);
+    const t0 = performance.now(); const p1 = B.detectPeriod(sp); const t1 = performance.now();
+    const p2 = B.detectPeriod(sp); const t2 = performance.now();
+    r.loop = { period: p1, firstMs: Math.round(t1 - t0), cachedMs: Math.round(t2 - t1) };
+    if (p1 !== p2) fail('detectPeriod is not deterministic');
+    if (t2 - t1 > 5) fail('detectPeriod is not cached (second call took ' + Math.round(t2 - t1) + 'ms)');
+
+    // 7) page-level errors
+    r.pageErrors = window.__V.errors.slice();
+    if (r.pageErrors.length) fail('page errors: ' + r.pageErrors.join(' | '));
+    r.ok = r.errors.length === 0;
+    return r })()`,
+  liteBoot: `(async()=>{
+    const r = { view: 'liteBoot' };
+    // 1) the start screen must be there and the page must have NO game data
+    for (let i = 0; i < 40 && !document.querySelector('#boot .bootcard'); i++) await __V.wait(200);
+    r.hasBootScreen = !!document.querySelector('#boot .bootcard');
+    r.buttons = [].slice.call(document.querySelectorAll('#boot .btn')).map((b) => b.textContent);
+    r.hasInlineData = typeof window.__BALATRO_DATA__ !== 'undefined';
+    r.hasAppHandle = typeof window.__BALATRO__ !== 'undefined';
+    r.hiddenShell = getComputedStyle(document.getElementById('shell')).display !== 'none';
+    r.bootVisible = (() => { const b = document.getElementById('boot'); return b && getComputedStyle(b).display !== 'none' })();
+    r.statusAtStart = (document.querySelector('#boot .bootstatus') || {}).textContent || '';
+
+    // 2) the driver has put a game exe on the input by now; wait for the parse + app boot
+    for (let i = 0; i < 300 && typeof window.__BALATRO__ === 'undefined'; i++) await __V.wait(300);
+    r.appBooted = typeof window.__BALATRO__ !== 'undefined';
+    if (!r.appBooted) {
+      r.status = (document.querySelector('#boot .bootstatus') || {}).textContent || '(none)';
+      r.pageErrors = window.__V.errors.slice();
+      return r;
+    }
+    const B = window.__BALATRO__;
+    r.items = B.items.length;
+    r.atlases = Object.keys(B.atlases).length;
+    r.textureUrls = Object.keys(window.__BALATRO_ATLAS__).length;
+    r.blobUrls = Object.keys(window.__BALATRO_ATLAS__).filter((k) => String(window.__BALATRO_ATLAS__[k]).startsWith('blob:')).length;
+    r.meta = { version: B.data.meta.version, source: B.data.meta.source, generated: !!B.data.meta.generated };
+    r.bootHidden = getComputedStyle(document.getElementById('boot')).display === 'none';
+
+    // 3) the catalogue must actually render
+    B.state.tab = 'codex'; B.state.cat = 'all'; B.render();
+    await __V.wait(2500);
+    r.cells = document.querySelectorAll('#content .cell').length;
+    r.blank = __V.blank();
+    r.firstCell = (document.querySelector('#content .cell .nm') || {}).textContent || '';
+
+    // 4) a category with a shader-heavy card, and the atlas page
+    B.state.cat = 'Joker'; B.render(); await __V.wait(1800);
+    const holo = document.querySelector('#content .cell[data-id="j_hologram"]');
+    r.hasHologram = !!holo;
+    if (holo) { holo.click(); await __V.wait(1200) }
+    r.detailTitle = (document.querySelector('#detail .dhead h3') || {}).textContent || '';
+    r.detailHasSprite = !!document.querySelector('#detail .dhead canvas');
+    r.shaders = B.shaderPrograms.length;
+
+    // 5) one export, to be sure canvas → bytes still works with blob-backed textures
+    try {
+      const cv = B.compose(B.specForItem(B.byId['j_joker']), 2, 0);
+      const png = await B.canvasBytes(cv);
+      r.exported = { bytes: png.length, ok: png[1] === 0x50 && png[2] === 0x4e && png[3] === 0x47 };
+    } catch (e) { r.exportError = e.message }
+
+    r.pageErrors = window.__V.errors.slice();
+    return r })()`,
+  deepLink: `(async()=>{
+    const B = window.__BALATRO__;
+    const r = {};
+    B.state.tab = 'codex'; B.state.cat = 'Joker'; B.state.sel = 'j_cry_mosaic'; B.state.lang = 'en-us';
+    B.render();
+    await __V.wait(1200);
+    B.state.sel = 'j_joker'; B.render();
+    await __V.wait(900);
+    r.hash = location.hash;
+    r.parsed = B.hashString();
+    r.share = B.shareUrl();
+    r.cellsStillRight = document.querySelectorAll('#content .cell').length;
+
+    // the copy button lives in the detail panel
+    r.copyBtn = ([].slice.call(document.querySelectorAll('#detail .btn')).filter((b) => /复制链接/.test(b.textContent))[0] || {}).textContent || null;
+
+    // now simulate opening that link in a fresh page
+    const target = location.href.replace(/#.*$/, '') + B.hashString();
+    location.href = target;
+    return r })()`,
+
+  deepLinkOpen: `(async()=>{
+    const B = window.__BALATRO__;
+    const r = { url: decodeURIComponent(location.hash) };
+    // applyHash ran during init, so the state must already match the URL
+    r.state = { tab: B.state.tab, cat: B.state.cat, sel: B.state.sel, lang: B.state.lang };
+    await __V.wait(1600);
+    r.title = (document.querySelector('#content .listhead h2') || {}).textContent || '';
+    r.detail = (document.querySelector('#detail .dhead h3') || {}).textContent || '';
+    r.cells = document.querySelectorAll('#content .cell').length;
+    r.selected = (document.querySelector('#content .cell.on') || {}).dataset ? document.querySelector('#content .cell.on').dataset.id : null;
+    r.blank = __V.blank();
+    return r })()`,
+  localSite: `(async()=>{
+    const r = { url: location.href };
+    r.beforeReady = true;
+    if (typeof window.__BALATRO__ === 'undefined') {
+      r.fatal = 'viewer did not boot from the local site';
+      r.bootStatus = (document.querySelector('#boot .bootstatus') || {}).textContent || '';
+      r.scripts = [].slice.call(document.scripts).map((x) => x.src || '(inline)');
+      r.appScriptPresent = !!document.querySelector('script[src*="app.js"]');
+      r.globals = {
+        data: !!window.__BALATRO_DATA__,
+        atlas: window.__BALATRO_ATLAS__ ? Object.keys(window.__BALATRO_ATLAS__).length : 0,
+        lua: !!window.__LUA__,
+        glshaders: !!window.__GLSHADERS__,
+        modimport: !!window.__MODIMPORT__,
+        databuild: !!window.__DATABUILD__,
+        gameparse: !!window.__GAMEPARSE__,
+      };
+      r.pageErrors = window.__V.errors.slice();
+      return r;
+    }
+    const B = window.__BALATRO__;
+    r.items = B.items.length;
+    r.atlases = Object.keys(B.atlases).length;
+    r.textureUrls = Object.keys(window.__BALATRO_ATLAS__).length;
+    r.blobUrls = Object.keys(window.__BALATRO_ATLAS__).filter((k) => String(window.__BALATRO_ATLAS__[k]).startsWith('blob:')).length;
+    r.bootHidden = (() => { const b = document.getElementById('boot'); return !b || getComputedStyle(b).display === 'none' })();
+    r.pickedNothing = typeof window.__SOURCE_NOTE__ === 'undefined';
+    r.version = B.data.meta.version;
+
+    B.state.tab = 'codex'; B.state.cat = 'all'; B.render();
+    await __V.wait(2500);
+    r.cells = document.querySelectorAll('#content .cell').length;
+    r.blank = __V.blank();
+
+    // deep link over http
+    const dl = 'c=Tarot&i=c_fool';
+    location.hash = '#' + dl;
+    await __V.wait(1200);
+    r.deepLink = { hash: location.hash, cat: B.state.cat, sel: B.state.sel, detail: (document.querySelector('#detail .dhead h3') || {}).textContent || '' };
+
+    // a shader-heavy render, to be sure WebGL still works
+    B.state.cat = 'Joker'; B.state.q = ''; B.state.source = 'all'; B.render();
+    await __V.wait(1500);
+    const holo = B.compose(B.specForItem(B.byId['j_hologram']), 2, 0);
+    r.hologramBox = __V.bbox(holo);
+    r.shaders = B.shaderPrograms.length;
+
+    // service worker
+    r.sw = { supported: 'serviceWorker' in navigator };
+    if (r.sw.supported) {
+      const reg = await navigator.serviceWorker.getRegistration().catch(() => null);
+      r.sw.registered = !!reg;
+      r.sw.scope = reg ? reg.scope : null;
+      r.sw.state = reg && reg.active ? reg.active.state : (reg && reg.installing ? 'installing' : null);
+      r.sw.controlled = !!navigator.serviceWorker.controller;
+      r.sw.caches = await caches.keys().catch(() => []);
+    }
+    r.pageErrors = window.__V.errors.slice();
+    return r })()`,
+
+  localOffline: `(async()=>{
+    // second visit: the service worker should be serving from its cache, and a hard reload
+    // must still produce a working viewer with no network at all
+    const r = { url: location.href };
+    const B = window.__BALATRO__;
+    if (typeof B === 'undefined') { r.fatal = 'no viewer after reload'; return r }
+    r.items = B.items.length;
+    r.controlled = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
+    r.caches = await caches.keys().catch(() => []);
+    const names = await (async () => {
+      const out = [];
+      for (const n of await caches.keys()) {
+        const c = await caches.open(n);
+        for (const req of await c.keys()) out.push(new URL(req.url).pathname);
+      }
+      return out;
+    })().catch(() => []);
+    r.cachedPaths = names.sort();
+    r.cachedCore = ['/index.html', '/boot.js', '/app.js'].every((p) => names.includes(p));
+    r.cachedPack = names.includes('/assets/data.json') && names.includes('/assets/atlas.bin');
+    B.state.tab = 'codex'; B.state.cat = 'all'; B.render();
+    await __V.wait(2200);
+    r.cells = document.querySelectorAll('#content .cell').length;
+    r.blank = __V.blank();
+    r.pageErrors = window.__V.errors.slice();
+    return r })()`,
+}
+
+async function main () {
+  const want = process.argv.slice(2)
+  const list = want.length ? want : Object.keys(SCENARIOS)
+  const profile = path.join(__dirname, '..', 'chromeprofile-cdp')
+  fs.mkdirSync(profile, { recursive: true })
+  freePort(PORT)
+  const args = [
+    '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--disable-sync',
+    '--disable-crash-reporter', '--hide-scrollbars',
+    '--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--use-gl=angle',
+    '--user-data-dir=' + profile, '--remote-debugging-port=' + PORT,
+    '--window-size=1720,1150', 'about:blank',
+  ]
+  // BALATRO_STRICT_FILE=1 emulates a plain double-click: no file:// cross-access help.
+  // The viewer must not depend on it — every texture is inlined, and mod art uses blob: URLs.
+  if (process.env.BALATRO_STRICT_FILE !== '1') args.push('--allow-file-access-from-files')
+  console.log('file access:', process.env.BALATRO_STRICT_FILE === '1' ? 'strict (no --allow-file-access-from-files)' : 'permissive')
+  const chrome = spawn(CHROME, args, { stdio: 'ignore' })
+
+  let version = null
+  for (let i = 0; i < 60; i++) {
+    try { version = await getJSON(`http://127.0.0.1:${PORT}/json/version`); break } catch { await sleep(400) }
+  }
+  if (!version) { console.log('❌ chrome did not expose CDP'); chrome.kill(); process.exit(1) }
+  console.log('chrome', version.Browser)
+
+  const targets = await getJSON(`http://127.0.0.1:${PORT}/json/list`)
+  const page = targets.find((t) => t.type === 'page')
+  const c = await CDP.connect(page.webSocketDebuggerUrl)
+  // let exports land in a folder we can inspect
+  const DL = path.join(__dirname, 'downloads')
+  fs.rmSync(DL, { recursive: true, force: true })
+  fs.mkdirSync(DL, { recursive: true })
+  const browserWs = version.webSocketDebuggerUrl
+  if (browserWs) {
+    const b = await CDP.connect(browserWs)
+    await b.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: DL, eventsEnabled: true }).catch(() => {})
+    b.ws.close()
+  }
+  await c.send('Runtime.enable')
+  await c.send('Page.enable')
+  await c.send('Log.enable').catch(() => {})
+  await c.send('Page.navigate', { url: PAGE })
+  await sleep(2500)
+  await c.eval(HELPERS)
+  const gpu = await c.eval(`(()=>{const c=document.createElement('canvas');const g=c.getContext('webgl');
+     if(!g) return {webgl:false};
+     const d=g.getExtension('WEBGL_debug_renderer_info');
+     return {webgl:true, vendor:g.getParameter(g.VENDOR), renderer:g.getParameter(g.RENDERER), dbg: d?g.getParameter(d.UNMASKED_RENDERER_WEBGL):null}})()`)
+  console.log('webgl:', JSON.stringify(gpu))
+
+  const results = {}
+  let MobileMode = false
+  for (const name of list) {
+    if (!SCENARIOS[name]) continue
+    /* Each scenario must start from a *clean* visit. A plain location.reload() is not enough:
+       the app mirrors its state into the URL hash (#c=…&t=…&q=…), so a scenario that ends on
+       another tab would be restored into that tab after the reload — and the next scenario
+       would find no .cell anywhere. Navigate to the hash-less URL instead. */
+    const clean = PAGE.replace(/#.*$/, '')
+    await c.send('Page.navigate', { url: clean }).catch(() => {})
+    await sleep(1200)
+    // a 4.2 MB self-contained page is not guaranteed to be parsed in a fixed sleep; wait for the
+    // viewer handle (Lite boots from a start screen; the site scenarios have their own waits)
+    if (name !== 'liteBoot' && name !== 'siteHome' && name !== 'siteViewer') {
+      for (let i = 0; i < 80; i++) {
+        await sleep(250)
+        try { if (await c.eval('window.__BALATRO_READY__ === true')) break } catch (e) { /* still navigating */ }
+      }
+    } else {
+      await sleep(1000)
+    }
+    await c.eval(HELPERS)
+    await c.eval('window.__V.errors=[]')
+    let rep
+    const clipShots = []
+    if (name === 'forgePhone' || name === 'mobile') {
+      // emulate a phone viewport before the page reloads
+      await c.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
+      await c.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {})
+      MobileMode = true
+    } else if (MobileMode) {
+      await c.send('Emulation.clearDeviceMetricsOverride').catch(() => {})
+      await c.send('Emulation.setTouchEmulationEnabled', { enabled: false }).catch(() => {})
+      MobileMode = false
+    }
+    try {
+    if (name === 'shaderCompile') {
+      const payload = fs.readFileSync(path.join(__dirname, 'mod-shaders.json'), 'utf8')
+      await c.eval('window.__MODSHADERS__ = ' + payload + ';')
+    }
+    if (name === 'modPicker') {
+      // a real file, delivered the same way the browser delivers a picked one
+      await c.eval("window.__BALATRO__.state.tab='mods'; window.__BALATRO__.render();")
+      await sleep(600)
+      const doc = await c.send('DOM.getDocument', { depth: -1 })
+      const zi = await c.send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: '#modZipInput' })
+      await c.send('DOM.setFileInputFiles', { files: [path.join(__dirname, 'testmod.zip')], nodeId: zi.nodeId })
+      console.log('             injected testmod.zip into #modZipInput')
+      await sleep(2500)
+      const di = await c.send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: '#modDirInput' })
+      await c.send('DOM.setFileInputFiles', { files: [path.join(__dirname, 'testmod')], nodeId: di.nodeId })
+      console.log('             injected the testmod folder into #modDirInput')
+    }
+    if (name === 'deepLinkOpen') {
+      const base = PAGE.replace(/#.*$/, '')
+      await c.send('Page.navigate', { url: base + '#c=Joker&i=j_joker&l=en-us' })
+      await sleep(1500)
+      await c.eval(HELPERS)
+    }
+    if (name === 'siteViewer') {
+      // the viewer lives one level down; navigate from the driver so the eval isn't killed
+      await c.send('Page.navigate', { url: clean.replace(/\/?$/, '/') + 'viewer/' }).catch(() => {})
+      await sleep(1500)
+      await c.eval(HELPERS)
+    }
+    if (name === 'localSite' || name === 'localOffline') {
+      const port = process.env.SITE_PORT || 8137
+      // a preview server must never serve a stale page to the test
+      await c.send('Network.setCacheDisabled', { cacheDisabled: true }).catch(() => {})
+      // a previous visit may have installed a service worker that would serve the old build
+      await c.send('Storage.clearDataForOrigin', { origin: 'http://127.0.0.1:' + port, storageTypes: 'all' }).catch(() => {})
+      await c.send('Page.navigate', { url: 'http://127.0.0.1:' + port + '/' })
+      await sleep(1800)
+      try { await c.eval('location.reload()') } catch { /* ignore */ }
+      await sleep(1200)
+      // the site boots the viewer itself (pack mode), so wait for it before running the scenario
+      for (let i = 0; i < 80; i++) {
+        await sleep(250)
+        try { if (await c.eval('window.__BALATRO_READY__ === true')) break } catch (e) { /* navigating */ }
+      }
+      await c.eval(HELPERS)
+    }
+    if (name === 'liteBoot') {
+      const liteDir = path.join(ROOT, 'dist', 'lite')
+      const exe = path.join(__dirname, 'fake-balatro.exe')
+      if (!fs.existsSync(exe)) { console.log('❌ fake-balatro.exe missing — run verify/test-gameparse.js first') }
+      await c.send('Page.navigate', { url: 'file:///' + path.join(liteDir, 'index.html').replace(/\\/g, '/') })
+      await sleep(1500)
+      await c.eval(HELPERS)
+      const doc = await c.send('DOM.getDocument', { depth: -1 })
+      const inp = await c.send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: '#boot input[type=file]' })
+      if (inp && inp.nodeId) {
+        await c.send('DOM.setFileInputFiles', { files: [exe], nodeId: inp.nodeId })
+        console.log('             handed fake-balatro.exe to the Lite start screen')
+      } else console.log('❌ no file input on the start screen')
+    }
+    if (name === 'modCryptid' || name === 'cryptidEditions') {
+      const localZip = path.join(__dirname, 'cryptid-test.zip')
+      const srcZip = fs.existsSync(localZip) ? localZip : path.join(process.env.USERPROFILE, 'Desktop', 'Cryptid.zip')
+      if (!fs.existsSync(srcZip)) {
+        results[name] = { rep: { skipped: 'Cryptid.zip 不在（' + srcZip + '）——把 mod 的 zip 放到桌面或 verify/cryptid-test.zip 就能跑这一项' }, errors: [] }
+        console.log(name.padEnd(12), '⚠️  skipped — Cryptid.zip not found')
+        c.events.length = 0
+        continue
+      }
+      // drive the real <input type=file>, the same way picking the zip in the browser does
+      await c.eval("window.__BALATRO__.state.tab='mods'; window.__BALATRO__.render();")
+      await sleep(600)
+      const doc = await c.send('DOM.getDocument', { depth: -1 })
+      const found = await c.send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: '#modZipInput' })
+      if (!found || !found.nodeId) { console.log('❌ #modZipInput not found'); results[name] = { rep: { fatal: 'no input' }, errors: [] }; continue }
+      await c.send('DOM.setFileInputFiles', { files: [srcZip], nodeId: found.nodeId })
+      console.log('             injected Cryptid.zip into #modZipInput')
+    }
+    if (name === 'modForge' || name === 'srcBack') {
+      const payload = fs.readFileSync(path.join(__dirname, 'testmod.json'), 'utf8')
+      await c.eval('window.__TESTMOD__ = ' + payload + ';')
+    }
+    if (name === 'modShader' || name.indexOf('mod') === 0 || name === 'modImport') {
+      const payload = fs.readFileSync(path.join(__dirname, 'testmod.json'), 'utf8')
+      await c.eval('window.__TESTMOD__ = ' + payload + ';')
+    }
+    } catch (e) {
+      console.log('             driver hook failed:', String(e.message).slice(0, 200))
+    }
+    if (name === 'editions') {
+      // step through each edition chip one at a time so the capture cannot race the UI
+      rep = await c.eval(SCENARIOS[name], true).catch((e) => ({ fatal: String(e.message).slice(0, 400) }))
+      const labels = (rep && rep.labels) || []
+      for (let i = 0; i < labels.length; i++) {
+        await c.eval(`window.__EDBTNS__[${i}].click()`)
+        await sleep(900)
+        const info = await c.eval(`(()=>{const cv=document.querySelector('.preview canvas');if(!cv)return null;const r=cv.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height}})()`)
+        if (!info) continue
+        const pad = 20
+        const shot = await c.send('Page.captureScreenshot', {
+          format: 'png',
+          clip: { x: Math.max(0, Math.round(info.x - pad)), y: Math.max(0, Math.round(info.y - pad)), width: Math.round(info.w + pad * 2), height: Math.round(info.h + pad * 2), scale: 2 },
+        }).catch(() => null)
+        if (shot) {
+          const f = `edition-${i}-${safeLabel(labels[i])}.png`
+          fs.writeFileSync(path.join(SHOTS, f), Buffer.from(shot.data, 'base64'))
+          clipShots.push(f)
+        }
+      }
+      const blank = await c.eval('__V.blank()')
+      rep = Object.assign({}, rep, { blank })
+    } else {
+      try {
+        rep = await c.eval(SCENARIOS[name], true)
+      } catch (e) {
+        rep = { fatal: String(e.message).slice(0, 600) }
+      }
+    }
+    let errs = []
+    try { errs = await c.eval('window.__V.errors') } catch { /* ignore */ }
+    const consoleMsgs = c.events.filter((e) => e.method === 'Runtime.consoleAPICalled' || e.method === 'Log.entryAdded').slice(-8)
+      .map((e) => e.method === 'Log.entryAdded' ? e.params.entry.text : (e.params.args || []).map((a) => String(a.value ?? a.description ?? '')).join(' '))
+      .filter(Boolean)
+    c.events.length = 0
+    results[name] = { rep, errors: errs, consoleMsgs, clipShots }
+    if (['codex', 'jokers', 'forge', 'atlas', 'hands', 'tarot', 'shaders', 'blind', 'cards', 'data', 'showcase', 'mobile', 'soulCompare', 'boxCompare', 'modImport', 'modView', 'modCryptid', 'forgeUx', 'modForge', 'srcBack', 'forgePhone', 'siteHome', 'siteViewer'].includes(name)) {
+      try { await c.shot(name) } catch (e) { /* ignore */ }
+    }
+    console.log(name.padEnd(12), errs.length ? '❌ errors ' + JSON.stringify(errs) : '✅', JSON.stringify(rep).slice(0, 380))
+    if (consoleMsgs.length) console.log('             console:\n' + consoleMsgs.map((m) => '               · ' + m.replace(/\n/g, ' | ')).join('\n'))
+    if (clipShots.length) console.log('             clips:', clipShots.join(', '))
+  }
+  fs.writeFileSync(path.join(__dirname, 'cdp-report.json'), JSON.stringify(results, null, 1))
+  try { c.ws.close() } catch { /* ignore */ }
+  try { chrome.kill() } catch { /* ignore */ }
+  await sleep(400)
+  console.log('\nshots ->', SHOTS)
+}
+
+main().catch((e) => {
+  console.error('FATAL', e)
+  // never leave a headless Chrome holding the debug port
+  try { freePort(PORT) } catch { /* ignore */ }
+  process.exit(1)
+})

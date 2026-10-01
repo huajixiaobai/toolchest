@@ -1,0 +1,10 @@
+{
+  "_comment": "站点构建用的元信息（只有版本号与数量，不含任何游戏数据）。有这个文件，CI 或任何没有游戏文件的人也能构建站点；有 .work/out/data.json 时优先用那份。",
+  "game": "Balatro",
+  "version": "1.0.1o-FULL",
+  "itemCount": 527,
+  "atlasCount": 69,
+  "textureCount": 68,
+  "shaderCount": 19,
+  "locales": ["zh_CN", "zh_TW", "en-us", "ja", "ko"]
+}

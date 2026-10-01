@@ -1,0 +1,1 @@
+not lua, not json, should be ignored

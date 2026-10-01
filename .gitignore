@@ -1,0 +1,49 @@
+# ============================================================================
+#  这个仓库里只放代码。
+#  游戏素材、解析结果、含素材的构建产物一律不进仓库 —— 版权与体积两个原因。
+# ============================================================================
+
+# ---- 游戏数据 ---------------------------------------------------------------
+.work/love/
+.work/out/
+*.7z
+Balatro素材图鉴.html
+dist/
+
+# 第三方 mod（别人的作品，也不该塞进这个仓库）
+Cryptid.zip
+.work/verify/cryptid-test.zip
+
+# 第三方参考代码：只为对齐解析规则而下载下来读过（Steamodded 等），不是本项目的代码
+.work/third-party/
+
+# ---- 截图与导出的动图（都是游戏美术的渲染结果）-----------------------------
+动图示例/
+预览截图/
+.work/verify/shot*.png
+
+# ---- 构建 / 测试的临时产物 --------------------------------------------------
+.work/chromeprofile-*/
+.work/verify/chromeprofile-*/
+.work/verify/shots/
+.work/verify/downloads/
+.work/verify/export-check/
+.work/verify/*.log
+.work/verify/err.txt
+.work/verify/cdp-report.json
+.work/verify/fake-balatro.exe
+.work/_probe/
+node_modules/
+npm-debug.log*
+
+# ---- 编辑器 / 系统 ---------------------------------------------------------
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# ---- 注意：docs/ 是要提交的 -------------------------------------------------
+# 它就是 GitHub Pages 的站点内容（纯代码 + 代码绘制的图标与分享图，不含任何游戏素材）。
+# 如果你不想把构建产物放进仓库，就改成忽略 docs/，再让 GitHub Actions 现场构建
+# —— 仓库里的 site-meta.json 已经为那种情况准备好了（只含版本号与数量）。
+# docs/

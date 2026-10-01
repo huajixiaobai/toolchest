@@ -1,0 +1,19 @@
+{
+  "name": "百宝箱",
+  "short_name": "工具箱",
+  "description": "一堆在浏览器里跑的小工具：把你自己电脑上那份游戏里的美术与数据解出来，看清、检索、拿走想要的素材。全程离线，什么都不上传。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#10161c",
+  "theme_color": "#10161c",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
