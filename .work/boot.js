@@ -95,6 +95,78 @@
     app: '正在启动查看器…',
   }
 
+  /* ------------------------------------------------------------------ 记住上次
+   * 访客第一次选完游戏文件后，把解析结果存进**他自己浏览器**的 IndexedDB。下次打开
+   * 这个站点就直接进图鉴，不用再选一次 —— 素材始终没离开过他的设备，也不算本站分发。
+   * 隐私模式 / 配额不足时所有失败都被吞掉，功能照常（只是不会记得）。 */
+  const DB_NAME = 'balatro-local-cache'
+  const STORE = 'parsed'
+  const KEY = 'last'
+  function idbOpen () {
+    return new Promise((resolve, reject) => {
+      if (!window.indexedDB) return reject(new Error('no indexedDB'))
+      const req = indexedDB.open(DB_NAME, 1)
+      req.onupgradeneeded = () => { try { req.result.createObjectStore(STORE) } catch (e) { /* ignore */ } }
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error || new Error('indexedDB open failed'))
+    })
+  }
+  async function cachePut (rec) {
+    const db = await idbOpen()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite')
+      tx.objectStore(STORE).put(rec, KEY)
+      tx.oncomplete = () => resolve(true)
+      tx.onerror = () => reject(tx.error)
+    })
+  }
+  async function cacheGet () {
+    const db = await idbOpen()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readonly')
+      const g = tx.objectStore(STORE).get(KEY)
+      g.onsuccess = () => resolve(g.result || null)
+      g.onerror = () => reject(g.error)
+    })
+  }
+  async function cacheDrop () {
+    try {
+      const db = await idbOpen()
+      await new Promise((resolve) => {
+        const tx = db.transaction(STORE, 'readwrite')
+        tx.objectStore(STORE).delete(KEY)
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => resolve()
+      })
+    } catch (e) { /* ignore */ }
+  }
+
+  /** Turn {data, atlas bytes} into the globals the viewer expects. Shared by the
+   *  self-hosted pack, the "remembered" cache and (indirectly) the parse path. */
+  function applyPack (data, bin) {
+    window.__BALATRO_DATA__ = data
+    window.__BALATRO_ATLAS__ = {}
+    for (const p of data.pack || []) {
+      window.__BALATRO_ATLAS__[p.file] = URL.createObjectURL(new Blob([bin.subarray(p.off, p.off + p.len)], { type: 'image/png' }))
+    }
+  }
+
+  /** A slim bar that says "this came from your own browser", plus a way out. */
+  function showCacheBar (meta) {
+    const bar = el('div', 'bootcache')
+    const txt = el('div', 'bootcachetext')
+    txt.appendChild(el('b', null, '已载入上次解析的素材'))
+    txt.appendChild(el('span', null, '（' + (meta && meta.version ? meta.version : '?') + ' · ' + (meta && meta.items ? meta.items : '?') + ' 个条目 · 存在你自己的浏览器里，没有上传）'))
+    const acts = el('div', 'bootcacheacts')
+    const swap = el('button', 'btn', '换一个游戏文件')
+    const drop2 = el('button', 'btn', '清除已存素材')
+    acts.appendChild(swap); acts.appendChild(drop2)
+    bar.appendChild(txt); bar.appendChild(acts)
+    document.body.appendChild(bar)
+    swap.onclick = async () => { await cacheDrop(); location.reload() }
+    drop2.onclick = async () => { await cacheDrop(); bar.remove(); }
+  }
+
   function build () {
     const root = document.getElementById('boot')
     root.innerHTML = ''
@@ -109,6 +181,12 @@
     const bDir = el('button', 'btn', '选择游戏文件夹')
     buttons.appendChild(bExe); buttons.appendChild(bDir)
     card.appendChild(buttons)
+
+    /* 就放在按钮下面：说清"为什么要你自己选文件"，而不是让人以为这站少做了功能 */
+    card.appendChild(el('p', 'bootdisc',
+      '为什么要你自己选文件？因为游戏素材的版权不属于本站，这里不能替你分发 —— ' +
+      '页面只是把你自己那份游戏里的内容读出来给你看。全程在本地完成，不上传任何数据；' +
+      '选过一次之后本站会记住它（存在你自己的浏览器里），下次打开直接就是图鉴。'))
 
     const inExe = el('input'); inExe.type = 'file'; inExe.accept = '.exe,.zip,application/octet-stream'; inExe.style.display = 'none'
     const inDir = el('input'); inDir.type = 'file'; inDir.multiple = true; inDir.style.display = 'none'
@@ -167,6 +245,21 @@
           window.__BALATRO_ATLAS__[t.file] = URL.createObjectURL(new Blob([t.bytes], { type: 'image/png' }))
         }
         window.__SOURCE_NOTE__ = { source: res.data.meta.source, version: res.data.meta.version, root: res.root, warnings: res.warnings }
+        /* 顺手记下来：下次打开本站就不用再选一次文件了（存在访客自己的浏览器里） */
+        try {
+          const total = res.textures.reduce((a, t) => a + t.bytes.length, 0)
+          const bin = new Uint8Array(total)
+          const pack = []
+          let off = 0
+          for (const t of res.textures) { bin.set(t.bytes, off); pack.push({ file: t.file, off, len: t.bytes.length }); off += t.bytes.length }
+          const rec = {
+            v: 1,
+            data: Object.assign({}, res.data, { pack }),
+            bin: bin.buffer,
+            meta: { version: res.data.meta.version, source: res.data.meta.source, items: res.stats.items, savedAt: Date.now() },
+          }
+          await cachePut(rec)
+        } catch (e) { /* 隐私模式 / 配额不足：不记就是了，不影响使用 */ }
         progress(96, STATUS.app)
         await loadApp()
         root.style.display = 'none'
@@ -225,12 +318,7 @@
     const data = await dataRes.json()
     const bin = new Uint8Array(await binRes.arrayBuffer())
     // atlas.bin = concatenated PNGs; the index in data.pack says where each one starts
-    const pack = data.pack || []
-    window.__BALATRO_DATA__ = data
-    window.__BALATRO_ATLAS__ = {}
-    for (const p of pack) {
-      window.__BALATRO_ATLAS__[p.file] = URL.createObjectURL(new Blob([bin.subarray(p.off, p.off + p.len)], { type: 'image/png' }))
-    }
+    applyPack(data, bin)
     progress(96, STATUS.app)
     await loadApp()
     const root = document.getElementById('boot')
@@ -238,10 +326,32 @@
     return true
   }
 
-  window.addEventListener('DOMContentLoaded', () => {
+  /** Same thing, but the bytes come from this browser's own IndexedDB. */
+  async function tryRemembered () {
+    const rec = await cacheGet()
+    if (!rec || !rec.data || !rec.bin || !rec.data.pack) return false
+    progress(12, '正在读取上次解析的素材…')
+    applyPack(rec.data, new Uint8Array(rec.bin))
+    window.__SOURCE_NOTE__ = { source: (rec.meta && rec.meta.source) || '上次选择的游戏文件', version: (rec.meta && rec.meta.version) || '', root: '', warnings: [] }
+    progress(96, STATUS.app)
+    await loadApp()
+    const root = document.getElementById('boot')
+    if (root) root.style.display = 'none'
+    showCacheBar(rec.meta || {})
+    return true
+  }
+
+  window.addEventListener('DOMContentLoaded', async () => {
     if (window.__BALATRO_DATA__) return   // single-file build: the app boots by itself
     build()
-    if (window.__PACK__) tryLocalPack().catch((e) => { console.warn(e); setStatus('bad', String(e.message || e)) })
+    if (window.__PACK__) {
+      tryLocalPack().catch((e) => { console.warn(e); setStatus('bad', String(e.message || e)) })
+      return
+    }
+    /* 上次在这个浏览器里解析过 → 直接进图鉴，不再让你选一次 */
+    try {
+      if (await tryRemembered()) return
+    } catch (e) { console.warn('记住的素材不可用，改为重新选择文件：', e) }
   })
 
 })();

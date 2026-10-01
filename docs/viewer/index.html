@@ -423,8 +423,27 @@ body.dropping::after{
 .bootcard h1{margin:0 0 12px;font-size:21px;letter-spacing:.5px}
 .bootcard .lead{margin:0 0 10px;font-size:13px;line-height:1.75;color:var(--fg3,#6d7d8d)}
 .bootcard .lead.strong{color:var(--fg2,#9fb0c0)}
-.bootbtns{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 14px}
+.bootbtns{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 10px}
 .bootbtns .btn{font-size:13.5px;padding:9px 16px}
+/* 免责 / 说明：紧跟在按钮下面，回答"为什么还要我自己选文件" */
+.bootdisc{
+  margin:0 0 16px;padding:10px 12px;border-left:3px solid var(--line2,#33414f);
+  background:#131c24;border-radius:0 8px 8px 0;
+  color:var(--fg3,#6d7d8d);font-size:12.5px;line-height:1.8
+}
+/* "已载入上次解析的素材"提示条（素材存在访客自己的 IndexedDB 里） */
+.bootcache{
+  position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:130;
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:center;
+  max-width:min(680px,calc(100vw - 24px));
+  background:#18222cf2;border:1px solid var(--line,#26313d);border-radius:12px;
+  padding:10px 14px;box-shadow:0 12px 34px #000a;color:var(--fg2,#9fb0c0);font-size:12.5px
+}
+.bootcachetext{display:flex;flex-direction:column;gap:2px;min-width:0}
+.bootcachetext b{color:var(--fg,#dfe7ee);font-size:13px}
+.bootcachetext span{color:var(--fg3,#6d7d8d)}
+.bootcacheacts{display:flex;gap:8px;flex-wrap:wrap}
+.bootcacheacts .btn{font-size:12.5px;padding:7px 12px}
 .bootdrop{
   border:1.5px dashed var(--line2,#33414f);border-radius:12px;padding:18px 16px;text-align:center;
   color:var(--fg3,#6d7d8d);font-size:12.5px;transition:.15s;background:#131c24
@@ -451,12 +470,16 @@ body.dropping::after{
   .bootcard{padding:20px 16px 18px;border-radius:12px;margin:auto 0}
   .bootcard h1{font-size:20px;margin-bottom:10px}
   .bootcard .lead{font-size:14px;line-height:1.7}
-  .bootbtns{flex-direction:column;gap:10px;margin:16px 0 14px}
+  .bootbtns{flex-direction:column;gap:10px;margin:16px 0 10px}
   .bootbtns .btn{width:100%;min-height:48px;font-size:15px;padding:12px 16px}
+  .bootdisc{font-size:13px;padding:11px 12px}
   .bootdrop,.boottap{font-size:13.5px;padding:16px 14px}
   .bootnotes{font-size:13.5px;line-height:1.8;padding-left:20px}
   .bootnotes li{margin:7px 0}
   .bootstatus{font-size:13px}
+  .bootcache{left:12px;right:12px;bottom:10px;transform:none;max-width:none;padding:12px}
+  .bootcacheacts{width:100%}
+  .bootcacheacts .btn{flex:1 1 auto;min-height:44px}
   .bootcard h1{letter-spacing:0}
 }
 

@@ -309,6 +309,23 @@ const SCENARIOS = {
      return r })()`,
   /* The start screen on a phone: visitors land here, so it has to be readable and tappable
      without pinching or sideways scrolling. Measured, not eyeballed. */
+  /* Second visit on the public site: the browser remembered the parsed assets, so the
+     viewer must come up by itself — no start screen. This is what makes the deployed
+     site feel like the offline HTML without hosting any game assets. */
+  siteRemember: `(async()=>{
+     for(let i=0;i<200 && window.__BALATRO_READY__!==true;i++) await __V.wait(250);
+     const r={view:'siteRemember',path:location.pathname,ready:window.__BALATRO_READY__===true};
+     const B=window.__BALATRO__;
+     r.appBooted=!!B;
+     if(B){ r.items=B.items.length; r.atlases=Object.keys(B.atlases).length; r.version=B.data.meta.version; r.shaders=B.shaderPrograms.length }
+     r.bootVisible=(()=>{const b=document.getElementById('boot');return !!(b&&getComputedStyle(b).display!=='none')})();
+     r.cacheBar=(()=>{const b=document.querySelector('.bootcache');return b?b.textContent.replace(/\\s+/g,' ').trim():null})();
+     r.hasChangeBtn=!!__V.byText('.bootcacheacts .btn','换一个游戏文件');
+     r.hasClearBtn=!!__V.byText('.bootcacheacts .btn','清除已存素材');
+     r.cells=document.querySelectorAll('.cell').length;
+     r.blank=__V.blank();
+     r.errors=window.__V.errors.length;
+     return r })()`,
   bootPhone: `(async()=>{
      for(let i=0;i<50 && !document.querySelector('#boot .bootcard');i++) await __V.wait(200);
      const R=e=>{ if(!e) return null; const b=e.getBoundingClientRect(); return {t:Math.round(b.top),b:Math.round(b.bottom),l:Math.round(b.left),r:Math.round(b.right),w:Math.round(b.width),h:Math.round(b.height)} };
@@ -330,6 +347,8 @@ const SCENARIOS = {
      // smallest font size actually used in the card, to catch "too small to read on a phone"
      const sizes=[].slice.call(document.querySelectorAll('#boot .bootcard *')).map(e=>parseFloat(getComputedStyle(e).fontSize)).filter(n=>n>0);
      r.minFont=Math.round(Math.min.apply(null,sizes)*10)/10;
+     r.disc=((document.querySelector('.bootdisc')||{}).textContent||'').replace(/\\s+/g,' ').trim().slice(0,120);
+     r.firstNote=((document.querySelector('.bootnotes li')||{}).textContent||'').slice(0,40);
      r.errors=window.__V.errors.length;
      return r })()`,
   probeCats: `(async()=>{
@@ -2241,11 +2260,18 @@ async function main () {
        another tab would be restored into that tab after the reload — and the next scenario
        would find no .cell anywhere. Navigate to the hash-less URL instead. */
     const clean = PAGE.replace(/#.*$/, '')
+    /* Also wipe this origin's storage: the viewer now remembers the visitor's own parsed
+       assets in IndexedDB, so without this a scenario would silently inherit the previous
+       one's cache and skip the start screen. `siteRemember` sets up its own cache on purpose. */
+    try {
+      const origin = (() => { try { const u = new URL(clean); return u.protocol === 'file:' ? 'file://' : u.origin } catch { return null } })()
+      if (origin) await c.send('Storage.clearDataForOrigin', { origin, storageTypes: 'all' })
+    } catch (e) { /* not every origin supports it */ }
     await c.send('Page.navigate', { url: clean }).catch(() => {})
     await sleep(1200)
     // a 4.2 MB self-contained page is not guaranteed to be parsed in a fixed sleep; wait for the
     // viewer handle (Lite boots from a start screen; the site scenarios have their own waits)
-    if (name !== 'liteBoot' && name !== 'siteHome' && name !== 'siteViewer' && name !== 'liveBoot' && name !== 'sitePack' && name !== 'bootPhone') {
+    if (name !== 'liteBoot' && name !== 'siteHome' && name !== 'siteViewer' && name !== 'liveBoot' && name !== 'sitePack' && name !== 'bootPhone' && name !== 'siteRemember') {
       for (let i = 0; i < 80; i++) {
         await sleep(250)
         try { if (await c.eval('window.__BALATRO_READY__ === true')) break } catch (e) { /* still navigating */ }
@@ -2291,6 +2317,31 @@ async function main () {
       await sleep(1500)
       await c.eval(HELPERS)
     }
+    /* Several scenarios live on the viewer page, one level below the site root. */
+    const viewerUrl = (u) => (/\/viewer\/?$/.test(u) ? u.replace(/\/?$/, '/') : u.replace(/\/?$/, '/') + 'viewer/')
+    if (name === 'siteRemember') {      /* First visit: hand over the game file so the page caches the parsed result.
+         Then reload — the second visit must come up without any start screen. */
+      const exe = path.join(__dirname, 'fake-balatro.exe')
+      const first = await c.send('Page.navigate', { url: clean.replace(/\/?$/, '/') + 'viewer/' }).catch(() => null)
+      void first
+      await sleep(2500)
+      await c.eval(HELPERS)
+      const doc = await c.send('DOM.getDocument', { depth: -1 })
+      const inp = await c.send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: '#boot input[type=file]' })
+      if (inp && inp.nodeId) {
+        await c.send('DOM.setFileInputFiles', { files: [exe], nodeId: inp.nodeId })
+        console.log('             第一次访问：交给它 fake-balatro.exe（应当被记进浏览器缓存）')
+      } else console.log('❌ siteRemember: 第一次访问没有文件输入框')
+      for (let i = 0; i < 300; i++) {
+        await sleep(300)
+        try { if (await c.eval('typeof window.__BALATRO__ !== "undefined"')) break } catch (e) { /* ignore */ }
+      }
+      await sleep(1200)   // let the IndexedDB write finish
+      await c.send('Page.navigate', { url: clean.replace(/\/?$/, '/') + 'viewer/' }).catch(() => {})
+      await sleep(1500)
+      await c.eval(HELPERS)
+      console.log('             第二次访问：直接重载，不该再出现选择界面')
+    }
     if (name === 'liveBoot') {
       // the viewer lives at /viewer/ and boots only after a file is picked
       await c.send('Page.navigate', { url: clean.replace(/\/?$/, '/') + 'viewer/' }).catch(() => {})
@@ -2306,10 +2357,10 @@ async function main () {
         console.log('             handed fake-balatro.exe to the live start screen')
       } else console.log('❌ no file input on the live start screen')
     }
-    if (name === 'siteViewer') {
+    if (name === 'siteViewer' || name === 'bootPhone') {
       // the viewer lives one level down; navigate from the driver so the eval isn't killed
-      await c.send('Page.navigate', { url: clean.replace(/\/?$/, '/') + 'viewer/' }).catch(() => {})
-      await sleep(1500)
+      await c.send('Page.navigate', { url: viewerUrl(clean) }).catch(() => {})
+      await sleep(1800)
       await c.eval(HELPERS)
     }
     if (name === 'localSite' || name === 'localOffline') {
@@ -2408,7 +2459,7 @@ async function main () {
       .filter(Boolean)
     c.events.length = 0
     results[name] = { rep, errors: errs, consoleMsgs, clipShots }
-    if (['codex', 'jokers', 'forge', 'atlas', 'hands', 'tarot', 'shaders', 'blind', 'cards', 'data', 'showcase', 'mobile', 'soulCompare', 'boxCompare', 'modImport', 'modView', 'modCryptid', 'forgeUx', 'modForge', 'srcBack', 'forgePhone', 'siteHome', 'siteViewer'].includes(name)) {
+    if (['codex', 'jokers', 'forge', 'atlas', 'hands', 'tarot', 'shaders', 'blind', 'cards', 'data', 'showcase', 'mobile', 'soulCompare', 'boxCompare', 'modImport', 'modView', 'modCryptid', 'forgeUx', 'modForge', 'srcBack', 'forgePhone', 'siteHome', 'siteViewer', 'bootPhone'].includes(name)) {
       try { await c.shot(name) } catch (e) { /* ignore */ }
     }
     console.log(name.padEnd(12), errs.length ? '❌ errors ' + JSON.stringify(errs) : '✅', JSON.stringify(rep).slice(0, 380))
