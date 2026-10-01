@@ -247,6 +247,19 @@ const SCENARIOS = {
      r.ogTitle=(document.querySelector('meta[property="og:title"]')||{}).content||null;
      r.ogImage=(document.querySelector('meta[property="og:image"]')||{}).content||null;
      r.aboutSections=document.querySelectorAll('.about li').length;
+     /* 功能演示区：静态示意 + 可点交互 + canvas 动效 */
+     r.demoCells=document.querySelectorAll('.demo .dcell').length;
+     r.demotiles=document.querySelectorAll('.dtile').length;
+     const chip=__V.byText('#dForgeChips button','闪箔');
+     if(chip){ chip.click(); await __V.wait(300) }
+     r.forgeCardClass=(document.getElementById('dForgeCard')||{}).className||null;
+     const dc=document.getElementById('dCanvas');
+     if(dc){
+       const g=dc.getContext('2d').getImageData(0,0,dc.width,dc.height).data;
+       let nz=0; for(let i=3;i<g.length;i+=4) if(g[i]>8){ nz++; if(nz>200) break }
+       r.demoCanvas={w:dc.width,h:dc.height,painted:nz>200};
+     }
+     r.hasExportBtn=!!document.getElementById('dDlPng');
      r.noExternal=[].slice.call(document.querySelectorAll('script[src],link[href],img[src]'))
         .map(e=>e.getAttribute('src')||e.getAttribute('href')).filter(u=>/^https?:\\/\\//.test(u)&&u.indexOf(location.origin)!==0);
      return r })()`,
@@ -261,6 +274,9 @@ const SCENARIOS = {
      r.modimport=!!window.__MODIMPORT__;
      r.disclaimer=(document.querySelector('#boot .bootnotes')||{}).textContent||'';
      r.hasDisclaimer=/非官方/.test(r.disclaimer);
+     /* 回工具箱的入口：应该只在站点构建里出现 */
+     const hb=document.querySelector('#status .homebtn');
+     r.homeBtn=hb?{text:hb.textContent.trim(),href:hb.getAttribute('href')}:null;
      r.title=document.title;
      r.errors=window.__V.errors.length;
      return r })()`,
@@ -283,6 +299,10 @@ const SCENARIOS = {
      r.shaders=B.shaderPrograms.length;
      r.bootHidden=(()=>{const b=document.getElementById('boot');return b&&getComputedStyle(b).display==='none'})();
      r.cells=document.querySelectorAll('.cell').length;
+     /* 应用起来之后，状态栏里应该有回工具箱的入口 */
+     const hb=document.querySelector('#status .homebtn');
+     r.homeBtn=hb?{text:hb.textContent.trim(),href:hb.getAttribute('href')}:null;
+     r.siteHomeVar=(typeof window.__SITE_HOME__==='undefined')?null:String(window.__SITE_HOME__);
      r.blank=__V.blank();
      r.errors=window.__V.errors.length;
      return r })()`,

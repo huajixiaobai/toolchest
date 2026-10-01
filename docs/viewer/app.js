@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "7205da46";
+window.__APP_BUILD__ = "28c4b06d";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -4064,12 +4064,15 @@ function showHelp () {
     站点与页面本身<b>不包含任何游戏素材或游戏数据</b>：上面看到的每一张贴图、每一条数据，都是用你自己电脑上的游戏文件在这个页面里当场解析出来的，
     解析结果只留在浏览器内存里，关闭页面即消失，全程不联网、不上传。<br>
     游戏素材与数据的版权归原作者所有；本站只提供「查看你自己拥有的那份游戏」的工具，请勿把解析结果当作素材包传播。
+    ${window.__SITE_HOME__ ? `<br><br>想回到工具箱看别的工具？<a href="${window.__SITE_HOME__}" style="color:var(--accent)">← 返回工具箱</a>（左下角状态栏也有一个入口）` : ''}
   </div></div>`;
 }
 function buildStatus () {
   const st = document.getElementById('status');
   const stamp = window.__APP_BUILD__ ? ` · 构建 ${window.__APP_BUILD__}` : '';
-  st.innerHTML = `<span>条目 <b id="statItems">${ITEMS.length}</b></span><span>当前 <b id="statSel">—</b></span>
+  /* 挂在上层工具箱站点里时，状态栏最左边放一个回工具箱的小入口（站点构建才会设这个变量） */
+  const home = window.__SITE_HOME__ ? `<a class="homebtn" href="${window.__SITE_HOME__}" title="回到工具箱">← 工具箱</a>` : '';
+  st.innerHTML = `${home}<span>条目 <b id="statItems">${ITEMS.length}</b></span><span>当前 <b id="statSel">—</b></span>
     <span>图集 <b>${Object.keys(D.atlases).length}</b></span><span>贴图 <b>${D.atlasIndex.length}</b></span>
     <span>语言 <b>${D.meta.locales.length}</b></span>${MODS.length ? `<span>Mod <b>${MODS.length}</b> · ${MODS.reduce((a, m) => a + m.items, 0)} 条</span>` : ''}<span style="margin-left:auto" title="查看器代码的构建号：和别人对比时可以确认是不是同一版">数据生成于 ${new Date(D.meta.generated).toLocaleString()} · 离线运行${stamp}</span>`;
 }

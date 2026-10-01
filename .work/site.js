@@ -62,7 +62,7 @@ const ogLine2 = argVal('--og-line2', CFG.ogLine2 || 'LOCAL TOOLS NO UPLOAD')
 /* ---- 1) the viewer, mounted at /viewer/ --------------------------------------- */
 /* --no-sw 的理由：上层站点的根 service worker 会连查看器一起缓存，避免嵌套 scope 打架。
    --with-assets 时一并打包素材（viewer/assets/），页面启动就直接用，跳过选择游戏文件那一步。 */
-const viewerArgs = [path.join(HERE, 'build-lite.js'), '--out', path.posix.join(OUTREL, 'viewer'), '--no-sw']
+const viewerArgs = [path.join(HERE, 'build-lite.js'), '--out', path.posix.join(OUTREL, 'viewer'), '--no-sw', '--site-home', '../']
 if (WITH_ASSETS) viewerArgs.push('--pack')
 if (siteUrl) viewerArgs.push('--site-url', siteUrl + 'viewer/')
 console.log('▶ 构建查看器 →', path.join(OUTREL, 'viewer') + '/' + (WITH_ASSETS ? '（含素材包：打开即用）' : '（纯代码：访客自带游戏文件）'))

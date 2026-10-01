@@ -259,6 +259,12 @@ table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
   border-top:1px solid var(--line);font-size:11px;color:var(--fg3);white-space:nowrap;overflow-x:auto
 }
 #status b{color:var(--fg2);font-weight:600}
+/* 「回到工具箱」：只在挂在上层站点里时出现，放在状态栏最左边，低调但找得到 */
+#status .homebtn{
+  color:var(--fg2);text-decoration:none;border:1px solid var(--line);border-radius:6px;
+  padding:1px 8px;font-size:10.5px;background:#131c24;flex:0 0 auto
+}
+#status .homebtn:hover{color:var(--accent);border-color:var(--accent);background:#12352b}
 #toast{
   position:fixed;bottom:40px;left:50%;transform:translateX(-50%) translateY(20px);opacity:0;pointer-events:none;
   background:#12352b;border:1px solid var(--accent);color:var(--accent);padding:9px 18px;border-radius:20px;

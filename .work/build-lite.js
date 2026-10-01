@@ -25,6 +25,9 @@ const withPack = process.argv.includes('--pack')
 const argVal = (flag) => { const i = process.argv.indexOf(flag); return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : null }
 const NO_SW = process.argv.includes('--no-sw')
 const OUTDIR = argVal('--out')
+/* --site-home <path>：这份查看器是挂在上层工具箱站点里的，给它一个回首页的地址
+   （只有站点构建会传；单文件版不传，因此不会出现「返回工具箱」按钮）。 */
+const siteHome = argVal('--site-home')
 const OUT = OUTDIR ? path.resolve(HERE, '..', OUTDIR) : path.join(OUTROOT, withPack ? 'web' : 'lite')
 fs.rmSync(OUT, { recursive: true, force: true })
 fs.mkdirSync(OUT, { recursive: true })
@@ -120,7 +123,7 @@ ${siteUrl ? `<meta name="twitter:image" content="${siteUrl}og.png">\n` : ''}<met
 <meta name="copyright" content="非官方粉丝工具；Balatro 游戏素材与数据版权归 LocalThunk / Playstack 所有">
 <div id="boot"></div>
 <div id="backdrop"></div>`)
-  .replace('</body>', `<script>window.__PACK__ = ${withPack ? "'assets/'" : 'null'};</script>
+  .replace('</body>', `<script>window.__PACK__ = ${withPack ? "'assets/'" : 'null'};${siteHome ? `window.__SITE_HOME__ = ${JSON.stringify(siteHome)};` : ''}</script>
 <script src="boot.js"></script>
 </body>`)
 
