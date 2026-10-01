@@ -432,6 +432,16 @@ node bundle.js
 
 ## 九、更新记录
 
+**第十六轮（上线：huajixiaobai.github.io/toolchest）**
+- 新：**站点真的上线了** → https://huajixiaobai.github.io/toolchest/ （首页在 `/`，查看器在 `/viewer/`）。仓库 `huajixiaobai/toolchest`，公开、只含代码。
+- 名字：**`toolchest` / 「百宝箱」**。刻意不含游戏名 —— 站点以后要长成工具箱，名字跟着工具箱走而不是跟着某一个游戏走；曝光交给 GitHub topics（`balatro`、`balatro-tools`、`asset-viewer`…），名字就能保持干净。
+- 新：**`.github/workflows/pages.yml`** —— 往 `main` 推一次就自动发布 `docs/`（`configure-pages` + `upload-pages-artifact` + `deploy-pages`）。**但 Pages 必须先由仓库主人在网页上开一次**：工作流令牌创建 Pages 站点会被 GitHub 拒（`Resource not accessible by integration`），`enablement: true` 也救不了 —— 第 1 次运行就是这么红的，开启之后第 2、3 次全绿。这个坑值得记下来。
+- 新：**`site.config.json`** —— 站名 / 标语 / 站点地址 / 仓库地址 / 分享卡文案集中一处，`site.js` 没有参数时读它。这样 `.cmd` 助手可以保持**纯 ASCII**：中文参数写进 `.bat` 会被控制台代码页搞乱（`.gitignore` 已经这么坏过一次，见第十五轮）。
+- 新：`推送更新.cmd` / `重建站点并推送.cmd` —— 双击即可提交推送（后者先重建 `docs/`）。`git` 装到了 `E:\Git`。
+- 新：**`liveBoot` 场景** —— 在**线上站点**走一遍真实访客流程：把 `fake-balatro.exe` 交给启动界面 → 浏览器内解析 → 527 个条目 / 69 个图集 / 136 张贴图（全部是 `blob:`）/ 17 个着色器 / 0 报错。同时验证 `siteHome`（首页零外部请求）与 `siteViewer`（子路径挂载）。
+- 修：`siteViewer` / `liveBoot` 的驱动改为**先在驱动侧导航**到 `/viewer/` 再注入文件 —— 在页面内 `location.href=` 会让 CDP 求值被打断（`Inspected target navigated or closed`）。
+- 记：本机是 **Windows PowerShell 5.1**（不是 7），`Add-Content` / `Set-Content` 默认 ANSI —— 所有文本文件都用文件工具写，别用 `Add-Content` 追加中文。
+
 **第十五轮（工具箱站点 + 开源脚手架）**
 - 改：**站点从「单页」变成「工具箱」**。`/` 是首页（工具卡片列表），查看器挂到 `/viewer/`；首页的卡片由 `.work/home.js` 里的 `tools` 数组渲染，**加第二个工具只需要：加一条 + 一个目录 + 在 `site.js` 的 CORE 里加几行**（离线预缓存用）。新的构建命令：`node .work/site.js --site-url https://用户名.github.io/仓库名/` → 产出 `docs/`（GitHub Pages 直接吃这个目录）+ `dist/site.zip`（拖拽托管用）。
 - 新：**根 Service Worker**：首页和查看器**一起**进离线缓存（查看器那份不再自带 `sw.js`，避免嵌套 scope 打架），导航网络优先、二次访问断网也能开。
