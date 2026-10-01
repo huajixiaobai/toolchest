@@ -1,0 +1,19 @@
+{
+  "name": "Balatro 素材图鉴",
+  "short_name": "素材图鉴",
+  "description": "Balatro 全美术素材查看 / 预览 / 提取器（素材由用户自己的游戏文件在本地解析）",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#10161c",
+  "theme_color": "#10161c",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

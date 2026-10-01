@@ -68,6 +68,27 @@ if (siteUrl) viewerArgs.push('--site-url', siteUrl + 'viewer/')
 console.log('▶ 构建查看器 →', path.join(OUTREL, 'viewer') + '/' + (WITH_ASSETS ? '（含素材包：打开即用）' : '（纯代码：访客自带游戏文件）'))
 execFileSync(process.execPath, viewerArgs, { stdio: 'inherit', cwd: ROOT })
 
+/* 构建完整性闸门。曾经发生过一次：构建进程被外部中途掐掉（PowerShell 的
+   `| Select-Object -First 1` 会杀掉上游进程），viewer/ 只写了一半，
+   而下一步 git add 就把"删掉 index.html"当成正常改动推了上去 —— 线上 /viewer/ 直接 404。
+   所以在写任何报告之前，先确认该在的文件都在。 */
+function verifyBuild (dir, label) {
+  const need = [
+    'index.html', 'sw.js', 'manifest.webmanifest', 'icon.svg', 'og.png',
+    path.posix.join('viewer', 'index.html'), path.posix.join('viewer', 'boot.js'), path.posix.join('viewer', 'app.js'),
+  ]
+  const missing = need.filter((f) => !fs.existsSync(path.join(dir, f)))
+  if (missing.length) {
+    console.error('\n❌ ' + label + ' 构建不完整，缺少：' + missing.join('、'))
+    console.error('   （多半是构建过程被中断了 —— 不要提交这次的结果，重跑一次）')
+    process.exit(1)
+  }
+  if (!WITH_ASSETS && fs.existsSync(path.join(dir, 'viewer', 'assets'))) {
+    console.error('\n❌ ' + label + ' 是公开构建，却出现了 viewer/assets/（游戏素材）—— 拒绝产出')
+    process.exit(1)
+  }
+}
+
 /* ---- 2) what to say about it on the card -------------------------------------- */
 const META_SRC = fs.existsSync(path.join(HERE, 'out', 'data.json')) ? 'out/data.json' : 'site-meta.json'
 const M = (() => { const r = JSON.parse(fs.readFileSync(path.join(HERE, META_SRC), 'utf8')); return r.meta || r })()
@@ -164,6 +185,7 @@ const walk = (dir, base, acc) => {
   return acc
 }
 const entries = walk(OUT, '', [])
+verifyBuild(OUT, OUTREL + '/')   // 缺文件 / 混进素材 → 直接失败，绝不产出可推送的结果
 const zip = zipStore(entries)
 /* 只有「纯代码」那一份才打包成可托管的 zip；带素材的那份是给自己局域网用的，
    绝不能变成"可以拖到公开托管上去"的文件。 */
