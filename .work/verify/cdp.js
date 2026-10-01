@@ -2010,6 +2010,62 @@ const SCENARIOS = {
     r.note = '行号不同但同为 astral：亮度和近白比例应当一致（delta 越小越好）';
     r.errors = window.__V.errors.length;
     return r })()`,
+  /* 全量扫：150 张小丑牌 × 几个 Cryptid 版本，把"近白到看不见"的挑出来。
+     如果一张都没有 → 修复到位；如果还有一批 → 说明还剩别的原因。 */
+  astralSweep: `(async()=>{
+    const B = window.__BALATRO__;
+    const r = { view: 'astralSweep' };
+    await __V.wait(2000);
+    for (let i = 0; i < 240 && !B.mods.length; i++) await __V.wait(400);
+    if (!B.mods.length) return { skipped: 'Cryptid.zip 没导入' };
+    const nearWhiteOf = (cv) => {
+      const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      let n = 0, white = 0, sum = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i + 3] < 8) continue;
+        n++;
+        const R = d[i] / 255, G = d[i + 1] / 255, Bl = d[i + 2] / 255;
+        sum += (R + G + Bl) / 3;
+        if (Math.min(R, G, Bl) > 0.9) white++;
+      }
+      return { white: +(white / Math.max(1, n) * 100).toFixed(1), mean: +(sum / Math.max(1, n)).toFixed(3) };
+    };
+    const eds = B.items.filter((i) => i.cat === 'Edition' && i.source);
+    r.editions = eds.map((e) => ({ id: e.id, key: B.editionShaderOf(e), name: e.name }));
+    const jokers = B.items.filter((i) => i.cat === 'Joker');
+    r.jokerCount = jokers.length;
+    const pick = ['astral', 'oversat', 'mosaic', 'gold'];
+    r.byEdition = {};
+    for (const name of pick) {
+      const ed = eds.filter((e) => (B.editionShaderOf(e) || '') === name)[0];
+      if (!ed) continue;
+      const key = B.editionShaderOf(ed);
+      let worst = [], whitish = 0;
+      for (const j of jokers) {
+        const sp = B.specForItem(j);
+        if (!sp) continue;
+        const cv = B.compose(Object.assign({}, sp, { edition: key }), 2, 6);
+        const s = nearWhiteOf(cv);
+        if (s.white > 60) whitish++;
+        worst.push({ id: j.id, ...s });
+      }
+      worst.sort((a, b) => b.white - a.white);
+      r.byEdition[name] = { whitishCount: whitish, top: worst.slice(0, 6) };
+    }
+    // 对照：不带任何版本时，本身就近白的小丑牌有多少
+    let plainWhitish = 0
+    const plainTop = []
+    for (const j of jokers) {
+      const sp = B.specForItem(j);
+      if (!sp) continue;
+      const s = nearWhiteOf(B.compose(sp, 2, 6));
+      if (s.white > 60) plainWhitish++
+      plainTop.push({ id: j.id, ...s })
+    }
+    plainTop.sort((a, b) => b.white - a.white)
+    r.plain = { whitishCount: plainWhitish, top: plainTop.slice(0, 6) };
+    r.errors = window.__V.errors.length;
+    return r })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};
@@ -2542,7 +2598,7 @@ async function main () {
         console.log('             handed fake-balatro.exe to the Lite start screen')
       } else console.log('❌ no file input on the start screen')
     }
-    if (name === 'modCryptid' || name === 'cryptidEditions' || name === 'astralProbe' || name === 'astralForge' || name === 'astralRows') {
+    if (name === 'modCryptid' || name === 'cryptidEditions' || name === 'astralProbe' || name === 'astralForge' || name === 'astralRows' || name === 'astralSweep') {
       const localZip = path.join(__dirname, 'cryptid-test.zip')
       const srcZip = fs.existsSync(localZip) ? localZip : path.join(process.env.USERPROFILE, 'Desktop', 'Cryptid.zip')
       if (!fs.existsSync(srcZip)) {

@@ -31,13 +31,16 @@ gate({ lua: luaSrc, glshaders: glSrc, modimport: modSrc, app })
 const put = (src, marker, value) => src.replace(marker, () => value)
 
 let html = shell
+/* The same build stamp the web build shows in the status bar, so a screenshot from either
+   build identifies exactly which code produced it. */
+const appStamp = require('crypto').createHash('sha256').update(app).digest('hex').slice(0, 8)
 html = put(html, '/*__CSS__*/', css)
 html = put(html, '/*__DATA__*/', 'window.__BALATRO_DATA__=' + data + ';')
 html = put(html, '/*__ATLAS__*/', atlas)
 html = put(html, '/*__LUA__*/', luaSrc)
 html = put(html, '/*__GLSHADERS__*/', glSrc)
 html = put(html, '/*__MODIMPORT__*/', modSrc)
-html = put(html, '/*__APP__*/', app)
+html = put(html, '/*__APP__*/', 'window.__APP_BUILD__=' + JSON.stringify(appStamp) + ';' + app)
 
 const target = path.join(OUTDIR, 'Balatro素材图鉴.html')
 fs.writeFileSync(target, html)

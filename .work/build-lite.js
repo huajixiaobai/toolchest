@@ -55,18 +55,25 @@ const bootBundle = [
   read('boot.js'),
 ].join('\n;\n')
 
-const appBundle = [
+let appBundle = [
   read('glshaders.js'),
   read('modimport.js'),
   read('app.js'),
 ].join('\n;\n')
+
+/* A short stamp over the viewer bundle, shown in the status bar. It changes whenever any
+   of those three files changes — the only reliable way to tell a cached page from a fresh
+   one, since the service worker caches app.js aggressively (hard refresh is not obvious
+   on a phone). */
+const appStamp = require('crypto').createHash('sha256').update(appBundle).digest('hex').slice(0, 8)
+appBundle = 'window.__APP_BUILD__ = "' + appStamp + '";\n' + appBundle
 
 /* gate: the bundles are served as external <script src>, so a syntax error would break
    the viewer silently (no inline error, just an empty page). Fail the build instead. */
 for (const [name, src] of [['boot.js', bootBundle], ['app.js', appBundle]]) {
   try { new Function(src) } catch (e) { throw new Error('syntax error in ' + name + ': ' + e.message) }
 }
-console.log('gate ✓  boot.js / app.js 语法通过')
+console.log('gate ✓  boot.js / app.js 语法通过  (viewer build ' + appStamp + ')')
 
 fs.writeFileSync(path.join(OUT, 'boot.js'), bootBundle)
 fs.writeFileSync(path.join(OUT, 'app.js'), appBundle)

@@ -3381,9 +3381,10 @@ function showHelp () {
 }
 function buildStatus () {
   const st = document.getElementById('status');
+  const stamp = window.__APP_BUILD__ ? ` · 构建 ${window.__APP_BUILD__}` : '';
   st.innerHTML = `<span>条目 <b id="statItems">${ITEMS.length}</b></span><span>当前 <b id="statSel">—</b></span>
     <span>图集 <b>${Object.keys(D.atlases).length}</b></span><span>贴图 <b>${D.atlasIndex.length}</b></span>
-    <span>语言 <b>${D.meta.locales.length}</b></span>${MODS.length ? `<span>Mod <b>${MODS.length}</b> · ${MODS.reduce((a, m) => a + m.items, 0)} 条</span>` : ''}<span style="margin-left:auto">数据生成于 ${new Date(D.meta.generated).toLocaleString()} · 离线运行</span>`;
+    <span>语言 <b>${D.meta.locales.length}</b></span>${MODS.length ? `<span>Mod <b>${MODS.length}</b> · ${MODS.reduce((a, m) => a + m.items, 0)} 条</span>` : ''}<span style="margin-left:auto" title="查看器代码的构建号：和别人对比时可以确认是不是同一版">数据生成于 ${new Date(D.meta.generated).toLocaleString()} · 离线运行${stamp}</span>`;
 }
 
 /* ------------------------------------------------------------------ init */
