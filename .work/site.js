@@ -31,16 +31,25 @@ const argVal = (flag, def) => {
 }
 const norm = (u) => (u && !u.endsWith('/') ? u + '/' : u || '')
 
+/* The site's identity lives in site.config.json (UTF-8, committed), so the .cmd helpers can
+   stay pure ASCII — a Chinese argument inside a .bat/.cmd gets mangled by the console code
+   page, and that is exactly how a build ends up with a garbled title. */
+const CFG = (() => {
+  const p = path.join(ROOT, 'site.config.json')
+  if (!fs.existsSync(p)) return {}
+  try { return JSON.parse(fs.readFileSync(p, 'utf8')) } catch (e) { console.log('⚠️  site.config.json 读不了：' + e.message); return {} }
+})()
+
 const OUTREL = argVal('--out', 'docs')
 const OUT = path.resolve(ROOT, OUTREL)
-const siteUrl = norm((argVal('--site-url', process.env.SITE_URL || '')).trim())
-const repoUrl = argVal('--repo-url', process.env.REPO_URL || '').trim()
-const siteName = argVal('--site-name', '百宝箱')
-const tagline = argVal('--tagline', '一堆在浏览器里跑的小工具：把你自己电脑上那份游戏里的美术与数据解出来，看清、检索、拿走想要的素材。全程离线，什么都不上传。')
+const siteUrl = norm((argVal('--site-url', process.env.SITE_URL || CFG.siteUrl || '')).trim())
+const repoUrl = argVal('--repo-url', process.env.REPO_URL || CFG.repoUrl || '').trim()
+const siteName = argVal('--site-name', CFG.siteName || '百宝箱')
+const tagline = argVal('--tagline', CFG.tagline || '一堆在浏览器里跑的小工具：把你自己电脑上那份游戏里的美术与数据解出来，看清、检索、拿走想要的素材。全程离线，什么都不上传。')
 /* The share card is drawn with a built-in 5×7 pixel font, so its two lines must be ASCII.
    They are parameters so the card can follow a rename without touching the drawing code. */
-const ogLine1 = argVal('--og-line1', 'TOOLCHEST')
-const ogLine2 = argVal('--og-line2', 'LOCAL TOOLS NO UPLOAD')
+const ogLine1 = argVal('--og-line1', CFG.ogLine1 || 'TOOLCHEST')
+const ogLine2 = argVal('--og-line2', CFG.ogLine2 || 'LOCAL TOOLS NO UPLOAD')
 
 /* ---- 1) the viewer, mounted at /viewer/ --------------------------------------- */
 const viewerArgs = [path.join(HERE, 'build-lite.js'), '--out', path.posix.join(OUTREL, 'viewer'), '--no-sw']

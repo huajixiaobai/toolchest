@@ -1,0 +1,9 @@
+{
+  "_comment": "百宝箱站点的身份信息。改这里就行，然后双击「重建站点并推送.cmd」（或跑 node .work/site.js）。",
+  "siteName": "百宝箱",
+  "tagline": "一堆在浏览器里跑的小工具：把你自己电脑上那份游戏里的美术与数据解出来，看清、检索、拿走想要的素材。全程离线，什么都不上传。",
+  "siteUrl": "https://huajixiaobai.github.io/toolchest/",
+  "repoUrl": "https://github.com/huajixiaobai/toolchest",
+  "ogLine1": "TOOLCHEST",
+  "ogLine2": "LOCAL TOOLS NO UPLOAD"
+}
