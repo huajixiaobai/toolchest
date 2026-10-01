@@ -167,6 +167,131 @@
     drop2.onclick = async () => { await cacheDrop(); bar.remove(); }
   }
 
+  /* ------------------------------------------------------------------ 预览区的互动
+   * 三件小事，全部不需要任何图片或库：换卡面样式的胶囊、真的下载一张代码画的 PNG、
+   * 以及一块 canvas（图集切分 + 逐帧 + 循环点）。 */
+  function startDemo () {
+    const chips = document.getElementById('dForgeChips')
+    const forgeCard = document.getElementById('dForgeCard')
+    if (chips && forgeCard) {
+      chips.addEventListener('click', (e) => {
+        const b = e.target.closest('button')
+        if (!b) return
+        for (const x of chips.querySelectorAll('button')) x.classList.remove('on')
+        b.classList.add('on')
+        forgeCard.className = 'dcard' + (b.dataset.v ? ' ' + b.dataset.v : '')
+      })
+    }
+
+    const dl = document.getElementById('dDlPng')
+    const note = document.getElementById('dDlNote')
+    if (dl) {
+      dl.addEventListener('click', () => {
+        const S = 4, W = 71 * S, H = 95 * S
+        const cv = document.createElement('canvas')
+        cv.width = W; cv.height = H
+        const g = cv.getContext('2d')
+        const grd = g.createLinearGradient(0, 0, W, H)
+        grd.addColorStop(0, '#2a3a48'); grd.addColorStop(1, '#141c24')
+        g.fillStyle = grd; g.fillRect(0, 0, W, H)
+        g.strokeStyle = '#4bc292'; g.lineWidth = 6; g.strokeRect(3, 3, W - 6, H - 6)
+        g.textAlign = 'center'; g.fillStyle = '#4bc292'
+        g.font = 'bold ' + (10 * S) + 'px sans-serif'
+        g.fillText('DEMO', W / 2, H / 2 - 6 * S)
+        g.font = (7 * S) + 'px sans-serif'; g.fillStyle = '#9fb0c0'
+        g.fillText('code-drawn', W / 2, H / 2 + 8 * S)
+        g.fillText(W + 'x' + H, W / 2, H / 2 + 20 * S)
+        const a = document.createElement('a')
+        a.href = cv.toDataURL('image/png')
+        a.download = 'toolchest-demo-' + W + 'x' + H + '.png'
+        a.click()
+        if (note) note.textContent = '已下载一张 ' + W + '×' + H + ' 的示例 PNG（真实导出还有 1x/2x/4x/6x 与透明背景）'
+      })
+    }
+
+    const c = document.getElementById('dCanvas')
+    if (!c || !c.getContext) return
+    const ctx = c.getContext('2d')
+    const W = c.width, H = c.height
+    const COLS = 5, ROWS = 4, CELL = 30, PAD = 16, FRAMES = 21, LOOP_AT = 12
+    const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const t0 = performance.now()
+    const roundRect = (x, y, w, h, r) => {
+      ctx.beginPath()
+      ctx.moveTo(x + r, y)
+      ctx.arcTo(x + w, y, x + w, y + h, r)
+      ctx.arcTo(x + w, y + h, x, y + h, r)
+      ctx.arcTo(x, y + h, x, y, r)
+      ctx.arcTo(x, y, x + w, y, r)
+      ctx.closePath()
+    }
+    const draw = (now) => {
+      const t = (now - t0) / 1000
+      ctx.clearRect(0, 0, W, H)
+      ctx.font = '11px sans-serif'
+      ctx.textAlign = 'left'
+
+      const idx = Math.floor(t * 1.6) % (COLS * ROWS)
+      const ox = PAD, oy = 42
+      ctx.fillStyle = '#6d7d8d'
+      ctx.fillText('图集（贴图）', ox, 24)
+      for (let i = 0; i < COLS * ROWS; i++) {
+        const cx = ox + (i % COLS) * (CELL + 4)
+        const cy = oy + Math.floor(i / COLS) * (CELL + 4)
+        const hot = i === idx
+        ctx.fillStyle = hot ? '#1d3b34' : '#18222c'
+        ctx.strokeStyle = hot ? '#4bc292' : '#2b3844'
+        ctx.lineWidth = 1
+        roundRect(cx, cy, CELL, CELL, 4); ctx.fill(); ctx.stroke()
+      }
+      const sx = ox + (idx % COLS) * (CELL + 4) + CELL + 14
+      const cardW = 62, cardH = 82, dx = sx + 34, dy = oy + 4
+      ctx.strokeStyle = '#33414f'
+      ctx.beginPath(); ctx.moveTo(sx, oy + 60); ctx.lineTo(dx - 6, oy + 60); ctx.stroke()
+      ctx.fillStyle = '#1b242e'; ctx.strokeStyle = '#4bc292'; ctx.lineWidth = 2
+      roundRect(dx, dy, cardW, cardH, 7); ctx.fill(); ctx.stroke()
+      ctx.fillStyle = '#4bc292'
+      ctx.fillRect(dx + 10, dy + 12, cardW - 20, 3)
+      ctx.fillRect(dx + 10, dy + 22, cardW - 30, 3)
+      ctx.fillStyle = '#33414f'
+      ctx.fillRect(dx + 10, dy + cardH - 20, cardW - 20, 10)
+      ctx.fillStyle = '#6d7d8d'
+      ctx.font = '10px sans-serif'
+      ctx.fillText('取出这一格', dx, dy + cardH + 14)
+
+      const rx = dx + cardW + 50
+      ctx.font = '11px sans-serif'
+      ctx.fillStyle = '#6d7d8d'
+      ctx.fillText('盲注动画（21 帧）· 循环点标在接缝最小处', rx, 24)
+      const fw = 14, fh = 62
+      const play = Math.floor(t * 9) % FRAMES
+      for (let f = 0; f < FRAMES; f++) {
+        const fx = rx + f * (fw + 3)
+        if (fx + fw > W - PAD) break
+        const on = f === play
+        ctx.fillStyle = on ? '#1d3b34' : '#18222c'
+        ctx.strokeStyle = on ? '#4bc292' : (f === LOOP_AT ? '#f3b958' : '#2b3844')
+        ctx.lineWidth = f === LOOP_AT ? 2 : 1
+        roundRect(fx, 42, fw, fh, 3); ctx.fill(); ctx.stroke()
+        ctx.fillStyle = on ? '#4bc292' : '#33414f'
+        const barH = 8 + ((f * 7) % 22)
+        ctx.fillRect(fx + 3, 42 + fh - 6 - barH, fw - 6, barH)
+      }
+      ctx.fillStyle = '#f3b958'
+      ctx.fillRect(rx + LOOP_AT * (fw + 3) - 1, 36, fw + 5, 2)
+      ctx.font = '10px sans-serif'
+      ctx.fillText('循环', rx + LOOP_AT * (fw + 3) - 4, 142)
+      ctx.font = '11px sans-serif'
+      ctx.fillStyle = '#6d7d8d'
+      ctx.fillText('当前帧 ' + (play + 1) + ' / ' + FRAMES, rx, 166)
+    }
+    if (still) draw(t0 + 1200)
+    else {
+      const tick = (now) => { draw(now); requestAnimationFrame(tick) }
+      requestAnimationFrame(tick)
+    }
+  }
+
   function build () {
     const root = document.getElementById('boot')
     root.innerHTML = ''
@@ -204,6 +329,49 @@
     tap.appendChild(el('div', null, '手机上「选择游戏文件夹」最省事；如果系统不让选文件夹，就把游戏目录压成一个 .zip 再选。'))
     card.appendChild(tap)
 
+    /* ------------------------------------------------------------------ 预览区
+     * 「它能做什么」属于这个工具自己，所以放在启动页（点进素材图鉴第一眼就是它），
+     * 而不是工具箱首页 —— 首页以后还要放别的项目。
+     * 放在按钮/提示之后、细节说明之前：先让人看到能干什么，再读注意事项。
+     * 全部由代码绘制，不含任何游戏素材。 */
+    const demo = el('div', 'bootdemo')
+    demo.innerHTML =
+      '<h2 class="demohead">它能做什么</h2>' +
+      '<div class="demo">' +
+        '<div class="dcell"><div class="dhead"><span class="dtag">1</span> 图鉴与搜索</div>' +
+          '<div class="dscreen"><div class="dsbar"><span class="dsq"></span>' +
+          '<span class="dsc">527 个条目 · 27 个分类 · 5 种语言</span></div>' +
+          '<div class="dgrid">' +
+          Array.from({ length: 18 }, (_, i) => '<div class="dtile' + (i === 7 ? ' hot' : '') + '"></div>').join('') +
+          '</div></div>' +
+          '<p>按分类浏览，按 ID / 名称 / 描述 / 数值 / 图集坐标搜索；<code>cat:Joker rarity:1 cost&gt;=4</code> 这种字段筛选也能用。</p></div>' +
+
+        '<div class="dcell"><div class="dhead"><span class="dtag">2</span> 卡牌合成台（可以点）</div>' +
+          '<div class="dscreen dforge"><div class="dcard" id="dForgeCard"></div>' +
+          '<div class="dchips" id="dForgeChips">' +
+          '<button data-v="" class="on">不叠加</button><button data-v="foil">闪箔</button>' +
+          '<button data-v="holo">镭射</button><button data-v="poly">多彩</button><button data-v="neg">负片</button>' +
+          '</div></div>' +
+          '<p>选一张牌，叠加强化 / 蜡封 / 贴纸 / 版本。版本特效是<b>游戏自己的 GLSL</b> 在浏览器里跑，不是画的假效果。</p></div>' +
+
+        '<div class="dcell"><div class="dhead"><span class="dtag">3</span> 导出（PNG 可以点）</div>' +
+          '<div class="dscreen dexport">' +
+          '<button class="live" id="dDlPng">PNG</button><button>SVG</button><button>ZIP</button>' +
+          '<button>JSON</button><button>CSV</button><button>GIF / APNG</button>' +
+          '<div class="dnote" id="dDlNote">点一下 PNG：会下载一张由代码画出来的示例</div></div>' +
+          '<p>单张导出 PNG（1x–6x，透明背景）/ SVG / ZIP / JSON / CSV / Markdown；盲注动画还能导出 GIF、APNG、帧序列。</p></div>' +
+
+        '<div class="dcell wide"><div class="dhead"><span class="dtag">4</span> 图集切分 · 逐帧动画 · 自动找循环点</div>' +
+          '<canvas id="dCanvas" width="900" height="230" role="img" aria-label="图集切分与逐帧动画的示意"></canvas>' +
+          '<p>左边：一张图集被切成格子，逐格取出（真实数据是 68 张贴图 / 69 个图集）。' +
+          '右边：21 帧的盲注动画循环播放，程序会算出「接缝最小」的那一帧当循环点，导出的动图才不会跳。</p></div>' +
+      '</div>' +
+      '<div class="dfoot">上面全是<b>代码画的示意</b>（这个站里没有任何游戏素材）；真实内容来自你自己电脑上的那份游戏文件。</div>'
+    card.appendChild(demo)
+    startDemo()
+
+    card.appendChild(demo)
+
     const notes = el('ul', 'bootnotes')
     for (const t of [
       '支持的输入：Balatro.exe（融合了 LÖVE 工程的那个 exe）、游戏文件夹（里面有 game.lua 与 resources/）、或者它们的 zip。',
@@ -217,6 +385,9 @@
     card.appendChild(el('div', 'bootstatus')).style.display = 'none'
 
     root.appendChild(card)
+    /* 预览区的互动必须在卡片**进入文档之后**再接：startDemo 里用 getElementById 找
+       胶囊和 canvas，游离的子树里是找不到的（这个坑踩过一次）。 */
+    startDemo()
 
     let busy = false
     async function run (kind, payload) {

@@ -260,8 +260,14 @@ const SCENARIOS = {
        r.demoCanvas={w:dc.width,h:dc.height,painted:nz>200};
      }
      r.hasExportBtn=!!document.getElementById('dDlPng');
-     r.noExternal=[].slice.call(document.querySelectorAll('script[src],link[href],img[src]'))
-        .map(e=>e.getAttribute('src')||e.getAttribute('href')).filter(u=>/^https?:\\/\\//.test(u)&&u.indexOf(location.origin)!==0);
+     /* 只算真正会被加载的东西：script src / 样式表、图标、manifest、预加载 / img src。
+        canonical 与 og:url 是元数据，指向自己的域名不算外部请求。 */
+     r.noExternal=[].slice.call(document.querySelectorAll('script[src],img[src]'))
+        .map(e=>e.getAttribute('src'))
+        .concat([].slice.call(document.querySelectorAll('link[href]'))
+          .filter(l=>/stylesheet|icon|manifest|preload|prefetch/.test(l.getAttribute('rel')||''))
+          .map(l=>l.getAttribute('href')))
+        .filter(u=>u&&/^(https?:)?\\/\\//.test(u)&&u.indexOf(location.origin)!==0);
      return r })()`,
   siteViewer: `(async()=>{
      for(let i=0;i<60 && !document.querySelector('#boot .bootcard');i++) await __V.wait(250);
@@ -369,6 +375,19 @@ const SCENARIOS = {
      r.minFont=Math.round(Math.min.apply(null,sizes)*10)/10;
      r.disc=((document.querySelector('.bootdisc')||{}).textContent||'').replace(/\\s+/g,' ').trim().slice(0,120);
      r.firstNote=((document.querySelector('.bootnotes li')||{}).textContent||'').slice(0,40);
+     /* 预览区（在启动页，不在工具箱首页） */
+     r.demoCells=document.querySelectorAll('.bootdemo .dcell').length;
+     r.demoTiles=document.querySelectorAll('.bootdemo .dtile').length;
+     const chip=__V.byText('.bootdemo .dchips button','闪箔');
+     if(chip){ chip.click(); await __V.wait(250) }
+     r.forgeClass=(document.getElementById('dForgeCard')||{}).className||null;
+     const dc=document.getElementById('dCanvas');
+     if(dc){
+       const g=dc.getContext('2d').getImageData(0,0,dc.width,dc.height).data;
+       let nz=0; for(let i=3;i<g.length;i+=4) if(g[i]>8){ nz++; if(nz>200) break }
+       r.demoCanvas={w:dc.width,h:dc.height,painted:nz>200};
+     }
+     r.demoBottom=(()=>{const f=document.querySelector('.bootdemo .dfoot');if(!f)return null;const b=f.getBoundingClientRect();return {t:Math.round(b.top),b:Math.round(b.bottom)}})();
      r.errors=window.__V.errors.length;
      return r })()`,
   probeCats: `(async()=>{
@@ -2123,6 +2142,42 @@ const SCENARIOS = {
     r.build = window.__APP_BUILD__ || '(无构建号)';
     r.errors = window.__V.errors.length;
     return r })()`,
+  /* 启动页预览区的诊断：胶囊点击有没有生效、canvas 到底画没画。 */
+  demoDebug: `(async()=>{
+     for(let i=0;i<50 && !document.querySelector('#boot .bootcard');i++) await __V.wait(200);
+     const r={view:'demoDebug'};
+     r.path=location.pathname;
+     const chips=document.querySelectorAll('.bootdemo .dchips button');
+     r.chipTexts=[].slice.call(chips).map(b=>b.textContent.trim());
+     const card=document.getElementById('dForgeCard');
+     r.cardBefore=card?card.className:null;
+     const foil=[].slice.call(chips).filter(b=>b.textContent.indexOf('闪箔')>=0)[0];
+     r.foilFound=!!foil;
+     if(foil){
+       foil.click();
+       r.cardSync=card.className;
+       await __V.wait(600);
+       r.cardAfter=card.className;
+       r.foilIsOn=foil.classList.contains('on');
+     }
+     const dc=document.getElementById('dCanvas');
+     r.canvasFound=!!dc;
+     if(dc){
+       r.reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+       // 数一下 rAF 有没有在跑
+       window.__rafN=0;
+       const cnt=()=>{ window.__rafN++; requestAnimationFrame(cnt) };
+       requestAnimationFrame(cnt);
+       const px=()=>{ const d=dc.getContext('2d').getImageData(0,0,dc.width,dc.height).data; let nz=0; for(let i=3;i<d.length;i+=4) if(d[i]>8){ nz++; if(nz>300) break } return nz };
+       r.nz0=px();
+       await __V.wait(1200);
+       r.rafFrames=window.__rafN;
+       r.nz1=px();
+       r.canvasSize=dc.width+'x'+dc.height;
+       r.canvasBox=(()=>{const b=dc.getBoundingClientRect();return {t:Math.round(b.top),w:Math.round(b.width),h:Math.round(b.height)}})();
+     }
+     r.errors=window.__V.errors.length;
+     return r })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};
@@ -2618,7 +2673,7 @@ async function main () {
         console.log('             handed fake-balatro.exe to the live start screen')
       } else console.log('❌ no file input on the live start screen')
     }
-    if (name === 'siteViewer' || name === 'bootPhone') {
+    if (name === 'siteViewer' || name === 'bootPhone' || name === 'demoDebug') {
       // the viewer lives one level down; navigate from the driver so the eval isn't killed
       await c.send('Page.navigate', { url: viewerUrl(clean) }).catch(() => {})
       await sleep(1800)

@@ -471,6 +471,58 @@ body.dropping::after{
     padding:14px 16px;text-align:center;color:var(--fg2,#9fb0c0);font-size:13.5px;line-height:1.75;background:#131c24
   }
 }
+/* ---------------------------------------------------------------------------
+   「它能做什么」预览区 —— 属于这个工具自己，所以放在启动页（点进来第一眼看到的就是它），
+   而不是工具箱首页：首页以后还要放别的项目。
+   所有选择器都限定在 .bootdemo 里，免得跟查看器自己的 .dhead 等类名打架。
+   内容全部由代码绘制，不含任何游戏素材。
+   --------------------------------------------------------------------------- */
+.bootdemo{margin-top:20px;border-top:1px solid var(--line,#26313d);padding-top:16px}
+.bootdemo .demohead{margin:0 0 12px;font-size:14px;letter-spacing:1.2px;color:var(--fg2,#9fb0c0);text-transform:uppercase}
+.bootdemo .demo{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.bootdemo .dcell{background:#0f171e;border:1px solid var(--line,#26313d);border-radius:12px;padding:13px}
+.bootdemo .dcell.wide{grid-column:1/-1}
+.bootdemo .dhead{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--fg,#dfe7ee);font-weight:600;margin-bottom:10px}
+.bootdemo .dtag{flex:0 0 auto;width:19px;height:19px;border-radius:6px;display:grid;place-items:center;
+  background:#12352b;color:var(--accent,#4bc292);font-size:11.5px}
+.bootdemo p{margin:10px 0 0;color:var(--fg2,#9fb0c0);font-size:12.5px;line-height:1.7}
+.bootdemo p code{font-family:var(--mono,monospace);font-size:11.5px;background:#0a1016;padding:1px 5px;border-radius:4px}
+.bootdemo .dscreen{background:#0d1319;border:1px solid var(--line,#26313d);border-radius:9px;padding:11px}
+.bootdemo .dsbar{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.bootdemo .dsq{flex:0 0 auto;width:82px;height:17px;border-radius:5px;border:1px solid var(--line2,#33414f);background:#131c24}
+.bootdemo .dsc{font-size:11px;color:var(--fg3,#6d7d8d)}
+.bootdemo .dgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:5px}
+.bootdemo .dtile{aspect-ratio:71/95;border-radius:5px;border:1px solid var(--line,#26313d);
+  background:linear-gradient(160deg,#31414f,#1a232c)}
+.bootdemo .dtile.hot{border-color:var(--accent,#4bc292);box-shadow:inset 0 0 0 1px #4bc29266}
+.bootdemo .dforge{display:flex;flex-direction:column;align-items:center;gap:11px}
+.bootdemo .dcard{width:72px;height:96px;border-radius:9px;border:2px solid var(--line2,#33414f);background:#18222c;
+  position:relative;overflow:hidden;transition:border-color .2s}
+.bootdemo .dcard::after{content:'';position:absolute;inset:0;opacity:0;transition:opacity .2s;
+  background:linear-gradient(115deg,transparent 30%,#fff6 50%,transparent 70%);
+  background-size:250% 100%;animation:dbswipe 2.2s linear infinite}
+.bootdemo .dcard.foil{border-color:var(--money,#f3b958)}
+.bootdemo .dcard.foil::after{opacity:.55;background:linear-gradient(115deg,transparent 25%,#f3b95880 45%,#fff8 50%,#f3b95880 55%,transparent 75%);background-size:250% 100%}
+.bootdemo .dcard.holo{border-color:var(--accent2,#009dff)}
+.bootdemo .dcard.holo::after{opacity:.6;background:linear-gradient(115deg,transparent 20%,#009dff66 40%,#4bc29266 50%,#009dff66 60%,transparent 80%);background-size:250% 100%}
+.bootdemo .dcard.poly{border-color:var(--purple,#a782d1)}
+.bootdemo .dcard.poly::after{opacity:.7;background:linear-gradient(115deg,#fe5f5544,#f3b95844,#4bc29244,#009dff44,#a782d144);background-size:250% 100%}
+.bootdemo .dcard.neg{border-color:#6d7d8d;filter:invert(.85) hue-rotate(180deg)}
+@keyframes dbswipe{from{background-position:120% 0}to{background-position:-20% 0}}
+.bootdemo .dchips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+.bootdemo .dchips button{font:inherit;font-size:11.5px;color:var(--fg2,#9fb0c0);background:#131c24;
+  border:1px solid var(--line,#26313d);border-radius:999px;padding:4px 11px;cursor:pointer}
+.bootdemo .dchips button:hover{border-color:var(--line2,#33414f);color:var(--fg,#dfe7ee)}
+.bootdemo .dchips button.on{color:var(--accent,#4bc292);border-color:var(--accent,#4bc292);background:#12352b}
+.bootdemo .dexport{display:flex;flex-wrap:wrap;gap:6px}
+.bootdemo .dexport button{font:inherit;font-size:11.5px;color:var(--fg2,#9fb0c0);background:#131c24;
+  border:1px solid var(--line,#26313d);border-radius:7px;padding:5px 10px;cursor:default}
+.bootdemo .dexport button.live{cursor:pointer;color:var(--accent,#4bc292);border-color:#4bc29273}
+.bootdemo .dexport button.live:hover{background:#12352b}
+.bootdemo .dnote{flex:1 1 100%;font-size:11px;color:var(--fg3,#6d7d8d);margin-top:2px}
+.bootdemo #dCanvas{width:100%;height:auto;display:block;border-radius:9px;background:#0d1319;border:1px solid var(--line,#26313d)}
+.bootdemo .dfoot{margin-top:11px;font-size:11.5px;color:var(--fg3,#6d7d8d);text-align:center}
+
 @media(max-width:560px){
   #boot{padding:14px 12px;align-items:flex-start}
   .bootcard{padding:20px 16px 18px;border-radius:12px;margin:auto 0}
@@ -487,6 +539,11 @@ body.dropping::after{
   .bootcacheacts{width:100%}
   .bootcacheacts .btn{flex:1 1 auto;min-height:44px}
   .bootcard h1{letter-spacing:0}
+  /* 手机上的预览区：单列，格子小一点 */
+  .bootdemo .demo{grid-template-columns:1fr}
+  .bootdemo .dgrid{grid-template-columns:repeat(6,1fr)}
+  .bootdemo .dchips button{min-height:34px;padding:6px 12px;font-size:12px}
+  .bootdemo .dexport button{min-height:34px}
 }
 
 </style>
