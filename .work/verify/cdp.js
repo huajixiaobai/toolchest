@@ -1862,6 +1862,154 @@ const SCENARIOS = {
       r.sampleId = one.id;
     }
     return r })()`,
+  /* Cryptid 的 "星界"(astral) 版本过曝调查：量像素，并把渲染结果导出来肉眼确认。
+     关键指标：近白像素占比、平均亮度、以及和「无版本」「原版闪箔」对比。 */
+  astralProbe: `(async()=>{
+    const B = window.__BALATRO__;
+    const r = { view: 'astralProbe' };
+    await __V.wait(2000);
+    for (let i = 0; i < 240 && !B.mods.length; i++) await __V.wait(400);
+    if (!B.mods.length) return { skipped: 'Cryptid.zip 没导入' };
+    const stats = (cv) => {
+      const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      let n = 0, sum = 0, white = 0, bright = 0, opaque = 0, sat = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        const a = d[i + 3]; if (a < 8) continue;
+        const R = d[i] / 255, G = d[i + 1] / 255, Bl = d[i + 2] / 255;
+        const mx = Math.max(R, G, Bl), mn = Math.min(R, G, Bl);
+        n++; sum += (R + G + Bl) / 3; opaque++;
+        if (mn > 0.94) white++;                    // 近白
+        if (mx > 0.94) bright++;                   // 至少一个通道打满
+        if (mx - mn < 0.06 && mx > 0.6) sat++;     // 发灰/发白（低饱和且亮）
+      }
+      return { px: opaque, meanRGB: +(sum / Math.max(1, n)).toFixed(3),
+        nearWhite: +(white / Math.max(1, n) * 100).toFixed(1),
+        clipped: +(bright / Math.max(1, n) * 100).toFixed(1),
+        washed: +(sat / Math.max(1, n) * 100).toFixed(1) };
+    };
+    const spec = () => Object.assign({}, B.specForItem(B.byId['j_joker']));
+    const astral = B.items.filter((i) => i.cat === 'Edition' && i.source && /astral|星界/i.test((i.id||'') + (i.name||'') + (i.shader||'')))[0];
+    r.astralId = astral ? astral.id : null;
+    r.astralShader = astral ? B.editionShaderOf(astral) : null;
+    const variants = {
+      plain: spec(),
+      astral: astral ? Object.assign(spec(), { edition: B.editionShaderOf(astral) }) : null,
+      foil: Object.assign(spec(), { edition: 'e_foil' }),
+      holo: Object.assign(spec(), { edition: 'e_holo' }),
+      polychrome: Object.assign(spec(), { edition: 'e_polychrome' }),
+    };
+    r.stats = {}; r.png = {};
+    for (const k of Object.keys(variants)) {
+      if (!variants[k]) continue;
+      const cv = B.compose(variants[k], 4, 6);
+      r.stats[k] = stats(cv);
+      r.png[k] = cv.toDataURL('image/png');
+    }
+    r.note = 'meanRGB 是平均亮度；nearWhite 是整块都接近 255 的像素比例；clipped 是至少一个通道打满的比例';
+    r.errors = window.__V.errors.length;
+    return r })()`,
+  /* 合成台里给「小丑牌」叠「星界」版本 —— 用户描述的就是这个操作。
+     合成台的预览走的是 shadeCanvas（画布）而不是 shadeTile（图集格子），
+     两条路径的 texture_details 不一样，所以要单独量。 */
+  astralForge: `(async()=>{
+    const B = window.__BALATRO__;
+    const r = { view: 'astralForge' };
+    await __V.wait(1500);
+    for (let i = 0; i < 240 && !B.mods.length; i++) await __V.wait(400);
+    if (!B.mods.length) return { skipped: 'Cryptid.zip 没导入' };
+    const stats = (cv) => {
+      const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      let n = 0, sum = 0, white = 0, clipped = 0, blue = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i + 3] < 8) continue;
+        const R = d[i] / 255, G = d[i + 1] / 255, Bl = d[i + 2] / 255;
+        const mx = Math.max(R, G, Bl), mn = Math.min(R, G, Bl);
+        n++; sum += (R + G + Bl) / 3;
+        if (mn > 0.94) white++;
+        if (mx > 0.94) clipped++;
+        if (Bl > 0.9 && Bl - R > 0.25) blue++;
+      }
+      return { px: n, meanRGB: +(sum / Math.max(1, n)).toFixed(3),
+        nearWhite: +(white / Math.max(1, n) * 100).toFixed(1),
+        clipped: +(clipped / Math.max(1, n) * 100).toFixed(1),
+        blueWash: +(blue / Math.max(1, n) * 100).toFixed(1) };
+    };
+    const pv = () => document.querySelector('.preview canvas');
+    const grp = (re) => [].slice.call(document.querySelectorAll('.opt')).filter((o) => o.querySelector('h4') && re.test(o.querySelector('h4').textContent))[0];
+    const chipsOf = (re) => { const g = grp(re); return g ? [].slice.call(g.querySelectorAll('.pick')) : [] };
+    await __V.click('.cat', '卡牌合成台', 2600);
+    __V.byText('.forgenav .nv', '全部展开').click(); await __V.wait(800);
+
+    // 1) 牌型选「小丑牌」
+    const typeChip = chipsOf(/牌型/).filter((c) => /小丑牌|^Joker/.test(c.textContent.trim()))[0];
+    r.typeChip = typeChip ? typeChip.textContent.trim() : null;
+    if (typeChip) { typeChip.click(); await __V.wait(1500) }
+
+    // 2) 主体选一张真正的小丑牌
+    const subj = chipsOf(/主体/);
+    r.subjectChips = subj.slice(0, 6).map((c) => c.textContent.trim().slice(0, 16));
+    const joker = subj.filter((c) => /小丑|Joker/i.test(c.textContent))[0] || subj[0];
+    r.baseChip = joker ? joker.textContent.trim().slice(0, 40) : null;
+    if (joker) { joker.click(); await __V.wait(1600) }
+
+    r.beforeEdition = pv() ? stats(pv()) : null;
+    r.pngPlain = pv() ? pv().toDataURL('image/png') : null;
+
+    const chips = chipsOf(/版本/);
+    r.editionChips = chips.map((c) => c.textContent.trim().slice(0, 18));
+    r.png = {};
+    for (const name of ['星界', '过曝', '灰质琉璃']) {
+      const chip = chips.filter((c) => c.textContent.indexOf(name) >= 0)[0];
+      if (!chip) continue;
+      chip.click(); await __V.wait(2200);
+      r.stats = r.stats || {};
+      r.stats[name] = pv() ? stats(pv()) : null;
+      r.png[name] = pv() ? pv().toDataURL('image/png') : null;
+    }
+    const none = chips.filter((c) => /不叠加|无/.test(c.textContent))[0];
+    if (none) { none.click(); await __V.wait(1500) }
+    r.canvasSize = pv() ? pv().width + 'x' + pv().height : null;
+    r.errors = window.__V.errors.length;
+    return r })()`,
+  /* 版本效果的整体保真度：换一批图集行号差别很大的小丑牌，
+     逐张量 astral 的亮度。修好坐标之前，行号越大越白（screen_coords 用图集像素）。 */
+  astralRows: `(async()=>{
+    const B = window.__BALATRO__;
+    const r = { view: 'astralRows' };
+    await __V.wait(2000);
+    for (let i = 0; i < 240 && !B.mods.length; i++) await __V.wait(400);
+    if (!B.mods.length) return { skipped: 'Cryptid.zip 没导入' };
+    const astral = B.items.filter((i) => i.cat === 'Edition' && i.source && /astral|星界/i.test((i.id||'') + (i.name||'') + (i.shader||'')))[0];
+    if (!astral) return { skipped: '没有 astral 版本' };
+    const key = B.editionShaderOf(astral);
+    const stat = (cv) => {
+      const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      let n = 0, sum = 0, white = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i + 3] < 8) continue;
+        const R = d[i] / 255, G = d[i + 1] / 255, Bl = d[i + 2] / 255;
+        n++; sum += (R + G + Bl) / 3;
+        if (Math.min(R, G, Bl) > 0.94) white++;
+      }
+      return { mean: +(sum / Math.max(1, n)).toFixed(3), nearWhite: +(white / Math.max(1, n) * 100).toFixed(1) };
+    };
+    // 挑行号分散的小丑牌（图集 Joker 是 5 列，行越靠下 y 越大）
+    const jokers = B.items.filter((i) => i.cat === 'Joker' && i.pos && i.atlas === 'Joker');
+    const byRow = {};
+    for (const j of jokers) if (!byRow[j.pos.y]) byRow[j.pos.y] = j;
+    const picked = Object.keys(byRow).map((k) => byRow[k]).sort((a, b) => a.pos.y - b.pos.y);
+    r.rows = [];
+    for (const j of picked.slice(0, 14)) {
+      const cv = B.compose(Object.assign({}, B.specForItem(j), { edition: key }), 2, 6);
+      const s = stat(cv);
+      r.rows.push({ id: j.id, row: j.pos.y, col: j.pos.x, ...s });
+    }
+    const means = r.rows.map((x) => x.mean);
+    r.spread = { min: Math.min.apply(null, means), max: Math.max.apply(null, means), delta: +(Math.max.apply(null, means) - Math.min.apply(null, means)).toFixed(3) };
+    r.maxNearWhite = Math.max.apply(null, r.rows.map((x) => x.nearWhite));
+    r.note = '行号不同但同为 astral：亮度和近白比例应当一致（delta 越小越好）';
+    r.errors = window.__V.errors.length;
+    return r })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};
@@ -2394,7 +2542,7 @@ async function main () {
         console.log('             handed fake-balatro.exe to the Lite start screen')
       } else console.log('❌ no file input on the start screen')
     }
-    if (name === 'modCryptid' || name === 'cryptidEditions') {
+    if (name === 'modCryptid' || name === 'cryptidEditions' || name === 'astralProbe' || name === 'astralForge' || name === 'astralRows') {
       const localZip = path.join(__dirname, 'cryptid-test.zip')
       const srcZip = fs.existsSync(localZip) ? localZip : path.join(process.env.USERPROFILE, 'Desktop', 'Cryptid.zip')
       if (!fs.existsSync(srcZip)) {

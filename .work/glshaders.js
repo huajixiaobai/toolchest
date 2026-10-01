@@ -103,6 +103,7 @@
           'in vec2 vTexCoord;',
           'uniform sampler2D tex0;',
           'uniform vec2 uImageDetails;',
+          'uniform vec2 uTileOrigin;',
           'out vec4 OUT;',
         ]
       : [
@@ -110,6 +111,7 @@
           'varying vec2 vTexCoord;',
           'uniform sampler2D tex0;',
           'uniform vec2 uImageDetails;',
+          'uniform vec2 uTileOrigin;',
           '#define OUT gl_FragColor',
         ]
     const defs = [
@@ -124,7 +126,12 @@
     if (/love_ScreenSize/.test(body) && !/uniform[^;\n]*love_ScreenSize\s*;/.test(body)) {
       defs.push('uniform vec2 love_ScreenSize;')
     }
-    const tail = 'void main(){ OUT = effect(vec4(1.0), tex0, vTexCoord, vTexCoord*uImageDetails); }'
+    /* LÖVE hands effect() four things: the tint colour, the texture, the texture coords and
+       the *screen* coords of the fragment. We draw one card into a canvas, so the faithful
+       equivalent of "screen coords" is the pixel position inside that card — the same units
+       texture_details.zw is measured in. uTileOrigin is where this card sits in the sheet,
+       so `vTexCoord*image_details - uTileOrigin` lands on (0..cellW, 0..cellH). */
+    const tail = 'void main(){ OUT = effect(vec4(1.0), tex0, vTexCoord, vTexCoord*uImageDetails - uTileOrigin); }'
     return head.concat(defs).join('\n') + '\n' + body + '\n' + tail
   }
 

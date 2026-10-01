@@ -470,7 +470,7 @@ const GL = (() => {
     if (!res.program) { console.warn('[Balatro 素材图鉴] 着色器 ' + key + ' 编译失败：' + res.log); return null }
     const p = res.program;
     const u = {};
-    const names = LIB.uniformNames(source).concat(['sample_tex', 'tex0', 'uUvRect', 'uImageDetails']);
+    const names = LIB.uniformNames(source).concat(['sample_tex', 'tex0', 'uUvRect', 'uImageDetails', 'uTileOrigin']);
     names.push('love_ScreenSize');
     for (const n of names) {
       const loc = gl.getUniformLocation(p, n);
@@ -531,19 +531,31 @@ const GL = (() => {
     gl.uniform1i(pr.u.tex0, 0);
     if (pr.u.sample_tex) gl.uniform1i(pr.u.sample_tex, 0);
   }
-  /** The uniforms every game shader receives (engine/sprite.lua:96-106). */
+  /**
+   * The uniforms every game shader receives (engine/sprite.lua:96-106).
+   *
+   * `w`/`h` are the card's pixel size in the same units the shader sees as "screen":
+   * in game a card is `G.TILESCALE*G.TILESIZE` ≈ 73 px wide on screen and
+   * `screen_scale = TILESCALE*TILESIZE*CANV_SCALE` ≈ 109 (CANV_SCALE is 1.5), while
+   * `mouse_screen_pos` is the cursor — which sits *on* the card whenever a player is
+   * looking at one. Our card is drawn at an arbitrary zoom, so the ratio is what matters:
+   * screen_scale = 1.5*w and the "cursor" at the card's centre reproduce the game's
+   * geometry exactly (mouse_offset ≈ ±1/3 across the card). Passing screen_scale = w with
+   * mouse at (0,0) — as this used to — inflated every cursor-distance term, which is what
+   * made shaders like Cryptid's astral wash out to white.
+   */
   function commonUniforms (pr, phase, opts, w, h) {
     const u = pr.u;
     if (u.time) gl.uniform1f(u.time, opts.time !== undefined ? opts.time : phase);
     if (u.dissolve) gl.uniform1f(u.dissolve, opts.dissolve || 0);
     if (u.shadow) gl.uniform1i(u.shadow, opts.shadow ? 1 : 0);
     if (u.hovering) gl.uniform1f(u.hovering, 0);
-    if (u.screen_scale) gl.uniform1f(u.screen_scale, w);
-    if (u.mouse_screen_pos) gl.uniform2f(u.mouse_screen_pos, 0, 0);
+    if (u.screen_scale) gl.uniform1f(u.screen_scale, 1.5 * w);
+    if (u.mouse_screen_pos) gl.uniform2f(u.mouse_screen_pos, w / 2, h / 2);
     if (u.love_ScreenSize) gl.uniform2f(u.love_ScreenSize, w, h);
     if (u.burn_colour_1) gl.uniform4f(u.burn_colour_1, 0, 0, 0, 0);
     if (u.burn_colour_2) gl.uniform4f(u.burn_colour_2, 0, 0, 0, 0);
-    // the effect's own vec2 = send_to_shader: {REAL/28, REAL}
+    // the effect's own vec2 = send_to_shader: {REAL/28, REAL}   (card.lua:4349)
     if (pr.flavour && u[pr.flavour]) gl.uniform2f(u[pr.flavour], phase / 28, phase);
   }
   /** Copy the result off the GL canvas. */
@@ -565,6 +577,7 @@ const GL = (() => {
     const u = pr.u;
     if (u.uUvRect) gl.uniform4f(u.uUvRect, ref.x / sheet.w, ref.y / sheet.h, ref.w / sheet.w, ref.h / sheet.h);
     if (u.uImageDetails) gl.uniform2f(u.uImageDetails, sheet.w, sheet.h);
+    if (u.uTileOrigin) gl.uniform2f(u.uTileOrigin, ref.x, ref.y);
     // tile units, not pixels — see the note above
     if (u.texture_details) gl.uniform4f(u.texture_details, ref.x / ref.w, ref.y / ref.h, ref.w, ref.h);
     if (u.image_details) gl.uniform2f(u.image_details, sheet.w, sheet.h);
@@ -594,6 +607,7 @@ const GL = (() => {
     const u = pr.u;
     if (u.uUvRect) gl.uniform4f(u.uUvRect, 0, 0, 1, 1);
     if (u.uImageDetails) gl.uniform2f(u.uImageDetails, W, H);
+    if (u.uTileOrigin) gl.uniform2f(u.uTileOrigin, 0, 0);
     if (u.texture_details) gl.uniform4f(u.texture_details, 0, 0, W, H);
     if (u.image_details) gl.uniform2f(u.image_details, W, H);
     commonUniforms(pr, phase, opts, W, H);
