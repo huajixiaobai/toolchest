@@ -264,6 +264,28 @@ const SCENARIOS = {
      r.title=document.title;
      r.errors=window.__V.errors.length;
      return r })()`,
+  /* The public, deployed site: a real visitor picks their own game file and the whole
+     viewer must come up. The driver hands fake-balatro.exe to the start screen. */
+  liveBoot: `(async()=>{
+     for(let i=0;i<60 && !document.querySelector('#boot .bootcard');i++) await __V.wait(250);
+     const r={view:'liveBoot',url:location.href};
+     r.hasBootScreen=!!document.querySelector('#boot .bootcard');
+     // the driver has put the exe on the input by now; wait for the parse + app boot
+     for(let i=0;i<300 && typeof window.__BALATRO__==='undefined';i++) await __V.wait(300);
+     r.appBooted=typeof window.__BALATRO__!=='undefined';
+     if(!r.appBooted){ r.bootStatus=(document.querySelector('#boot .bootstatus')||{}).textContent||''; r.errors=window.__V.errors.length; return r }
+     const B=window.__BALATRO__;
+     r.items=B.items.length;
+     r.atlases=Object.keys(B.atlases).length;
+     r.textureUrls=Object.keys(window.__BALATRO_ATLAS__).length;
+     r.blobUrls=Object.keys(window.__BALATRO_ATLAS__).filter(k=>String(window.__BALATRO_ATLAS__[k]).startsWith('blob:')).length;
+     r.version=B.data.meta.version;
+     r.shaders=B.shaderPrograms.length;
+     r.bootHidden=(()=>{const b=document.getElementById('boot');return b&&getComputedStyle(b).display==='none'})();
+     r.cells=document.querySelectorAll('.cell').length;
+     r.blank=__V.blank();
+     r.errors=window.__V.errors.length;
+     return r })()`,
   probeCats: `(async()=>{
      await __V.wait(1500);
      const cats=[].slice.call(document.querySelectorAll('.cat')).map(e=>e.textContent.trim());
@@ -2177,7 +2199,7 @@ async function main () {
     await sleep(1200)
     // a 4.2 MB self-contained page is not guaranteed to be parsed in a fixed sleep; wait for the
     // viewer handle (Lite boots from a start screen; the site scenarios have their own waits)
-    if (name !== 'liteBoot' && name !== 'siteHome' && name !== 'siteViewer') {
+    if (name !== 'liteBoot' && name !== 'siteHome' && name !== 'siteViewer' && name !== 'liveBoot') {
       for (let i = 0; i < 80; i++) {
         await sleep(250)
         try { if (await c.eval('window.__BALATRO_READY__ === true')) break } catch (e) { /* still navigating */ }
@@ -2222,6 +2244,21 @@ async function main () {
       await c.send('Page.navigate', { url: base + '#c=Joker&i=j_joker&l=en-us' })
       await sleep(1500)
       await c.eval(HELPERS)
+    }
+    if (name === 'liveBoot') {
+      // the viewer lives at /viewer/ and boots only after a file is picked
+      await c.send('Page.navigate', { url: clean.replace(/\/?$/, '/') + 'viewer/' }).catch(() => {})
+      await sleep(2500)
+      await c.eval(HELPERS)
+      // a visitor's own game file, delivered the way the browser delivers a picked one
+      const exe = path.join(__dirname, 'fake-balatro.exe')
+      if (!fs.existsSync(exe)) console.log('❌ fake-balatro.exe missing — run verify/test-gameparse.js first')
+      const doc = await c.send('DOM.getDocument', { depth: -1 })
+      const inp = await c.send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: '#boot input[type=file]' })
+      if (inp && inp.nodeId) {
+        await c.send('DOM.setFileInputFiles', { files: [exe], nodeId: inp.nodeId })
+        console.log('             handed fake-balatro.exe to the live start screen')
+      } else console.log('❌ no file input on the live start screen')
     }
     if (name === 'siteViewer') {
       // the viewer lives one level down; navigate from the driver so the eval isn't killed
