@@ -1,0 +1,46 @@
+name: Deploy site to GitHub Pages
+
+# 站点是纯静态的，仓库里的 docs/ 就是成品。
+# 这条工作流做两件事：
+#   1) 如果 Pages 还没开，用工作流自带的令牌把它打开（configure-pages 的 enablement）
+#   2) 把 docs/ 原样发到 Pages
+# 所以以后往 main 推一次，站点就自动更新一次 —— 不需要在设置页点任何东西。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同时只跑一个部署；新的推送取消排队中的旧任务
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages (and enable it on the first run)
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload docs/ as the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
