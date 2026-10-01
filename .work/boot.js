@@ -361,14 +361,22 @@
     card.appendChild(el('p', 'lead', '这是一个纯代码的浏览器工具：把游戏里的美术素材与数据解出来，做成可检索、可预览、可导出的图鉴。'))
     card.appendChild(el('p', 'lead strong', '网站本身不包含任何游戏素材 —— 请选择你自己电脑上的 Balatro 游戏文件，解析全部在这个页面里完成，不会上传任何东西。'))
 
+    /* 宽屏左右分栏：左＝导入（主操作），右＝预览（它能做什么）。
+       DOM 顺序是导入在前，所以窄屏叠成一列时导入自然在上面。 */
+    const cols = el('div', 'bootcols')
+    const imp = el('div', 'bootimp')
+    const prev = el('div', 'bootprev')
+    cols.appendChild(imp); cols.appendChild(prev)
+    card.appendChild(cols)
+
     const buttons = el('div', 'bootbtns')
     const bExe = el('button', 'btn primary', '选择 Balatro.exe')
     const bDir = el('button', 'btn', '选择游戏文件夹')
     buttons.appendChild(bExe); buttons.appendChild(bDir)
-    card.appendChild(buttons)
+    imp.appendChild(buttons)
 
     /* 就放在按钮下面：说清"为什么要你自己选文件"，而不是让人以为这站少做了功能 */
-    card.appendChild(el('p', 'bootdisc',
+    imp.appendChild(el('p', 'bootdisc',
       '为什么要你自己选文件？因为游戏素材的版权不属于本站，这里不能替你分发 —— ' +
       '页面只是把你自己那份游戏里的内容读出来给你看。全程在本地完成，不上传任何数据；' +
       '选过一次之后本站会记住它（存在你自己的浏览器里），下次打开直接就是图鉴。'))
@@ -376,23 +384,26 @@
     const inExe = el('input'); inExe.type = 'file'; inExe.accept = '.exe,.zip,application/octet-stream'; inExe.style.display = 'none'
     const inDir = el('input'); inDir.type = 'file'; inDir.multiple = true; inDir.style.display = 'none'
     if ('webkitdirectory' in inDir) { inDir.webkitdirectory = true; inDir.setAttribute('webkitdirectory', '') } else { bDir.disabled = true; bDir.title = '这个浏览器不支持选文件夹，请用 exe 或直接拖进来' }
-    card.appendChild(inExe); card.appendChild(inDir)
+    imp.appendChild(inExe); imp.appendChild(inDir)
 
     const drop = el('div', 'bootdrop')
     drop.appendChild(el('div', 'big', '⬇'))
     drop.appendChild(el('div', null, '也可以把 Balatro.exe / 游戏文件夹 / 已经解好的 .zip 拖到这里'))
-    card.appendChild(drop)
+    imp.appendChild(drop)
 
     /* 触屏上没有拖放这回事：手机显示这段能真正照做的提示（CSS 按 hover 能力二选一） */
     const tap = el('div', 'boottap')
     tap.appendChild(el('div', null, '点上面的按钮选择文件。'))
     tap.appendChild(el('div', null, '手机上「选择游戏文件夹」最省事；如果系统不让选文件夹，就把游戏目录压成一个 .zip 再选。'))
-    card.appendChild(tap)
+    imp.appendChild(tap)
 
-    /* ------------------------------------------------------------------ 预览区
-     * 「它能做什么」属于这个工具自己，所以放在启动页（点进素材图鉴第一眼就是它），
-     * 而不是工具箱首页 —— 首页以后还要放别的项目。
-     * 放在按钮/提示之后、细节说明之前：先让人看到能干什么，再读注意事项。
+    /* 进度/错误提示放在按钮下方，解析时一定看得见 */
+    const status = el('div', 'bootstatus')
+    status.style.display = 'none'
+    imp.appendChild(status)
+
+    /* ------------------------------------------------------------------ 预览区（右栏）
+     * 「它能做什么」属于这个工具自己：桌面分栏时它在导入右侧，窄屏时堆在导入下面。
      * 全部由代码绘制，不含任何游戏素材。 */
     const demo = el('div', 'bootdemo')
     demo.innerHTML =
@@ -427,10 +438,7 @@
           '右边：21 帧的盲注动画循环播放，程序会算出「接缝最小」的那一帧当循环点，导出的动图才不会跳。</p></div>' +
       '</div>' +
       '<div class="dfoot">上面全是<b>代码画的示意</b>（这个站里没有任何游戏素材）；真实内容来自你自己电脑上的那份游戏文件。</div>'
-    card.appendChild(demo)
-    startDemo()
-
-    card.appendChild(demo)
+    prev.appendChild(demo)
 
     const notes = el('ul', 'bootnotes')
     for (const t of [
@@ -440,9 +448,7 @@
       '解析结果只存在这个页面里，刷新就没了；想离线长期使用可以下载单文件版。',
       '本站是非官方粉丝工具，与 LocalThunk / Playstack 没有任何关联；游戏素材与数据的版权归原作者所有。',
     ]) notes.appendChild(el('li', null, t))
-    card.appendChild(notes)
-
-    card.appendChild(el('div', 'bootstatus')).style.display = 'none'
+    imp.appendChild(notes)
 
     root.appendChild(card)
     /* 预览区的互动必须在卡片**进入文档之后**再接：startDemo 里用 getElementById 找

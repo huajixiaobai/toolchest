@@ -412,10 +412,16 @@ body.dropping::after{
   .drop{padding:16px 12px}
 }
 
-/* Start screen for the web build. Uses the same palette as the viewer. */
+/* Start screen for the web build. Uses the same palette as the viewer.
+   ── 布局要点（踩过坑，别改回去）─────────────────────────────────────────
+   #boot 是 fixed 满屏的滚动容器。**不能用 align-items:center**：卡片比屏幕高时，
+   flex 的居中会把卡片顶部顶到视口上方，而溢出的那部分滚不上去 —— 表现就是
+   "导入按钮被卡在屏幕外面，怎么也滚不到"。正确做法是 align-items:flex-start +
+   卡片 margin:auto：有富余空间时 auto 外边距自然居中，没有富余时它退化成 0，
+   卡片顶部永远留在 padding 边缘、可滚动可达。 */
 #boot{
   position:fixed;inset:0;z-index:120;overflow:auto;
-  display:flex;align-items:center;justify-content:center;padding:24px 16px;
+  display:flex;align-items:flex-start;justify-content:center;padding:24px 16px;
   background:
     radial-gradient(1100px 520px at 12% -10%, #1d3040 0%, transparent 60%),
     radial-gradient(900px 480px at 100% 0%, #241c33 0%, transparent 55%),
@@ -423,12 +429,20 @@ body.dropping::after{
   color:var(--fg,#dfe7ee);font-family:var(--sans,"Segoe UI","PingFang SC",system-ui,sans-serif)
 }
 .bootcard{
-  width:100%;max-width:620px;background:linear-gradient(180deg,#18222c,#141c25);
+  width:100%;max-width:620px;margin:auto;background:linear-gradient(180deg,#18222c,#141c25);
   border:1px solid var(--line,#26313d);border-radius:14px;padding:26px 26px 22px;box-shadow:0 20px 60px #000a
 }
 .bootcard h1{margin:0 0 12px;font-size:21px;letter-spacing:.5px}
 .bootcard .lead{margin:0 0 10px;font-size:13px;line-height:1.75;color:var(--fg3,#6d7d8d)}
 .bootcard .lead.strong{color:var(--fg2,#9fb0c0)}
+/* 宽屏：左右分栏 —— 左边导入（主操作），右边预览（能干什么）。
+   DOM 顺序是「导入在前」，所以窄屏单列时导入自然排在预览上面。 */
+.bootcols{display:block}
+.bootimp>*:first-child{margin-top:0}
+@media(min-width:920px){
+  .bootcard{max-width:1020px}
+  .bootcols{display:grid;grid-template-columns:minmax(300px,360px) 1fr;gap:26px;align-items:start}
+}
 .bootbtns{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 10px}
 .bootbtns .btn{font-size:13.5px;padding:9px 16px}
 /* 免责 / 说明：紧跟在按钮下面，回答"为什么还要我自己选文件" */
@@ -477,7 +491,11 @@ body.dropping::after{
    所有选择器都限定在 .bootdemo 里，免得跟查看器自己的 .dhead 等类名打架。
    内容全部由代码绘制，不含任何游戏素材。
    --------------------------------------------------------------------------- */
-.bootdemo{margin-top:20px;border-top:1px solid var(--line,#26313d);padding-top:16px;container-type:inline-size}
+/* 预览区（在右栏；窄屏时堆在导入下面，所以那时才需要一条分隔线） */
+.bootdemo{margin-top:0;border-top:none;padding-top:0;container-type:inline-size}
+@media(max-width:919px){
+  .bootdemo{margin-top:22px;border-top:1px solid var(--line,#26313d);padding-top:18px}
+}
 .bootdemo .demohead{margin:0 0 12px;font-size:14px;letter-spacing:1.2px;color:var(--fg2,#9fb0c0);text-transform:uppercase}
 .bootdemo .demo{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
 .bootdemo .dcell{background:#0f171e;border:1px solid var(--line,#26313d);border-radius:12px;padding:13px}
@@ -528,8 +546,8 @@ body.dropping::after{
 .bootdemo .dfoot{margin-top:11px;font-size:11.5px;color:var(--fg3,#6d7d8d);text-align:center}
 
 @media(max-width:560px){
-  #boot{padding:14px 12px;align-items:flex-start}
-  .bootcard{padding:20px 16px 18px;border-radius:12px;margin:auto 0}
+  #boot{padding:14px 12px}
+  .bootcard{padding:20px 16px 18px;border-radius:12px}
   .bootcard h1{font-size:20px;margin-bottom:10px}
   .bootcard .lead{font-size:14px;line-height:1.7}
   .bootbtns{flex-direction:column;gap:10px;margin:16px 0 10px}

@@ -388,6 +388,10 @@ const SCENARIOS = {
        r.demoCanvas={w:dc.width,h:dc.height,painted:nz>200};
      }
      r.demoBottom=(()=>{const f=document.querySelector('.bootdemo .dfoot');if(!f)return null;const b=f.getBoundingClientRect();return {t:Math.round(b.top),b:Math.round(b.bottom)}})();
+     const RR=(e)=>{if(!e)return null;const b=e.getBoundingClientRect();return {t:Math.round(b.top),b:Math.round(b.bottom),l:Math.round(b.left),r:Math.round(b.right),w:Math.round(b.width)}};
+     r.impRect=RR(document.querySelector('#boot .bootimp'));
+     r.prevRect=RR(document.querySelector('#boot .bootprev'));
+     r.sameRow=!!(r.impRect&&r.prevRect)&&r.prevRect.t<r.impRect.b-10;
      r.errors=window.__V.errors.length;
      return r })()`,
   probeCats: `(async()=>{
@@ -2227,6 +2231,39 @@ const SCENARIOS = {
      r.cellWidths=[].slice.call(root.querySelectorAll('.dcell')).map(x=>Math.round(x.getBoundingClientRect().width));
      r.errors=window.__V.errors.length;
      return r })()`,
+  /* 桌面短窗口（就是用户遇到的那种：卡片比屏幕高）—— 必须满足：
+     ① 导入按钮一开始就在视口里（顶部没被顶出去）
+     ② 万一要滚，滚到最顶也能看到按钮；滚不动 = 不可达就是 bug
+     ③ 预览在右栏（左右分栏生效） */
+  bootShort: `(async()=>{
+     for(let i=0;i<50 && !document.querySelector('#boot .bootcard');i++) await __V.wait(200);
+     const sc=document.getElementById('boot');
+     const btn=document.querySelector('#boot .bootbtns .btn');
+     const card=document.querySelector('#boot .bootcard');
+     const imp=document.querySelector('#boot .bootimp');
+     const prev=document.querySelector('#boot .bootprev');
+     const R=e=>{ if(!e) return null; const b=e.getBoundingClientRect(); return {t:Math.round(b.top),b:Math.round(b.bottom),l:Math.round(b.left),r:Math.round(b.right),w:Math.round(b.width),h:Math.round(b.height)} };
+     const r={view:'bootShort',vw:innerWidth,vh:innerHeight};
+     r.scrollTop0=sc.scrollTop;
+     r.canScroll=sc.scrollHeight>sc.clientHeight+1;
+     r.scrollH=sc.scrollHeight; r.clientH=sc.clientHeight;
+     r.card=R(card); r.imp=R(imp); r.prev=R(prev);
+     r.btn0=R(btn);
+     r.btnVisible0=!!r.btn0 && r.btn0.t>=0 && r.btn0.b<=innerHeight;
+     /* 滚到最顶，看按钮是否可达 */
+     sc.scrollTop=0; await __V.wait(120);
+     r.btnAtTop=R(btn);
+     r.btnReachable=r.btnAtTop && r.btnAtTop.t>=-1 && r.btnAtTop.b<=innerHeight;
+     /* 能不能滚到卡片最底部（说明整页可达） */
+     sc.scrollTop=sc.scrollHeight; await __V.wait(150);
+     r.reachedBottom=Math.abs(sc.scrollTop+sc.clientHeight-sc.scrollHeight)<3;
+     r.demoVisible=(()=>{const d=document.querySelector('.bootdemo');if(!d)return null;const b=d.getBoundingClientRect();return b.width>50})();
+     /* 左右分栏：导入在左、预览在右（同一行） */
+     r.twoCols=!!(r.imp&&r.prev) && r.prev.l>=r.imp.r-2;
+     r.overlap=!!(r.imp&&r.prev) && r.imp.r>r.prev.l+2 && Math.min(r.imp.b,r.prev.b)-Math.max(r.imp.t,r.prev.t)>10;
+     sc.scrollTop=0;
+     r.errors=window.__V.errors.length;
+     return r })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};
@@ -2621,6 +2658,7 @@ async function main () {
 
   const results = {}
   let MobileMode = false
+  let LongMode = false
   for (const name of list) {
     if (!SCENARIOS[name]) continue
     /* Each scenario must start from a *clean* visit. A plain location.reload() is not enough:
@@ -2651,14 +2689,23 @@ async function main () {
     await c.eval('window.__V.errors=[]')
     let rep
     const clipShots = []
+    if (name === 'bootShort') {
+      /* 用户遇到的就是这种窗口：比卡片矮很多（1280×560，非手机） */
+      await c.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 560, deviceScaleFactor: 1, mobile: false })
+      LongMode = true
+    }
     if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile') {
       // emulate a phone viewport (bootPhone tests the start screen visitors land on)
       await c.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
       await c.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {})
       MobileMode = true
-    } else if (MobileMode) {      await c.send('Emulation.clearDeviceMetricsOverride').catch(() => {})
+    } else if (MobileMode) {
+      await c.send('Emulation.clearDeviceMetricsOverride').catch(() => {})
       await c.send('Emulation.setTouchEmulationEnabled', { enabled: false }).catch(() => {})
       MobileMode = false
+    } else if (LongMode && name !== 'bootShort') {
+      await c.send('Emulation.clearDeviceMetricsOverride').catch(() => {})
+      LongMode = false
     }
     try {
     if (name === 'shaderCompile') {
@@ -2724,7 +2771,7 @@ async function main () {
         console.log('             handed fake-balatro.exe to the live start screen')
       } else console.log('❌ no file input on the live start screen')
     }
-    if (name === 'siteViewer' || name === 'bootPhone' || name === 'demoDebug' || name === 'demoRect' || name === 'demoRectMobile' || name === 'demoLayout' || name === 'demoLayoutMobile') {
+    if (name === 'siteViewer' || name === 'bootPhone' || name === 'demoDebug' || name === 'demoRect' || name === 'demoRectMobile' || name === 'demoLayout' || name === 'demoLayoutMobile' || name === 'bootShort') {
       // the viewer lives one level down; navigate from the driver so the eval isn't killed
       await c.send('Page.navigate', { url: viewerUrl(clean) }).catch(() => {})
       await sleep(1800)
