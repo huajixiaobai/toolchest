@@ -2178,6 +2178,55 @@ const SCENARIOS = {
      }
      r.errors=window.__V.errors.length;
      return r })()`,
+  /* 只做一件事：把预览区的矩形交出来，交给驱动去裁图（肉眼看排版）。 */
+  demoRect: `(async()=>{
+     for(let i=0;i<50 && !document.querySelector('#boot .bootcard');i++) await __V.wait(200);
+     const d=document.querySelector('.bootdemo');
+     if(!d) return {fatal:'没有预览区'};
+     const b=d.getBoundingClientRect();
+     const cells=[].slice.call(document.querySelectorAll('.bootdemo .dcell')).map(x=>{const r=x.getBoundingClientRect();return {t:Math.round(r.top),h:Math.round(r.height),w:Math.round(r.width)}});
+     const cv=document.getElementById('dCanvas');
+     return {view:'demoRect',vw:innerWidth,vh:innerHeight,
+       demo:{t:Math.round(b.top),h:Math.round(b.height),w:Math.round(b.width)},
+       cells, canvas:cv?{css:Math.round(cv.getBoundingClientRect().width)+'x'+Math.round(cv.getBoundingClientRect().height),backing:cv.width+'x'+cv.height}:null,
+       errors:window.__V.errors.length} })()`,
+  /* 预览区的排版体检：溢出、字号、点击尺寸、画布清晰度 —— 数值比"看着丑"可定位。 */
+  demoLayout: `(async()=>{
+     for(let i=0;i<50 && !document.querySelector('#boot .bootcard');i++) await __V.wait(200);
+     const root=document.querySelector('.bootdemo');
+     if(!root) return {fatal:'没有预览区'};
+     const R=(e)=>{const b=e.getBoundingClientRect();return {t:Math.round(b.top),b:Math.round(b.bottom),l:Math.round(b.left),r:Math.round(b.right),w:Math.round(b.width),h:Math.round(b.height)}};
+     const r={view:'demoLayout',vw:innerWidth,vh:innerHeight};
+     const box=R(root);
+     r.box=box;
+     // 1) 文本溢出 / 元素超出容器
+     const out=[], tiny=[], overflow=[];
+     for(const e of root.querySelectorAll('*')){
+       const s=getComputedStyle(e);
+       if(s.display==='none') continue;
+       const b=e.getBoundingClientRect();
+       if(b.width<1||b.height<1) continue;
+       if(b.right>box.r+1.5||b.left<box.l-1.5) out.push((e.className||e.tagName)+' → 右 '+Math.round(b.right)+' > '+box.r);
+       if(e.scrollWidth-e.clientWidth>1 && s.overflowX!=='visible') overflow.push((e.className||e.tagName)+' 横向溢出 '+ (e.scrollWidth-e.clientWidth)+'px');
+       const fs=parseFloat(s.fontSize);
+       if(e.children.length===0 && (e.textContent||'').trim() && fs<11) tiny.push((e.className||e.tagName)+' '+fs+'px');
+     }
+     r.stickingOut=out.slice(0,8); r.hOverflow=overflow.slice(0,8); r.tinyText=tiny.slice(0,8);
+     // 2) 可点元素够不够大（触屏 44px 是舒适线，34px 是底线）
+     r.taps=[].slice.call(root.querySelectorAll('button')).map(b=>({t:b.textContent.trim().slice(0,6),h:Math.round(b.getBoundingClientRect().height),w:Math.round(b.getBoundingClientRect().width)}));
+     r.tapMin=r.taps.length?Math.min.apply(null,r.taps.map(x=>x.h)):null;
+     // 3) 画布：backing / css 比例（1 才清晰；小于 1 就是被放大糊掉）
+     const cv=document.getElementById('dCanvas');
+     if(cv){ const b=cv.getBoundingClientRect(); const dpr=window.devicePixelRatio||1;
+       const ratio=+(cv.width/b.width).toFixed(3);
+       r.canvas={css:Math.round(b.width)+'x'+Math.round(b.height),backing:cv.width+'x'+cv.height,dpr,
+         ratio,crisp:ratio>=dpr*0.98};
+       r.canvasRect={t:Math.round(b.top),l:Math.round(b.left),w:Math.round(b.width),h:Math.round(b.height)};
+     }
+     // 4) 各列的宽度是否一致（栅格有没有塌）
+     r.cellWidths=[].slice.call(root.querySelectorAll('.dcell')).map(x=>Math.round(x.getBoundingClientRect().width));
+     r.errors=window.__V.errors.length;
+     return r })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};
@@ -2517,6 +2566,9 @@ const SCENARIOS = {
 }
 
 async function main () {
+  /* demoRect 的同一个场景需要一个"手机尺寸"的别名，好让 runner 按名字切换视口 */
+  if (SCENARIOS.demoRect && !SCENARIOS.demoRectMobile) SCENARIOS.demoRectMobile = SCENARIOS.demoRect
+  if (SCENARIOS.demoLayout && !SCENARIOS.demoLayoutMobile) SCENARIOS.demoLayoutMobile = SCENARIOS.demoLayout
   const want = process.argv.slice(2)
   const list = want.length ? want : Object.keys(SCENARIOS)
   const profile = path.join(__dirname, '..', 'chromeprofile-cdp')
@@ -2599,13 +2651,12 @@ async function main () {
     await c.eval('window.__V.errors=[]')
     let rep
     const clipShots = []
-    if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone') {
+    if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile') {
       // emulate a phone viewport (bootPhone tests the start screen visitors land on)
       await c.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
       await c.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {})
       MobileMode = true
-    } else if (MobileMode) {
-      await c.send('Emulation.clearDeviceMetricsOverride').catch(() => {})
+    } else if (MobileMode) {      await c.send('Emulation.clearDeviceMetricsOverride').catch(() => {})
       await c.send('Emulation.setTouchEmulationEnabled', { enabled: false }).catch(() => {})
       MobileMode = false
     }
@@ -2673,7 +2724,7 @@ async function main () {
         console.log('             handed fake-balatro.exe to the live start screen')
       } else console.log('❌ no file input on the live start screen')
     }
-    if (name === 'siteViewer' || name === 'bootPhone' || name === 'demoDebug') {
+    if (name === 'siteViewer' || name === 'bootPhone' || name === 'demoDebug' || name === 'demoRect' || name === 'demoRectMobile' || name === 'demoLayout' || name === 'demoLayoutMobile') {
       // the viewer lives one level down; navigate from the driver so the eval isn't killed
       await c.send('Page.navigate', { url: viewerUrl(clean) }).catch(() => {})
       await sleep(1800)
@@ -2777,6 +2828,32 @@ async function main () {
     results[name] = { rep, errors: errs, consoleMsgs, clipShots }
     if (['codex', 'jokers', 'forge', 'atlas', 'hands', 'tarot', 'shaders', 'blind', 'cards', 'data', 'showcase', 'mobile', 'soulCompare', 'boxCompare', 'modImport', 'modView', 'modCryptid', 'forgeUx', 'modForge', 'srcBack', 'forgePhone', 'siteHome', 'siteViewer', 'bootPhone'].includes(name)) {
       try { await c.shot(name) } catch (e) { /* ignore */ }
+    }
+    /* demoRect：把预览区整块裁下来存成图片，用来肉眼看排版（数值看不出丑不丑） */
+    if ((name === 'demoRect' || name === 'demoRectMobile') && rep && rep.demo) {
+      const mobile = MobileMode ? 'mobile' : 'desktop'
+      const scale = MobileMode ? 2 : 1
+      const pad = 6
+      try {
+        const shot = await c.send('Page.captureScreenshot', {
+          format: 'png',
+          captureBeyondViewport: true,
+          clip: { x: 0, y: Math.max(0, rep.demo.t - pad), width: Math.max(320, Math.min(rep.vw, rep.demo.w + 40)), height: rep.demo.h + pad * 2, scale },
+        })
+        const f = 'demo-' + mobile + '.png'
+        fs.writeFileSync(path.join(SHOTS, f), Buffer.from(shot.data, 'base64'))
+        console.log('             clip:', f, rep.demo.w + 'x' + rep.demo.h)
+        /* 再单独裁一张画布，方便看清示意图本身是否清晰 */
+        const cr = await c.eval('(()=>{const cv=document.getElementById("dCanvas");if(!cv)return null;const b=cv.getBoundingClientRect();return {t:Math.round(b.top),l:Math.round(b.left),w:Math.round(b.width),h:Math.round(b.height)}})()')
+        if (cr) {
+          const s2 = await c.send('Page.captureScreenshot', {
+            format: 'png', captureBeyondViewport: true,
+            clip: { x: cr.l - 4, y: cr.t - 4, width: cr.w + 8, height: cr.h + 8, scale },
+          })
+          fs.writeFileSync(path.join(SHOTS, 'demo-canvas-' + mobile + '.png'), Buffer.from(s2.data, 'base64'))
+          console.log('             clip: demo-canvas-' + mobile + '.png', cr.w + 'x' + cr.h)
+        }
+      } catch (e) { console.log('             clip 失败:', String(e.message).slice(0, 120)) }
     }
     console.log(name.padEnd(12), errs.length ? '❌ errors ' + JSON.stringify(errs) : '✅', JSON.stringify(rep).slice(0, 380))
     if (consoleMsgs.length) console.log('             console:\n' + consoleMsgs.map((m) => '               · ' + m.replace(/\n/g, ' | ')).join('\n'))

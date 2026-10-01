@@ -212,10 +212,10 @@
     const c = document.getElementById('dCanvas')
     if (!c || !c.getContext) return
     const ctx = c.getContext('2d')
-    const W = c.width, H = c.height
-    const COLS = 5, ROWS = 4, CELL = 30, PAD = 16, FRAMES = 21, LOOP_AT = 12
+    const FRAMES = 21, LOOP_AT = 12
     const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
     const t0 = performance.now()
+    const DPR = Math.min(2, window.devicePixelRatio || 1)
     const roundRect = (x, y, w, h, r) => {
       ctx.beginPath()
       ctx.moveTo(x + r, y)
@@ -225,65 +225,125 @@
       ctx.arcTo(x, y, x + w, y, r)
       ctx.closePath()
     }
+
+    /* 画布按**实际显示宽度**来画（不是画在 900px 里再被缩小 —— 那样字和线会一起糊掉）。
+       三档布局：窄屏（手机）竖排、中屏并排、宽屏完整 21 帧。 */
+    let W = 900, H = 240, narrow = false, mid = false
+    const fit = () => {
+      /* 用 getBoundingClientRect 的**小数**宽度（clientWidth 是取整的，会差出 1px 的缩放） */
+      const rect = c.getBoundingClientRect()
+      const cssW = Math.max(260, Math.round((rect.width || c.clientWidth || 900) * 100) / 100)
+      narrow = cssW < 420
+      mid = !narrow && cssW < 700
+      W = cssW
+      H = narrow ? 352 : 244
+      c.width = Math.round(W * DPR)
+      c.height = Math.round(H * DPR)
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0)
+    }
+
     const draw = (now) => {
       const t = (now - t0) / 1000
       ctx.clearRect(0, 0, W, H)
-      ctx.font = '11px sans-serif'
       ctx.textAlign = 'left'
 
+      /* ---- 左：图集，逐格高亮 + 取出这一格 ---- */
+      const PAD = narrow ? 12 : 14
+      const GAP = narrow ? 6 : 5
+      const COLS = narrow ? 3 : 5, ROWS = 4
+      const gridW = narrow ? W * 0.46 : Math.min(W * 0.34, 172)
+      const CELL = Math.max(18, Math.floor((gridW - (COLS - 1) * GAP) / COLS))
+      const gw = COLS * CELL + (COLS - 1) * GAP
+      const gh = ROWS * CELL + (ROWS - 1) * GAP
+      const ox = PAD, oy = 34
       const idx = Math.floor(t * 1.6) % (COLS * ROWS)
-      const ox = PAD, oy = 42
-      ctx.fillStyle = '#6d7d8d'
-      ctx.fillText('图集（贴图）', ox, 24)
-      for (let i = 0; i < COLS * ROWS; i++) {
-        const cx = ox + (i % COLS) * (CELL + 4)
-        const cy = oy + Math.floor(i / COLS) * (CELL + 4)
-        const hot = i === idx
-        ctx.fillStyle = hot ? '#1d3b34' : '#18222c'
-        ctx.strokeStyle = hot ? '#4bc292' : '#2b3844'
-        ctx.lineWidth = 1
-        roundRect(cx, cy, CELL, CELL, 4); ctx.fill(); ctx.stroke()
-      }
-      const sx = ox + (idx % COLS) * (CELL + 4) + CELL + 14
-      const cardW = 62, cardH = 82, dx = sx + 34, dy = oy + 4
-      ctx.strokeStyle = '#33414f'
-      ctx.beginPath(); ctx.moveTo(sx, oy + 60); ctx.lineTo(dx - 6, oy + 60); ctx.stroke()
-      ctx.fillStyle = '#1b242e'; ctx.strokeStyle = '#4bc292'; ctx.lineWidth = 2
-      roundRect(dx, dy, cardW, cardH, 7); ctx.fill(); ctx.stroke()
-      ctx.fillStyle = '#4bc292'
-      ctx.fillRect(dx + 10, dy + 12, cardW - 20, 3)
-      ctx.fillRect(dx + 10, dy + 22, cardW - 30, 3)
-      ctx.fillStyle = '#33414f'
-      ctx.fillRect(dx + 10, dy + cardH - 20, cardW - 20, 10)
-      ctx.fillStyle = '#6d7d8d'
-      ctx.font = '10px sans-serif'
-      ctx.fillText('取出这一格', dx, dy + cardH + 14)
 
-      const rx = dx + cardW + 50
       ctx.font = '11px sans-serif'
-      ctx.fillStyle = '#6d7d8d'
-      ctx.fillText('盲注动画（21 帧）· 循环点标在接缝最小处', rx, 24)
-      const fw = 14, fh = 62
-      const play = Math.floor(t * 9) % FRAMES
-      for (let f = 0; f < FRAMES; f++) {
-        const fx = rx + f * (fw + 3)
-        if (fx + fw > W - PAD) break
-        const on = f === play
-        ctx.fillStyle = on ? '#1d3b34' : '#18222c'
-        ctx.strokeStyle = on ? '#4bc292' : (f === LOOP_AT ? '#f3b958' : '#2b3844')
-        ctx.lineWidth = f === LOOP_AT ? 2 : 1
-        roundRect(fx, 42, fw, fh, 3); ctx.fill(); ctx.stroke()
-        ctx.fillStyle = on ? '#4bc292' : '#33414f'
-        const barH = 8 + ((f * 7) % 22)
-        ctx.fillRect(fx + 3, 42 + fh - 6 - barH, fw - 6, barH)
+      ctx.fillStyle = '#7d8d9d'
+      ctx.fillText(narrow ? '图集（贴图按格子切开）' : '图集（贴图）', ox, 20)
+
+      for (let i = 0; i < COLS * ROWS; i++) {
+        const cx = ox + (i % COLS) * (CELL + GAP)
+        const cy = oy + Math.floor(i / COLS) * (CELL + GAP)
+        const hot = i === idx
+        ctx.fillStyle = hot ? '#1d3b34' : '#1b242e'
+        ctx.strokeStyle = hot ? '#4bc292' : '#2f3d4a'
+        ctx.lineWidth = hot ? 2 : 1
+        roundRect(cx + 0.5, cy + 0.5, CELL - 1, CELL - 1, 4); ctx.fill(); ctx.stroke()
       }
-      ctx.fillStyle = '#f3b958'
-      ctx.fillRect(rx + LOOP_AT * (fw + 3) - 1, 36, fw + 5, 2)
-      ctx.font = '10px sans-serif'
-      ctx.fillText('循环', rx + LOOP_AT * (fw + 3) - 4, 142)
+
+      /* ---- 中：把这一格"取出来"放大成一张卡 ---- */
+      const cardW = narrow ? 58 : 64, cardH = narrow ? 78 : 86
+      const dx = ox + gw + (narrow ? 26 : 34)
+      const dy = oy + Math.max(0, (gh - cardH) / 2)
+      if (dx + cardW <= W - PAD) {
+        ctx.strokeStyle = '#33414f'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(ox + gw + 6, oy + gh / 2)
+        ctx.lineTo(dx - 6, oy + gh / 2)
+        ctx.stroke()
+        ctx.fillStyle = '#1b242e'; ctx.strokeStyle = '#4bc292'; ctx.lineWidth = 2
+        roundRect(dx, dy, cardW, cardH, 7); ctx.fill(); ctx.stroke()
+        ctx.fillStyle = '#4bc292'
+        ctx.fillRect(dx + 9, dy + 11, cardW - 18, 3)
+        ctx.fillRect(dx + 9, dy + 21, cardW - 26, 3)
+        ctx.fillStyle = '#33414f'
+        ctx.fillRect(dx + 9, dy + cardH - 18, cardW - 18, 9)
+        ctx.fillStyle = '#7d8d9d'
+        ctx.font = '10px sans-serif'
+        ctx.fillText('取出这一格', dx, dy + cardH + 13)
+      }
+
+      /* ---- 右/下：21 帧动画条，播放头 + 循环点按比例摆放（所以永远放得下）---- */
+      const stripTop = narrow ? oy + gh + 46 : oy
+      const stripLeft = narrow ? PAD : dx + cardW + 30
+      const stripW = W - stripLeft - PAD
       ctx.font = '11px sans-serif'
-      ctx.fillStyle = '#6d7d8d'
-      ctx.fillText('当前帧 ' + (play + 1) + ' / ' + FRAMES, rx, 166)
+      ctx.fillStyle = '#7d8d9d'
+      ctx.fillText(narrow ? '盲注动画 21 帧 · 黄线 = 自动找到的循环点' : '盲注动画（21 帧）· 循环点标在接缝最小处', stripLeft, stripTop - 14)
+
+      const fh = narrow ? 52 : 62
+      const n = Math.max(6, Math.min(FRAMES, Math.floor((stripW + 3) / (narrow ? 22 : 17))))
+      const fw = (stripW - (n - 1) * 3) / n
+      const play = Math.floor(t * 9) % FRAMES
+      const posOf = (f) => stripLeft + (f / (FRAMES - 1)) * (stripW - fw)
+      for (let k = 0; k < n; k++) {
+        const f = Math.round(k * (FRAMES - 1) / (n - 1))
+        const fx = posOf(f)
+        const on = f === play
+        const isLoop = f === LOOP_AT
+        ctx.fillStyle = on ? '#1d3b34' : '#1b242e'
+        ctx.strokeStyle = on ? '#4bc292' : (isLoop ? '#f3b958' : '#2f3d4a')
+        ctx.lineWidth = isLoop ? 2 : 1
+        roundRect(fx + 0.5, stripTop + 0.5, fw - 1, fh - 1, 3); ctx.fill(); ctx.stroke()
+        ctx.fillStyle = on ? '#4bc292' : '#38485a'
+        const barH = 6 + ((f * 7) % (fh - 18))
+        ctx.fillRect(fx + 3, stripTop + fh - 5 - barH, Math.max(2, fw - 6), barH)
+      }
+      /* 循环点：黄线钉在那一帧上 */
+      const loopX = posOf(LOOP_AT) + fw / 2
+      ctx.fillStyle = '#f3b958'
+      ctx.fillRect(loopX - fw / 2, stripTop - 6, Math.max(3, fw), 2)
+      ctx.font = '10px sans-serif'
+      ctx.fillText('循环', Math.min(loopX - 10, W - PAD - 24), stripTop + fh + 14)
+      ctx.font = '11px sans-serif'
+      ctx.fillStyle = '#7d8d9d'
+      ctx.fillText('当前帧 ' + (play + 1) + ' / ' + FRAMES, stripLeft + stripW - 78, stripTop + fh + 14)
+    }
+
+    fit()
+    /* 宽度一变就重算，保证 backing 与显示尺寸的比值恰好等于 DPR（否则字会糊）。
+       用 ResizeObserver 而不是 window.resize：卡片宽度是布局决定的，不一定跟窗口同步。 */
+    if (window.ResizeObserver) {
+      let last = c.getBoundingClientRect().width
+      new ResizeObserver(() => {
+        const w = c.getBoundingClientRect().width
+        if (Math.abs(w - last) < 0.5) return
+        last = w
+        fit()
+        if (still) draw(performance.now())
+      }).observe(c)
     }
     if (still) draw(t0 + 1200)
     else {
