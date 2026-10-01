@@ -2066,6 +2066,43 @@ const SCENARIOS = {
     r.plain = { whitishCount: plainWhitish, top: plainTop.slice(0, 6) };
     r.errors = window.__V.errors.length;
     return r })()`,
+  /* 同一张牌 × 多个版本，各导一张图，用来肉眼对比"到底是哪个版本在发白"。 */
+  astralShots: `(async()=>{
+    const B = window.__BALATRO__;
+    const r = { view: 'astralShots' };
+    await __V.wait(2000);
+    for (let i = 0; i < 240 && !B.mods.length; i++) await __V.wait(400);
+    if (!B.mods.length) return { skipped: 'Cryptid.zip 没导入' };
+    const eds = B.items.filter((i) => i.cat === 'Edition' && i.source);
+    const pick = [null, 'astral', 'oversat', 'mosaic', 'gold', 'glitched_b'];
+    r.which = {};
+    r.png = {};
+    const j = B.byId['j_joker'] || B.items.filter((i) => i.cat === 'Joker')[0];
+    r.card = j.id;
+    for (const key of pick) {
+      const name = key === null ? 'plain' : key;
+      if (key) {
+        const ed = eds.filter((e) => B.editionShaderOf(e) === key)[0];
+        if (!ed) { r.which[name] = '没有这个版本'; continue }
+        r.which[name] = ed.name + ' (' + ed.id + ')';
+      } else r.which[name] = '不叠加';
+      const spec = Object.assign({}, B.specForItem(j), key ? { edition: key } : {});
+      const cv = B.compose(spec, 4, 6);
+      const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      let n = 0, sum = 0, white = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i + 3] < 8) continue;
+        const R = d[i] / 255, G = d[i + 1] / 255, Bl = d[i + 2] / 255;
+        n++; sum += (R + G + Bl) / 3;
+        if (Math.min(R, G, Bl) > 0.9) white++;
+      }
+      r.png[name] = cv.toDataURL('image/png');
+      r.stats = r.stats || {};
+      r.stats[name] = { mean: +(sum / Math.max(1, n)).toFixed(3), nearWhite: +(white / Math.max(1, n) * 100).toFixed(1) };
+    }
+    r.build = window.__APP_BUILD__ || '(无构建号)';
+    r.errors = window.__V.errors.length;
+    return r })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};
@@ -2598,7 +2635,7 @@ async function main () {
         console.log('             handed fake-balatro.exe to the Lite start screen')
       } else console.log('❌ no file input on the start screen')
     }
-    if (name === 'modCryptid' || name === 'cryptidEditions' || name === 'astralProbe' || name === 'astralForge' || name === 'astralRows' || name === 'astralSweep') {
+    if (name === 'modCryptid' || name === 'cryptidEditions' || name === 'astralProbe' || name === 'astralForge' || name === 'astralRows' || name === 'astralSweep' || name === 'astralShots') {
       const localZip = path.join(__dirname, 'cryptid-test.zip')
       const srcZip = fs.existsSync(localZip) ? localZip : path.join(process.env.USERPROFILE, 'Desktop', 'Cryptid.zip')
       if (!fs.existsSync(srcZip)) {

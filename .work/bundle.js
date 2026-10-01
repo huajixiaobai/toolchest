@@ -31,9 +31,11 @@ gate({ lua: luaSrc, glshaders: glSrc, modimport: modSrc, app })
 const put = (src, marker, value) => src.replace(marker, () => value)
 
 let html = shell
-/* The same build stamp the web build shows in the status bar, so a screenshot from either
-   build identifies exactly which code produced it. */
-const appStamp = require('crypto').createHash('sha256').update(app).digest('hex').slice(0, 8)
+/* The same build stamp the web build shows in the status bar. It is hashed over the same
+   three viewer files in the same order, so both builds report *the same* number for the
+   same code — otherwise a screenshot could not be compared between them. */
+const appStamp = require('crypto').createHash('sha256')
+  .update([glSrc, modSrc, app].join('\n;\n')).digest('hex').slice(0, 8)
 html = put(html, '/*__CSS__*/', css)
 html = put(html, '/*__DATA__*/', 'window.__BALATRO_DATA__=' + data + ';')
 html = put(html, '/*__ATLAS__*/', atlas)
