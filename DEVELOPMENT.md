@@ -432,6 +432,22 @@ node bundle.js
 
 ## 九、更新记录
 
+**第二十轮（修：版本效果过曝发白 —— 屏幕坐标 uniform 的语义错了）**
+- 报告：Cryptid 的「星界」(astral) 版本叠在小丑牌上时**过曝发白**，怀疑不是 mod 原样。查证结论：**是我们自己的 bug**。
+- 根因（`engine/sprite.lua:96-106` 是唯一真相）：
+  | uniform | 游戏传的 | 我们原来传的 |
+  |---|---|---|
+  | `screen_coords` | 画布像素 | **图集像素**（第 12 行的牌 y≈2280） |
+  | `screen_scale` | `TILESCALE*TILESIZE*CANV_SCALE` ≈ 109 | 格子宽度（142/190） |
+  | `mouse_screen_pos` | 光标位置 | **(0, 0)** |
+  于是所有「离光标多远」的项被放大十几倍。astral 的亮度几乎全由 `stars³` 决定，而 `stars` 里有 `+0.007*norm_uv*1.1`。
+- 量化（`.work/verify/astral-oracle.js` 把 shader 数学搬到 JS 当裁判）：
+  - 旧：`norm_uv` 106–122 → `stars³` 12–15 → **倍率 4.1–5.0** → 白卡面输出 `[2.46,1.85,4.10]` → **截断成纯白**
+  - 新：`norm_uv` 0–6.8 → `stars³` 3.4–3.9 → 倍率 1.05–1.21 → `[0.64,0.48,1.07]` 紫色
+- 这解释了用户说的「**一些**小丑牌」：严重程度取决于牌在图集里的**行号**（`screen_coords.y` 就是行号×格高），行 0 轻微、行 12 全白。
+- 修法：新坐标系 `screen_coords = vTexCoord*image_details - uTileOrigin`（格内像素）、`mouse_screen_pos = 卡片中心`、`screen_scale = 1.5*格宽` —— 正好复现游戏里「光标停在卡上」的几何（`mouse_offset ≈ ±1/3`）。影响所有用到这三个 uniform 的 shader（原版 16 个 + Cryptid 11 个）。
+- 验证：新增 `astralProbe` / `astralRows` / `astralForge` / `astral-oracle.js`。14 张不同行号的小丑牌现在亮度一致、**近白像素全为 0%**（修前高行号会整块截断）；`holoProbe`/`shaderProbe`/`cryptidEditions`/`modShader`/`soulArt`/`stickers`/`legendary`/`animExport`/`sealSticker`/`editions` 10 个场景全绿。
+
 **第十九轮（查证 balatrowiki.org，并定下公开站的边界）**
 - 用户提议参考 [balatrowiki.org](https://balatrowiki.org/)，在公开站加一个按钮直接打开含素材的离线 HTML。实地查证后维持原判，并把依据写进 `NOTICE`：
   - 那站是 **Weird Gloop**（专业维基托管方）运营的社区维基，非商业、正文 CC BY-NC-SA 3.0、999 个图片文件当**词条配图**（缩略图 URL 形如 `/images/thumb/Joker.png/80px-Joker.png`）。
