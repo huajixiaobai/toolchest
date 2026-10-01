@@ -432,6 +432,14 @@ node bundle.js
 
 ## 九、更新记录
 
+**第十七轮（两套站点分开 + 手机端选择界面适配）**
+- 决定：**公开站只放代码，另建一份「自己用」的站点**。用户要的是"像单文件 HTML 那样打开就是图鉴"，但把 2 MB 游戏贴图放到公开域名上＝以自己的名义分发游戏素材。折中方案：`node .work/site.js --also-local` 一次产出两份 —— `docs/`（公开·纯代码·466 KB）与 `local/`（自用·含素材包·3.8 MB，**打开直接是图鉴，实测 `bootVisible:false`**）。`local/` 进 `.gitignore`，`serve.js` 默认优先服务它，`启动本地站点.cmd` 回答 y 就能让手机同 Wi-Fi 打开。
+- 修：**选择界面在手机上的适配**（在 390×844 下量出来的）：按钮原来只有 **39px 高、130px 宽**（低于 44px 可点标准）→ 现在**整行铺满、48px 高**（332×48）；提示文字 12px → 13.5px；h1 18→20px。另外**触屏上把「拖到这里」换成能照做的说明**（触屏根本没有拖放）：靠 `@media (hover:none)` 在 `.bootdrop` / `.boottap` 之间二选一。
+- 新：`bootPhone` 场景 —— 用手机视口**量**选择界面（按钮高度、横向滚动、拖放提示是否隐藏、正文字号、首屏高度），不靠肉眼。修完：`tapOK: true`、`noHScroll: true`、`drop.w == 0`。
+- 新：`sitePack` 场景 —— 验证"带素材包"那版**不出现选择界面**：`bootVisible:false`、527 个条目 / 527 个格子 / 0 空白 / 0 报错。
+- 修：`--also-local` 递归构建时会把 `dist/site.zip` 覆盖成**含素材**的那份（差点让"可以拖到公开托管"的包变成侵权包）。现在按内容分名：`site.zip`（纯代码）与 `site-with-assets.zip`（自用，构建时打警告）。
+- 新：首页底部加上**作者的 GitHub 个人页链接**（`site.config.json` 的 `ownerName` / `ownerUrl`）。
+
 **第十六轮（上线：huajixiaobai.github.io/toolchest）**
 - 新：**站点真的上线了** → https://huajixiaobai.github.io/toolchest/ （首页在 `/`，查看器在 `/viewer/`）。仓库 `huajixiaobai/toolchest`，公开、只含代码。
 - 名字：**`toolchest` / 「百宝箱」**。刻意不含游戏名 —— 站点以后要长成工具箱，名字跟着工具箱走而不是跟着某一个游戏走；曝光交给 GitHub topics（`balatro`、`balatro-tools`、`asset-viewer`…），名字就能保持干净。
