@@ -46,15 +46,23 @@ const siteUrl = norm((argVal('--site-url', process.env.SITE_URL || CFG.siteUrl |
 const repoUrl = argVal('--repo-url', process.env.REPO_URL || CFG.repoUrl || '').trim()
 const siteName = argVal('--site-name', CFG.siteName || '百宝箱')
 const tagline = argVal('--tagline', CFG.tagline || '一堆在浏览器里跑的小工具：把你自己电脑上那份游戏里的美术与数据解出来，看清、检索、拿走想要的素材。全程离线，什么都不上传。')
+const ownerName = argVal('--owner-name', CFG.ownerName || '')
+const ownerUrl = argVal('--owner-url', CFG.ownerUrl || '')
+/* --with-assets 把素材包也打进 /viewer/：站点打开即用，不用选游戏文件。
+   代价是公开域名上会出现游戏贴图 —— 版权上属于分发游戏素材，自己权衡。 */
+const WITH_ASSETS = process.argv.includes('--with-assets')
 /* The share card is drawn with a built-in 5×7 pixel font, so its two lines must be ASCII.
    They are parameters so the card can follow a rename without touching the drawing code. */
 const ogLine1 = argVal('--og-line1', CFG.ogLine1 || 'TOOLCHEST')
 const ogLine2 = argVal('--og-line2', CFG.ogLine2 || 'LOCAL TOOLS NO UPLOAD')
 
 /* ---- 1) the viewer, mounted at /viewer/ --------------------------------------- */
+/* --no-sw 的理由：上层站点的根 service worker 会连查看器一起缓存，避免嵌套 scope 打架。
+   --with-assets 时一并打包素材（viewer/assets/），页面启动就直接用，跳过选择游戏文件那一步。 */
 const viewerArgs = [path.join(HERE, 'build-lite.js'), '--out', path.posix.join(OUTREL, 'viewer'), '--no-sw']
+if (WITH_ASSETS) viewerArgs.push('--pack')
 if (siteUrl) viewerArgs.push('--site-url', siteUrl + 'viewer/')
-console.log('▶ 构建查看器 →', path.join(OUTREL, 'viewer') + '/')
+console.log('▶ 构建查看器 →', path.join(OUTREL, 'viewer') + '/' + (WITH_ASSETS ? '（含素材包：打开即用）' : '（纯代码：访客自带游戏文件）'))
 execFileSync(process.execPath, viewerArgs, { stdio: 'inherit', cwd: ROOT })
 
 /* ---- 2) what to say about it on the card -------------------------------------- */
@@ -79,7 +87,7 @@ const og = execFileSync(process.execPath,
   .toString().trim()
 const ogPng = fs.readFileSync(path.join(OUT, 'og.png'))
 
-fs.writeFileSync(path.join(OUT, 'index.html'), home.home({ siteName, tagline, siteUrl, repoUrl, og: ogPng, buildId, viewerMeta }))
+fs.writeFileSync(path.join(OUT, 'index.html'), home.home({ siteName, tagline, siteUrl, repoUrl, ownerName, ownerUrl, og: ogPng, buildId, viewerMeta }))
 
 /* Files the service worker must pre-cache. Only paths that really exist, otherwise
    Cache.addAll rejects and the worker never installs. */

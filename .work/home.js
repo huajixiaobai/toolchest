@@ -10,7 +10,7 @@
 'use strict'
 
 /** The site itself. Rename here (or pass --site-name / --site-url) and rebuild. */
-function home ({ siteName, tagline, siteUrl, repoUrl, og, buildId, viewerMeta }) {
+function home ({ siteName, tagline, siteUrl, repoUrl, ownerName, ownerUrl, og, buildId, viewerMeta }) {
   const tools = [
     {
       id: 'balatro',
@@ -200,7 +200,8 @@ ${tools.map(card).join('\n')}
 
 <footer><div class="wrap">
   <span>${esc(siteName)}</span>
-  ${repoUrl ? `<a href="${repoUrl}" rel="noopener">GitHub</a>` : ''}
+  ${ownerUrl ? `<span>作者 <a href="${ownerUrl}" rel="noopener">GitHub @${esc(ownerName || ownerUrl.replace(/^.*\//, ''))}</a></span>` : ''}
+  ${repoUrl ? `<a href="${repoUrl}" rel="noopener">源码仓库</a>` : ''}
   <span>代码开源（MIT）；游戏素材版权归 LocalThunk / Playstack</span>
   <span style="margin-left:auto" class="mono">build ${buildId}</span>
 </div></footer>
