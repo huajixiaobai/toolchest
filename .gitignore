@@ -9,6 +9,8 @@
 *.7z
 Balatro素材图鉴.html
 dist/
+# local/ = 「自己用」的站点（带素材包，打开就是完整图鉴）。含游戏贴图，不进仓库。
+local/
 
 # 第三方 mod（别人的作品，也不该塞进这个仓库）
 Cryptid.zip

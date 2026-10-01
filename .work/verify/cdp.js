@@ -286,6 +286,52 @@ const SCENARIOS = {
      r.blank=__V.blank();
      r.errors=window.__V.errors.length;
      return r })()`,
+  /* The site built with --with-assets: the viewer carries its own asset pack, so it must
+     come up like the standalone HTML — no start screen at all. */
+  sitePack: `(async()=>{
+     for(let i=0;i<160 && window.__BALATRO_READY__!==true;i++) await __V.wait(250);
+     const r={view:'sitePack',path:location.pathname,ready:window.__BALATRO_READY__===true};
+     const B=window.__BALATRO__;
+     r.appBooted=!!B;
+     if(B){
+       r.items=B.items.length;
+       r.atlases=Object.keys(B.atlases).length;
+       r.textureUrls=Object.keys(window.__BALATRO_ATLAS__).length;
+       r.blobUrls=Object.keys(window.__BALATRO_ATLAS__).filter(k=>String(window.__BALATRO_ATLAS__[k]).startsWith('blob:')).length;
+       r.version=B.data.meta.version;
+       r.shaders=B.shaderPrograms.length;
+     }
+     r.pack=String(window.__PACK__);
+     r.bootVisible=(()=>{const b=document.getElementById('boot');return !!(b&&getComputedStyle(b).display!=='none')})();
+     r.cells=document.querySelectorAll('.cell').length;
+     r.blank=__V.blank();
+     r.errors=window.__V.errors.length;
+     return r })()`,
+  /* The start screen on a phone: visitors land here, so it has to be readable and tappable
+     without pinching or sideways scrolling. Measured, not eyeballed. */
+  bootPhone: `(async()=>{
+     for(let i=0;i<50 && !document.querySelector('#boot .bootcard');i++) await __V.wait(200);
+     const R=e=>{ if(!e) return null; const b=e.getBoundingClientRect(); return {t:Math.round(b.top),b:Math.round(b.bottom),l:Math.round(b.left),r:Math.round(b.right),w:Math.round(b.width),h:Math.round(b.height)} };
+     const r={view:'bootPhone',vw:innerWidth,vh:innerHeight};
+     r.card=R(document.querySelector('#boot .bootcard'));
+     r.docW=document.documentElement.scrollWidth;
+     r.noHScroll=document.documentElement.scrollWidth<=innerWidth+2;
+     r.btns=[].slice.call(document.querySelectorAll('#boot .btn')).map(b=>({t:b.textContent.trim(),...R(b)}));
+     r.tapOK=r.btns.length>0 && r.btns.every(b=>b.h>=44);
+     r.drop=R(document.querySelector('.bootdrop'));
+     r.notes=R(document.querySelector('.bootnotes'));
+     r.noteLines=(document.querySelectorAll('.bootnotes li')||[]).length;
+     r.h1=R(document.querySelector('#boot .bootcard h1'));
+     const scroll=document.getElementById('boot');
+     r.contentH=scroll?scroll.scrollHeight:0;
+     r.fitsOneScreen=r.contentH<=innerHeight+2;
+     const pb=document.querySelector('#boot .btn.primary');
+     r.primaryOnScreen=!!pb && pb.getBoundingClientRect().bottom<=innerHeight && pb.getBoundingClientRect().top>=0;
+     // smallest font size actually used in the card, to catch "too small to read on a phone"
+     const sizes=[].slice.call(document.querySelectorAll('#boot .bootcard *')).map(e=>parseFloat(getComputedStyle(e).fontSize)).filter(n=>n>0);
+     r.minFont=Math.round(Math.min.apply(null,sizes)*10)/10;
+     r.errors=window.__V.errors.length;
+     return r })()`,
   probeCats: `(async()=>{
      await __V.wait(1500);
      const cats=[].slice.call(document.querySelectorAll('.cat')).map(e=>e.textContent.trim());
@@ -2199,7 +2245,7 @@ async function main () {
     await sleep(1200)
     // a 4.2 MB self-contained page is not guaranteed to be parsed in a fixed sleep; wait for the
     // viewer handle (Lite boots from a start screen; the site scenarios have their own waits)
-    if (name !== 'liteBoot' && name !== 'siteHome' && name !== 'siteViewer' && name !== 'liveBoot') {
+    if (name !== 'liteBoot' && name !== 'siteHome' && name !== 'siteViewer' && name !== 'liveBoot' && name !== 'sitePack' && name !== 'bootPhone') {
       for (let i = 0; i < 80; i++) {
         await sleep(250)
         try { if (await c.eval('window.__BALATRO_READY__ === true')) break } catch (e) { /* still navigating */ }
@@ -2211,8 +2257,8 @@ async function main () {
     await c.eval('window.__V.errors=[]')
     let rep
     const clipShots = []
-    if (name === 'forgePhone' || name === 'mobile') {
-      // emulate a phone viewport before the page reloads
+    if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone') {
+      // emulate a phone viewport (bootPhone tests the start screen visitors land on)
       await c.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
       await c.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {})
       MobileMode = true

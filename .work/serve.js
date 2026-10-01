@@ -44,21 +44,25 @@ const MIME = {
 function pickDir () {
   const explicit = val('--dir', null)
   if (explicit) return path.resolve(ROOT, explicit)
+  const local = path.join(ROOT, 'local')
   const site = path.join(ROOT, 'docs')
   const web = path.join(ROOT, 'dist', 'web')
   const lite = path.join(ROOT, 'dist', 'lite')
   if (has('--site')) return site
+  if (has('--local')) return local
   if (has('--lite')) return lite
+  /* 首选「自己用」的 local/：它自带素材包，打开就是完整图鉴，不用选游戏文件 */
+  if (fs.existsSync(path.join(local, 'index.html'))) return local
   if (fs.existsSync(path.join(web, 'index.html'))) return web
   if (fs.existsSync(path.join(site, 'index.html'))) {
-    console.log('（dist/web 还没构建，改用 docs/ —— 工具箱站点，需要选择你自己的 Balatro.exe）')
+    console.log('（没有 local/，改用 docs/ —— 公开站那版，需要选择你自己的 Balatro.exe）')
     return site
   }
   if (fs.existsSync(path.join(lite, 'index.html'))) {
-    console.log('（dist/web 还没构建，改用 dist/lite —— 打开后需要选择你自己的 Balatro.exe）')
+    console.log('（改用 dist/lite —— 打开后需要选择你自己的 Balatro.exe）')
     return lite
   }
-  console.error('找不到构建产物。请先运行：node .work/build-lite.js --pack   或   node .work/site.js')
+  console.error('找不到构建产物。请先运行：node .work/site.js --also-local ')
   process.exit(1)
 }
 
@@ -146,10 +150,9 @@ function start (lan) {
       console.log('  手机  : 未开启（想用手机看就重开一次、回答 y）')
     }
     console.log('  目录  : ' + DIR)
-    console.log('  模式  : ' + (fs.existsSync(path.join(DIR, 'assets', 'atlas.bin'))
-      ? '已打包素材（打开即用，不需要选文件）'
-      : /[\\/]docs$/.test(DIR) ? '工具箱站点（首页 → 查看器，需要选择你自己的 Balatro.exe）'
-        : '纯代码（打开后选择你自己的 Balatro.exe）'))
+    console.log('  模式  : ' + (fs.existsSync(path.join(DIR, 'viewer', 'assets', 'atlas.bin')) || fs.existsSync(path.join(DIR, 'assets', 'atlas.bin'))
+      ? '自带素材（打开就是完整图鉴，不用选文件）'
+      : '纯代码（打开后需要选择你自己的 Balatro.exe）'))
     console.log('  离线  : 全程不访问外网；本窗口关掉站点就停止 (Ctrl+C)')
     console.log('')
     if (has('--open')) execFile('cmd', ['/c', 'start', '', url], () => {})

@@ -1496,6 +1496,12 @@ if (typeof window !== 'undefined') window.__DATABUILD__ = { buildData }
     drop.appendChild(el('div', null, '也可以把 Balatro.exe / 游戏文件夹 / 已经解好的 .zip 拖到这里'))
     card.appendChild(drop)
 
+    /* 触屏上没有拖放这回事：手机显示这段能真正照做的提示（CSS 按 hover 能力二选一） */
+    const tap = el('div', 'boottap')
+    tap.appendChild(el('div', null, '点上面的按钮选择文件。'))
+    tap.appendChild(el('div', null, '手机上「选择游戏文件夹」最省事；如果系统不让选文件夹，就把游戏目录压成一个 .zip 再选。'))
+    card.appendChild(tap)
+
     const notes = el('ul', 'bootnotes')
     for (const t of [
       '支持的输入：Balatro.exe（融合了 LÖVE 工程的那个 exe）、游戏文件夹（里面有 game.lua 与 resources/）、或者它们的 zip。',

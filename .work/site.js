@@ -49,8 +49,11 @@ const tagline = argVal('--tagline', CFG.tagline || '一堆在浏览器里跑的�
 const ownerName = argVal('--owner-name', CFG.ownerName || '')
 const ownerUrl = argVal('--owner-url', CFG.ownerUrl || '')
 /* --with-assets 把素材包也打进 /viewer/：站点打开即用，不用选游戏文件。
-   代价是公开域名上会出现游戏贴图 —— 版权上属于分发游戏素材，自己权衡。 */
+   代价是公开域名上会出现游戏贴图 —— 版权上属于分发游戏素材，自己权衡。
+   --also-local 额外构建一份「自己用」的 local/：带素材包、给局域网和手机用，
+   不进仓库（.gitignore 里挡着），公开站仍是纯代码。 */
 const WITH_ASSETS = process.argv.includes('--with-assets')
+const ALSO_LOCAL = process.argv.includes('--also-local')
 /* The share card is drawn with a built-in 5×7 pixel font, so its two lines must be ASCII.
    They are parameters so the card can follow a rename without touching the drawing code. */
 const ogLine1 = argVal('--og-line1', CFG.ogLine1 || 'TOOLCHEST')
@@ -162,9 +165,24 @@ const walk = (dir, base, acc) => {
 }
 const entries = walk(OUT, '', [])
 const zip = zipStore(entries)
-const zipPath = path.join(ROOT, 'dist', 'site.zip')
+/* 只有「纯代码」那一份才打包成可托管的 zip；带素材的那份是给自己局域网用的，
+   绝不能变成"可以拖到公开托管上去"的文件。 */
+const zipPath = path.join(ROOT, 'dist', WITH_ASSETS ? 'site-with-assets.zip' : 'site.zip')
 fs.mkdirSync(path.dirname(zipPath), { recursive: true })
 fs.writeFileSync(zipPath, zip)
+if (WITH_ASSETS) console.log('\n⚠️  这是含素材的版本（' + path.relative(ROOT, zipPath) + '）：只给自己/局域网用，不要传到公开托管。')
+
+/* ---- 4b) the "just for me" build: same site, but with the asset pack so it opens
+        straight into the atlas. Lives in local/ (gitignored) and is what the LAN
+        server hands to this machine and to a phone on the same Wi-Fi. --------------- */
+if (ALSO_LOCAL) {
+  console.log('\n▶ 另外构建一份「自己用」的 local/（含素材包，打开即用）')
+  const args = [__filename, '--out', 'local', '--with-assets']
+  if (siteUrl) args.push('--site-url', siteUrl)
+  if (repoUrl) args.push('--repo-url', repoUrl)
+  if (ownerUrl) args.push('--owner-url', ownerUrl, '--owner-name', ownerName)
+  execFileSync(process.execPath, args, { stdio: 'inherit', cwd: ROOT })
+}
 
 /* ---- 5) report ----------------------------------------------------------------- */
 const size = (p) => (fs.statSync(p).size / 1024).toFixed(1) + ' KB'
