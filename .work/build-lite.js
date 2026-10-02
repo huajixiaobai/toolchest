@@ -83,7 +83,11 @@ fs.writeFileSync(path.join(OUT, 'app.js'), appBundle)
 
 /* ---- index.html ---------------------------------------------------------------- */
 const shell = read('shell.html')
-const css = read('app.css') + '\n' + read('boot.css')
+/* 游戏自带的像素字体：公开构建**不**内嵌（属于游戏素材），由 boot.js 从访客自己的
+   游戏文件里读出来注册；自建/自用版（--pack）才直接内嵌。 */
+let fontCss = ''
+if (withPack) { try { fontCss = require('./fontcss.js').fontFace() } catch (e) { /* 没字体就退回等宽 */ } }
+const css = read('app.css') + '\n' + read('boot.css') + '\n' + fontCss
 /* The public repo must never contain game data, so the site build can fall back to a tiny
    committed `site-meta.json` (version + counts only) when out/data.json is absent — that is
    what lets CI build the site without owning the game. */

@@ -1125,8 +1125,15 @@ for (const e of atlasIndex) if (!textures.some((t) => t.file === e.file)) {
   if (b) textures.push({ file: e.file, bytes: b })
 }
 const leftovers = items.filter((i) => JSON.stringify(i.text).includes('#') && /#\d+#/.test(JSON.stringify(i.text['en-us'] || [])))
+/* 游戏自带的字体：站点版会把它注册成 BalatroPixel，界面才和原版一样 */
+const fonts = []
+for (const f of listTree('resources/fonts')) {
+  if (!/\.(ttf|otf)$/i.test(f) || f.includes('/')) continue
+  const b = bytesAt('resources/fonts/' + f)
+  if (b) fonts.push({ file: f, bytes: b })
+}
 return {
-  data, textures, warnings,
+  data, textures, fonts, warnings,
   stats: {
     items: items.length,
     atlases: Object.keys(atlases).length,
@@ -1173,6 +1180,8 @@ if (typeof window !== 'undefined') window.__DATABUILD__ = { buildData }
     /^localization\/[^/]+\.lua$/,
     /^resources\/textures\/.*\.png$/i,
     /^resources\/shaders\/[^/]+\.fs$/,
+    /* 游戏自己的字体：得分计算器等界面用它，才和原版长得一样 */
+    /^resources\/fonts\/[^/]+\.(ttf|otf)$/i,
   ]
   const needed = (p) => NEEDED.some((re) => re.test(p))
 
@@ -1852,6 +1861,7 @@ if (typeof window !== 'undefined') window.__DATABUILD__ = { buildData }
         }
         progress(72, STATUS.build + ' 条目 ' + res.stats.items)
         progress(88, STATUS.pack + ' ' + res.textures.length + ' 张贴图')
+        await useGameFonts(res)
         window.__BALATRO_DATA__ = res.data
         window.__BALATRO_ATLAS__ = {}
         for (const t of res.textures) {
@@ -1905,6 +1915,27 @@ if (typeof window !== 'undefined') window.__DATABUILD__ = { buildData }
         else run('dir', files)
       })
     })
+  }
+
+  /** 把访客游戏文件里的字体注册进来 —— 界面用游戏自己的像素字体才像原版。
+   *  公开站不内嵌这个字体（属于游戏素材），所以从访客自己的文件里读。 */
+  async function useGameFonts (res) {
+    try {
+      if (!res || !res.fonts || !res.fonts.length || typeof FontFace === 'undefined') return null
+      const want = res.fonts.find((f) => /m6x11/i.test(f.file)) || res.fonts[0]
+      if (!want) return null
+      const bytes = want.bytes
+      /* 和 fontcss.js 里内嵌版的 @font-face 描述符保持一致（weight 700），
+         这样「内嵌字体的自用版」和「从访客文件读字体的公开版」排版一模一样。 */
+      const face = new FontFace('BalatroPixel',
+        bytes.buffer ? bytes.buffer.slice(bytes.byteOffset || 0, (bytes.byteOffset || 0) + bytes.byteLength) : bytes,
+        { weight: '700', style: 'normal' })
+      await face.load()
+      document.fonts.add(face)
+      document.documentElement.style.setProperty('--pix', 'BalatroPixel,"Cascadia Mono",Consolas,monospace')
+      console.log('[Balatro 素材图鉴] 已启用游戏自带字体：' + want.file)
+      return want.file
+    } catch (e) { console.warn('字体注册失败（界面退回等宽字体）：', e); return null }
   }
 
   /** Load the viewer script (once) and let the app boot itself. */

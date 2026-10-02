@@ -8,7 +8,8 @@ const OUTDIR = path.join(HERE, '..')
 const read = (p) => fs.readFileSync(path.join(HERE, p), 'utf8')
 
 const shell = read('shell.html')
-const css = read('app.css')
+/* 单文件版本来就内嵌全部游戏素材，字体也一起内嵌 —— 界面才和原版一个样 */
+const css = read('app.css') + '\n' + require('./fontcss.js').fontFace()
 const app = read('app.js')
 const luaSrc = read('lua.js')
 const modSrc = read('modimport.js')

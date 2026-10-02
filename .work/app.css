@@ -253,16 +253,21 @@ table.data tbody tr{cursor:pointer}
 table.data td.num{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:11.5px}
 table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
 
-/* ---------- 得分计算器（牌桌式） ---------- */
-.scboard{display:flex;flex-direction:column;gap:10px}
-.scbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:8px 12px}
-.scbar select,.scbar input{font:inherit;font-size:12.5px;color:var(--fg);background:#131c24;border:1px solid var(--line);border-radius:6px;padding:4px 7px;min-height:30px}
-.scbar label.sclvl{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--fg2)}
+/* ---------- 得分计算器（牌桌式 · 用游戏自己的配色与字体） ----------
+   颜色取自 globals.lua 的 G.C：CHIPS #009dff / MULT #fe5f55 / MONEY #f3b958
+   GREEN #4BC292 / PURPLE #8867a5，面板用 DYN_UI.MAIN 的 #374244、边框 #4f6367。
+   数字用 --pix（游戏自带 m6x11plus.ttf；公开站点版由访客自己的游戏文件提供）。 */
+.scboard{display:flex;flex-direction:column;gap:10px;
+  --g-panel:#374244;--g-line:#4f6367;--g-chips:#009dff;--g-mult:#fe5f55;--g-green:#4bc292;--g-money:#f3b958;--g-purple:#8867a5}
+.scchips b,.scmult b,.sctotal b,.scline i,.scstepn,.scnow,.scbase{font-family:var(--pix,var(--mono))}
+.scbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--g-panel);border:2px solid var(--g-line);border-radius:10px;padding:8px 12px}
+.scbar select,.scbar input{font:inherit;font-size:12.5px;color:var(--fg);background:#2b3437;border:2px solid var(--g-line);border-radius:8px;padding:4px 7px;min-height:30px}
+.scbar label.sclvl{display:flex;align-items:center;gap:5px;font-size:12px;color:#dfe7ee}
 .scbar label.sclvl input{width:62px}
-.scbase{font-size:11.5px;color:var(--fg3);font-family:var(--mono)}
-.scrailbox{background:linear-gradient(180deg,#16202a,#111a22);border:1px solid var(--line);border-radius:12px;padding:8px 12px 12px}
-.scraillabel{font-size:11.5px;color:var(--fg3);letter-spacing:1px;margin-bottom:6px}
-.scraillabel em{font-style:normal;color:#4a5a68;margin-left:6px}
+.scbase{font-size:11.5px;color:#c9d4dc}
+.scrailbox{background:linear-gradient(180deg,#2f393c,#232b2e);border:2px solid var(--g-line);border-radius:12px;padding:8px 12px 12px}
+.scraillabel{font-size:12px;color:#c9d4dc;letter-spacing:1px;margin-bottom:8px;font-family:var(--pix,var(--sans))}
+.scraillabel em{font-style:normal;color:#8b9aa0;margin-left:6px;font-family:var(--sans);font-size:11px}
 .scrail{display:flex;flex-wrap:wrap;align-items:flex-end;min-height:64px;gap:0}
 .scrail .scempty{font-size:12px;color:var(--fg3);padding:16px 2px}
 /* 卡位：真实卡图，互相压一点，像游戏里那样摆 */
@@ -271,58 +276,59 @@ table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
 .sctile canvas{width:71px;height:95px;display:block;border-radius:7px;box-shadow:0 3px 10px #0008}
 .scrail .scj canvas{width:64px;height:86px}
 .sctile:hover{transform:translateY(-8px);z-index:200 !important}
-.sctile.on{transform:translateY(-10px);box-shadow:0 0 0 2px var(--accent),0 8px 22px #000a}
+.sctile.on{transform:translateY(-10px);box-shadow:0 0 0 3px var(--g-green),0 8px 22px #000a}
 .sctile.todo{filter:grayscale(.75) brightness(.7)}
-.sctile .scbadge{position:absolute;left:0;right:0;bottom:-1px;font-size:9.5px;line-height:1.5;text-align:center;color:var(--fg2);
-  background:#0d1319cc;border-radius:0 0 7px 7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 2px;font-style:normal}
-.sctile .scred{position:absolute;top:2px;right:2px;background:#fe5f55;color:#26090a;font-size:9.5px;border-radius:5px;padding:0 3px;font-style:normal}
+.sctile .scbadge{position:absolute;left:0;right:0;bottom:-1px;font-size:9.5px;line-height:1.5;text-align:center;color:#dfe7ee;
+  background:#1b2225e6;border-radius:0 0 7px 7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 2px;font-style:normal}
+.sctile .scred{position:absolute;top:2px;right:2px;background:var(--g-mult);color:#2b0b0b;font-size:9.5px;border-radius:5px;padding:0 3px;font-style:normal}
 .sctile .scmv{position:absolute;top:-9px;left:50%;transform:translateX(-50%);display:none;gap:2px;z-index:210}
 .sctile:hover .scmv{display:flex}
-.sctile .scmv button{font-size:9px;line-height:1;padding:2px 4px;border-radius:4px;border:1px solid var(--line2);background:#131c24;color:var(--fg2);cursor:pointer}
-/* 游戏同款的筹码 × 倍率 */
+.sctile .scmv button{font-size:9px;line-height:1;padding:2px 4px;border-radius:4px;border:2px solid var(--g-line);background:#2b3437;color:#dfe7ee;cursor:pointer}
+/* 游戏同款的「筹码 × 倍率」 */
 .scmath{display:flex;align-items:stretch;gap:8px;flex-wrap:wrap}
-.scchips,.scmult,.sctotal{flex:1 1 150px;border-radius:12px;padding:8px 14px;display:flex;flex-direction:column;gap:1px;min-width:0}
-.scchips{background:linear-gradient(180deg,#123a5c,#0e2740);border:1px solid #2f6f9e}
-.scmult{background:linear-gradient(180deg,#5c1b1b,#3a1010);border:1px solid #9e4040}
-.sctotal{background:linear-gradient(180deg,#123a2c,#0e2a20);border:1px solid #2f9e6f}
-.scchips span,.scmult span,.sctotal span{font-size:11px;letter-spacing:2px;color:#ffffff9c}
-.scchips b,.scmult b,.sctotal b{font-family:var(--mono);font-size:30px;line-height:1.1;color:#fff}
-.sctotal b{color:var(--accent)}
-.scx,.sceq{display:grid;place-items:center;font-size:22px;color:var(--fg3);padding:0 2px}
-.scplay{display:flex;align-items:center;gap:7px;flex-wrap:wrap;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:8px 12px}
-.scplay input[type=range]{flex:1 1 160px;min-width:120px}
-.scstepn{font-size:11.5px;color:var(--fg3);font-family:var(--mono)}
-.scnow{font-size:12px;color:var(--accent);flex:1 1 100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.scpickers{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
-.scpkh{flex:1 1 100%;display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--fg)}
+.scchips,.scmult,.sctotal{flex:1 1 150px;border-radius:12px;padding:8px 14px;display:flex;flex-direction:column;gap:1px;min-width:0;border:2px solid}
+.scchips{background:#0b3a55;border-color:var(--g-chips);box-shadow:inset 0 0 0 2px #009dff33}
+.scmult{background:#4a1414;border-color:var(--g-mult);box-shadow:inset 0 0 0 2px #fe5f5533}
+.sctotal{background:#0d3a2a;border-color:var(--g-green);box-shadow:inset 0 0 0 2px #4bc29233}
+.scchips span,.scmult span,.sctotal span{font-size:11px;letter-spacing:2px;color:#ffffffa8}
+.scchips b,.scmult b,.sctotal b{font-size:32px;line-height:1.1}
+.scchips b{color:#8fd4ff}
+.scmult b{color:#ff9d95}
+.sctotal b{color:#93e7c4}
+.scx,.sceq{display:grid;place-items:center;font-size:22px;color:#c9d4dc;padding:0 2px;font-family:var(--pix,var(--mono))}
+.scplay{display:flex;align-items:center;gap:7px;flex-wrap:wrap;background:var(--g-panel);border:2px solid var(--g-line);border-radius:10px;padding:8px 12px}
+.scplay input[type=range]{flex:1 1 160px;min-width:120px;accent-color:var(--g-chips)}
+.scstepn{font-size:12px;color:#c9d4dc}
+.scnow{font-size:12.5px;color:var(--g-chips);flex:1 1 100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scpickers{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--g-panel);border:2px solid var(--g-line);border-radius:10px;padding:10px 12px}
+.scpkh{flex:1 1 100%;display:flex;align-items:center;gap:8px;font-size:12.5px;color:#dfe7ee}
 .scpkrow{flex:1 1 100%;display:flex;gap:5px;align-items:center;flex-wrap:wrap}
-.scpkrow>span{font-size:12px;color:var(--fg3);min-width:34px}
-.scpk{font:inherit;font-size:11.5px;color:var(--fg2);background:#131c24;border:1px solid var(--line);border-radius:6px;padding:4px 9px;min-height:28px;cursor:pointer}
-.scpk:hover{border-color:var(--line2);color:var(--fg)}
-.scpk.on{color:var(--accent);border-color:var(--accent);background:#12352b}
-.scpickers input{font:inherit;font-size:12.5px;color:var(--fg);background:#131c24;border:1px solid var(--line);border-radius:6px;padding:5px 8px;min-height:30px;flex:0 1 220px}
+.scpkrow>span{font-size:12px;color:#c9d4dc;min-width:34px}
+.scpk{font:inherit;font-size:11.5px;color:#dfe7ee;background:#2b3437;border:2px solid var(--g-line);border-radius:7px;padding:4px 9px;min-height:28px;cursor:pointer}
+.scpk:hover{border-color:#7a8f96}
+.scpk.on{color:#0f1a14;background:var(--g-green);border-color:var(--g-green);font-weight:700}
+.scpickers input{font:inherit;font-size:12.5px;color:var(--fg);background:#2b3437;border:2px solid var(--g-line);border-radius:8px;padding:5px 8px;min-height:30px;flex:0 1 220px}
 .scjres{flex:1 1 100%;display:flex;gap:6px;flex-wrap:wrap}
 .scjres .btn{font-size:11.5px;padding:4px 9px;min-height:28px}
-.sclog{border:1px solid var(--line);border-radius:10px;background:#0d1319;overflow:hidden}
-.sclog summary{cursor:pointer;padding:8px 12px;font-size:12.5px;color:var(--fg2);list-style:none}
+.sclog{border:2px solid var(--g-line);border-radius:10px;background:#1b2225;overflow:hidden}
+.sclog summary{cursor:pointer;padding:8px 12px;font-size:12.5px;color:#dfe7ee;list-style:none;font-family:var(--pix,var(--sans))}
 .sclog summary::-webkit-details-marker{display:none}
-.sclog summary::before{content:'▸ ';color:var(--fg3)}
+.sclog summary::before{content:'▸ ';color:#8b9aa0}
 .sclog[open] summary::before{content:'▾ '}
-.scline{display:flex;justify-content:space-between;gap:10px;padding:5px 12px;font-size:12px;border-top:1px solid #1a242e;cursor:pointer}
-.scline span{color:var(--fg2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.scline i{font-family:var(--mono);font-size:11.5px;color:var(--fg3);font-style:normal;white-space:nowrap}
-.scline:hover{background:#131c24}
-.scline.on{background:#12352b;box-shadow:inset 2px 0 0 var(--accent)}
-.scline.on span{color:var(--fg)}
-.scline.base{background:#131c24}
-.scline.base span{color:var(--fg)}
-.scline.x i{color:var(--accent2)}
-.scline.joker i{color:var(--accent)}
-.scline.ed i{color:var(--purple)}
-.scline.manual i{color:var(--money)}
+.scline{display:flex;justify-content:space-between;gap:10px;padding:5px 12px;font-size:12px;border-top:1px solid #2f393c;cursor:pointer}
+.scline span{color:#c9d4dc;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scline i{font-size:12px;color:#8b9aa0;font-style:normal;white-space:nowrap}
+.scline:hover{background:#2b3437}
+.scline.on{background:#12503a;box-shadow:inset 3px 0 0 var(--g-green)}
+.scline.on span{color:#fff}
+.scline.base span{color:#fff}
+.scline.x i{color:var(--g-chips)}
+.scline.joker i{color:var(--g-green)}
+.scline.ed i{color:var(--g-purple)}
+.scline.manual i{color:var(--g-money)}
 .scline.note i{display:none}
-.scwarn{border:1px solid #5b4a2b;background:#221c11;border-radius:10px;padding:10px 12px;font-size:12px;color:#e7c98a}
-.scwarn b{display:block;margin-bottom:5px;color:var(--money)}
+.scwarn{border:2px solid #7a6430;background:#2a2211;border-radius:10px;padding:10px 12px;font-size:12px;color:#e7c98a}
+.scwarn b{display:block;margin-bottom:5px;color:var(--g-money)}
 .scwarn em{font-style:normal;color:#a99372}
 .scwarn div{margin-top:3px}
 .scfoot{font-size:11.5px;color:var(--fg3);line-height:1.8;padding:2px 2px 8px}
@@ -330,7 +336,7 @@ table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
 @media(max-width:700px){
   .sctile canvas{width:58px;height:78px}
   .scrail .scj canvas{width:54px;height:73px}
-  .scchips b,.scmult b,.sctotal b{font-size:24px}
+  .scchips b,.scmult b,.sctotal b{font-size:26px}
   .scchips,.scmult,.sctotal{flex:1 1 100px;padding:7px 11px}
 }
 

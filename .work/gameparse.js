@@ -28,6 +28,8 @@
     /^localization\/[^/]+\.lua$/,
     /^resources\/textures\/.*\.png$/i,
     /^resources\/shaders\/[^/]+\.fs$/,
+    /* 游戏自己的字体：得分计算器等界面用它，才和原版长得一样 */
+    /^resources\/fonts\/[^/]+\.(ttf|otf)$/i,
   ]
   const needed = (p) => NEEDED.some((re) => re.test(p))
 

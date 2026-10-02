@@ -702,8 +702,15 @@ for (const e of atlasIndex) if (!textures.some((t) => t.file === e.file)) {
   if (b) textures.push({ file: e.file, bytes: b })
 }
 const leftovers = items.filter((i) => JSON.stringify(i.text).includes('#') && /#\d+#/.test(JSON.stringify(i.text['en-us'] || [])))
+/* 游戏自带的字体：站点版会把它注册成 BalatroPixel，界面才和原版一样 */
+const fonts = []
+for (const f of listTree('resources/fonts')) {
+  if (!/\.(ttf|otf)$/i.test(f) || f.includes('/')) continue
+  const b = bytesAt('resources/fonts/' + f)
+  if (b) fonts.push({ file: f, bytes: b })
+}
 return {
-  data, textures, warnings,
+  data, textures, fonts, warnings,
   stats: {
     items: items.length,
     atlases: Object.keys(atlases).length,

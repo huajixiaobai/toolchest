@@ -312,6 +312,42 @@ const SCENARIOS = {
      r.blank=__V.blank();
      r.errors=window.__V.errors.length;
      return r })()`,
+  /* 公开站点版（docs/，不含任何游戏素材）**不内嵌**游戏字体：字体必须由 boot.js
+     从访客自己的 Balatro.exe 里读出来注册。这一项就跑那条路：把真游戏文件交给
+     /viewer/，然后量「像素字体 / 等宽 / 无衬线」三种字体下同一串数字的宽度 ——
+     三种宽度互不相同，才算真的用上了访客游戏里的字体。 */
+  siteFontLive: `(async()=>{
+     for(let i=0;i<480 && window.__BALATRO_READY__!==true;i++) await __V.wait(250);
+     const r={view:'siteFontLive',path:location.pathname,ready:window.__BALATRO_READY__===true};
+     const q=(s)=>document.querySelector(s);
+     const B=window.__BALATRO__;
+     r.appBooted=!!B;
+     if(!B){ r.bootStatus=(q('#boot .bootstatus')||{}).textContent||''; return r }
+     r.items=B.items.length;
+     /* 公开构建里不该存在内嵌字体：这条断言保证「素材只来自访客的文件」 */
+     r.embeddedFontInCss=(()=>{ try{ return [].slice.call(document.styleSheets).some((sh)=>{ try{ return [].slice.call(sh.cssRules).some((ru)=>ru.cssText&&ru.cssText.indexOf('data:font/')>=0) }catch(e){ return false } }) }catch(e){ return 'err' } })();
+     r.pixVarBefore=getComputedStyle(document.documentElement).getPropertyValue('--pix').trim();
+     r.faces=[].slice.call(document.fonts).map((f)=>f.family+'/'+f.weight+'/'+f.status);
+     const probe=(family)=>{ const cx=document.createElement('canvas').getContext('2d'); cx.font='700 32px '+family; return +cx.measureText('0123456789').width.toFixed(2) };
+     r.font={ check700:(()=>{try{return document.fonts.check('700 32px BalatroPixel')}catch(e){return 'err'}})(),
+       pixVar:getComputedStyle(document.documentElement).getPropertyValue('--pix').trim(),
+       wPix:probe('BalatroPixel'), wMono:probe('monospace'), wSans:probe('sans-serif') };
+     /* 计分器上真正落地的样式 */
+     B.state.tab='score'; B.render();
+     for(let i=0;i<40 && !q('.scboard');i++) await __V.wait(250);
+     r.scoreBoard=!!q('.scboard');
+     if(q('.scchips b')){
+       r.chipsFamily=getComputedStyle(q('.scchips b')).fontFamily;
+       r.chipsWeight=getComputedStyle(q('.scchips b')).fontWeight;
+       r.palette={panel:getComputedStyle(q('.scbar')).backgroundColor,chips:getComputedStyle(q('.scchips')).borderTopColor,
+         mult:getComputedStyle(q('.scmult')).borderTopColor,total:getComputedStyle(q('.sctotal')).borderTopColor};
+     }
+     /* 记下计分板位置，driver 会裁一张 2× 的图 —— 公开站点版也要肉眼确认字是真的像素字体 */
+     r.board=(()=>{ const b=q('.scboard'); if(!b) return null; const rc=b.getBoundingClientRect();
+       return { t:Math.round(rc.top+(window.scrollY||0)), w:Math.round(rc.width), h:Math.round(rc.height) } })();
+     r.blank=__V.blank();
+     r.errors=window.__V.errors.length;
+     return r })()`,
   /* The site built with --with-assets: the viewer carries its own asset pack, so it must
      come up like the standalone HTML — no start screen at all. */
   sitePack: `(async()=>{
@@ -2331,6 +2367,29 @@ const SCENARIOS = {
        logLines: document.querySelectorAll('.scline').length,
        hasSlider: !!q('#scStep'),
      };
+     /* 字体：分数该用游戏自带的像素字体（单文件版内嵌；站点版由 boot.js 从访客游戏文件注册）。
+        光看 font-family 不算数 —— 把 "0123456789" 在像素字体 / 等宽 / 无衬线三种字体下各量一次宽度，
+        三种宽度互不相同才证明游戏字体真的生效（否则说明悄悄回退了）。 */
+     r.font = (() => {
+       const faces = [].slice.call(document.fonts).map((f) => f.family + '/' + f.weight + '/' + f.status);
+       const el = q('.scchips b');
+       const probe = (family) => { const cx = document.createElement('canvas').getContext('2d'); cx.font = '700 32px ' + family; return +cx.measureText('0123456789').width.toFixed(2) };
+       return {
+         faces, check700: (() => { try { return document.fonts.check('700 32px BalatroPixel') } catch (e) { return 'err' } })(),
+         pixVar: getComputedStyle(document.documentElement).getPropertyValue('--pix').trim(),
+         computed: getComputedStyle(el).fontFamily, weight: getComputedStyle(el).fontWeight, size: getComputedStyle(el).fontSize,
+         wPix: probe('BalatroPixel'), wMono: probe('monospace'), wSans: probe('sans-serif'),
+         palette: { panel: getComputedStyle(q('.scbar')).backgroundColor, chips: getComputedStyle(q('.scchips')).borderTopColor, mult: getComputedStyle(q('.scmult')).borderTopColor, total: getComputedStyle(q('.sctotal')).borderTopColor },
+       }
+     })();
+     /* 记下整块计分板的位置，跑完由 driver 裁下来放大看排版（数值断言看不出好不好看） */
+     r.board = (() => {
+       const b = q('.scboard');
+       if (!b) return null;
+       const rc = b.getBoundingClientRect();
+       return { t: Math.round(rc.top + (window.scrollY || 0)), w: Math.round(rc.width), h: Math.round(rc.height) };
+     })();
+     r.vw = window.innerWidth;
      /* 逐步播放：走到第 3 步，检查高亮与数值是否跟着变 */
      q('#scNext').click(); await __V.wait(300);
      q('#scNext').click(); await __V.wait(300);
@@ -2766,7 +2825,7 @@ async function main () {
     await sleep(1200)
     // a 4.2 MB self-contained page is not guaranteed to be parsed in a fixed sleep; wait for the
     // viewer handle (Lite boots from a start screen; the site scenarios have their own waits)
-    if (name !== 'liteBoot' && name !== 'siteHome' && name !== 'siteViewer' && name !== 'liveBoot' && name !== 'sitePack' && name !== 'bootPhone' && name !== 'siteRemember') {
+    if (name !== 'liteBoot' && name !== 'siteHome' && name !== 'siteViewer' && name !== 'liveBoot' && name !== 'sitePack' && name !== 'bootPhone' && name !== 'siteRemember' && name !== 'siteFontLive') {
       for (let i = 0; i < 80; i++) {
         await sleep(250)
         try { if (await c.eval('window.__BALATRO_READY__ === true')) break } catch (e) { /* still navigating */ }
@@ -2845,19 +2904,22 @@ async function main () {
       await c.eval(HELPERS)
       console.log('             第二次访问：直接重载，不该再出现选择界面')
     }
-    if (name === 'liveBoot') {
+    if (name === 'liveBoot' || name === 'siteFontLive') {
       // the viewer lives at /viewer/ and boots only after a file is picked
       await c.send('Page.navigate', { url: clean.replace(/\/?$/, '/') + 'viewer/' }).catch(() => {})
       await sleep(2500)
       await c.eval(HELPERS)
       // a visitor's own game file, delivered the way the browser delivers a picked one
-      const exe = path.join(__dirname, 'fake-balatro.exe')
-      if (!fs.existsSync(exe)) console.log('❌ fake-balatro.exe missing — run verify/test-gameparse.js first')
+      /* BALATRO_EXE 指到真的 Balatro.exe 时，这条就是端到端真测（真文件 → 真字体）；
+         不指就用合成的假 exe（里面没有字体，只能测流程跑得通）。 */
+      const exe = process.env.BALATRO_EXE || path.join(__dirname, 'fake-balatro.exe')
+      if (!fs.existsSync(exe)) console.log('❌ ' + path.basename(exe) + ' missing — run verify/test-gameparse.js first')
+      else if (process.env.BALATRO_EXE) console.log('             using real game file: ' + exe + ' (' + (fs.statSync(exe).size / 1048576).toFixed(1) + ' MB)')
       const doc = await c.send('DOM.getDocument', { depth: -1 })
       const inp = await c.send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: '#boot input[type=file]' })
       if (inp && inp.nodeId) {
         await c.send('DOM.setFileInputFiles', { files: [exe], nodeId: inp.nodeId })
-        console.log('             handed fake-balatro.exe to the live start screen')
+        console.log('             handed ' + path.basename(exe) + ' to the live start screen')
       } else console.log('❌ no file input on the live start screen')
     }
     if (name === 'siteViewer' || name === 'bootPhone' || name === 'demoDebug' || name === 'demoRect' || name === 'demoRectMobile' || name === 'demoLayout' || name === 'demoLayoutMobile' || name === 'bootShort') {
@@ -2962,8 +3024,21 @@ async function main () {
       .filter(Boolean)
     c.events.length = 0
     results[name] = { rep, errors: errs, consoleMsgs, clipShots }
-    if (['codex', 'jokers', 'forge', 'atlas', 'hands', 'tarot', 'shaders', 'blind', 'cards', 'data', 'showcase', 'mobile', 'soulCompare', 'boxCompare', 'modImport', 'modView', 'modCryptid', 'forgeUx', 'modForge', 'srcBack', 'forgePhone', 'siteHome', 'siteViewer', 'bootPhone', 'scoreCalc'].includes(name)) {
+    if (['codex', 'jokers', 'forge', 'atlas', 'hands', 'tarot', 'shaders', 'blind', 'cards', 'data', 'showcase', 'mobile', 'soulCompare', 'boxCompare', 'modImport', 'modView', 'modCryptid', 'forgeUx', 'modForge', 'srcBack', 'forgePhone', 'siteHome', 'siteViewer', 'bootPhone', 'scoreCalc', 'siteFontLive'].includes(name)) {
       try { await c.shot(name) } catch (e) { /* ignore */ }
+    }
+    /* 计分板：裁一张整块的图，用来肉眼看配色和排版（桌面/手机各一张；站点版再放大 2×） */
+    if ((name === 'scoreCalc' || name === 'scoreCalcMobile' || name === 'siteFontLive') && rep && rep.board) {
+      try {
+        const big = name === 'siteFontLive'
+        const clip = big
+          ? { x: 0, y: Math.max(0, rep.board.t - 8), width: Math.max(320, rep.board.w + 6), height: 430, scale: 2 }
+          : { x: 0, y: Math.max(0, rep.board.t - 8), width: Math.max(320, rep.board.w + 6), height: rep.board.h + 16, scale: 1 }
+        const shot = await c.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip })
+        const f = (big ? 'score-fonts-site.png' : 'score-board-' + (MobileMode ? 'mobile' : 'desktop') + '.png')
+        fs.writeFileSync(path.join(SHOTS, f), Buffer.from(shot.data, 'base64'))
+        console.log('             clip:', f, Math.round(clip.width) + 'x' + Math.round(clip.height) + ' @' + clip.scale + 'x')
+      } catch (e) { console.log('             clip 失败:', String(e.message).slice(0, 120)) }
     }
     /* demoRect：把预览区整块裁下来存成图片，用来肉眼看排版（数值看不出丑不丑） */
     if ((name === 'demoRect' || name === 'demoRectMobile') && rep && rep.demo) {
