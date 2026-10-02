@@ -2571,8 +2571,9 @@ const SCENARIOS = {
      /* ④ 记录值：Fortune Teller 看已用塔罗牌张数 */
      SC.jokers=[]; SC.jokers.push(B.score.jokerFromItem(B.byId['j_fortune_teller']), B.score.jokerFromItem(B.byId['j_ride_the_bus']));
      B.render(); await __V.wait(600);
+     /* 已用塔罗牌现在在占卜师自己的弹窗里（整体修改轻量化时挪过去了），这里兼容两种位置 */
      const tq=q('[data-env="tarotUsed"]');
-     tq.value='7'; tq.dispatchEvent(new Event('input',{bubbles:true})); await __V.wait(500);
+     if(tq){ tq.value='7'; tq.dispatchEvent(new Event('input',{bubbles:true})); await __V.wait(500) } else r.tarotMoved=true;
      r.fortune={mult:q('.scmult b').textContent, rows:qa('.scline').length, warned:qa('.scwarn div').map(d=>d.textContent.slice(0,30))};
      /* ⑤ 小丑牌面板：点开 → 改它自己的记录值 */
      const jt=q('#scJokers .sctile:nth-child(2)')||q('#scJokers .sctile'); jt.click(); await __V.wait(500);

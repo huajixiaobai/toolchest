@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "c7f6ab69";
+window.__APP_BUILD__ = "982b98a6";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -4382,6 +4382,31 @@ function jokerRule (j) {
 }
 
 /** 把图鉴里的一张小丑牌变成计算器条目 */
+/** 从规则的条件与效果里认出这张牌自己的记录值字段（mod 的牌没有静态清单时用） */
+function scFieldsFromRule (rule) {
+  const txt = ((rule && rule.e) || []).join(' ') + ' ' + ((rule && rule.c) || '');
+  const out = [];
+  const re = /self\.ability\.([A-Za-z_][\w.]*)/g;
+  let m;
+  while ((m = re.exec(txt))) {
+    const key = m[1];
+    if (/^(name|effect|set|type|order)$/.test(key)) continue;
+    if (/^extra\.(size|mult|x_mult|chips|dollars|chip_mod|s_mult|suit|hand_add|discard_sub)$/.test(key)) continue;
+    if (out.indexOf(key) < 0) out.push(key);
+  }
+  return out;
+}
+/** 这张牌自己的描述（原版里 #1# #2# 就是动态值的位置）—— 显示在记录值输入框上面，
+ *  这样一眼就知道每个输入对应描述里的哪句话。 */
+function scJokerDescHtml (j) {
+  const it = j && BY_ID[j.id];
+  const lines = (it && it.text && (it.text[S.lang] || it.text['en-us'])) || [];
+  if (!lines.length) return '';
+  return '<div class="scjdesc">' + lines.map(function (l) {
+    return '<div class="ln">' + markup(l).replace(/#\d+#/g, function (m) { return '<b class="ph">' + m + '</b>' }) + '</div>';
+  }).join('') + '</div>';
+}
+
 /** 记录值的初值：原版新建时 self.ability.x_mult 之类的起点（Hologram ×1、Ramen ×2、冰激凌 +100…） */
 function scInitJokerState (cfg, fields) {
   const st = {};
@@ -4437,7 +4462,12 @@ function jokerFromItem (it) {
   if (typeof c.Xmult === 'number' && typeof c.x_mult !== 'number') c.x_mult = c.Xmult;
   /* 这张牌有哪些累计值（self.ability.mult / x_mult / extra.chips …）是 gen-state.js
      从游戏源码里扫出来的；新建时都是 0（原版也一样），界面上可以手填。 */
-  const fields = (JOKER_STATE.jokers[it.name || ''] || {}).mutable || [];
+  /* 记录值字段：优先用 gen-state.js 扫出来的；没有（mod 的牌）就从规则表达式里现认 */
+  let fields = (JOKER_STATE.jokers[it.name || ''] || {}).mutable || [];
+  if (!fields.length) {
+    const rr = (typeof JOKER_RULES !== 'undefined' && JOKER_RULES.rules ? JOKER_RULES.rules : []).find(function (r) { return r.n === (it.name || '') }) || SC_EXTRA_RULES[it.name || ''];
+    if (rr) fields = scFieldsFromRule(rr);
+  }
   const state = scInitJokerState(c, fields);
   return {
     id: it.id, name: it.name || it.id,
@@ -5232,6 +5262,7 @@ function viewScore (host) {
             <option value="">示例…</option>
             ${Object.keys(SC_PRESETS).map((k) => `<option value="${k}">${k}</option>`).join('')}
           </select>
+          <button class="btn" id="scHandMode" title="紧凑 = 原版那种弧形（会互相压住左上角）；宽松 = 每张牌留出完整间距，点数花色全都看得见">手牌：紧凑弧</button>
           <button class="btn orange" id="scClear">清空</button>
         </div>
         <div class="scrail" id="scHand"></div>
@@ -5311,6 +5342,8 @@ function viewScore (host) {
 
   /* ---- 手牌（原版最下面那一排；点一下就是原版的「选中」） ---- */
   const railH = stage.querySelector('#scHand');
+  if (SC_UI.handWide) railH.classList.add('wide');
+  { const hm = host.querySelector('#scHandMode'); if (hm) hm.textContent = SC_UI.handWide ? '手牌：宽松' : '手牌：紧凑弧' }
   if (!order.length) {
     railH.appendChild(Object.assign(document.createElement('div'), { className: 'scempty', textContent: '手牌是空的——「＋ 加牌」从图鉴里挑，或者「发 8 张」按原版起手发一手。' }));
   }
@@ -5422,6 +5455,7 @@ function viewScore (host) {
     scRefreshTiles(host);
   };
   q('#scDeal').onclick = () => { scDefaultHand(8); render() };
+  q('#scHandMode').onclick = () => { SC_UI.handWide = !SC_UI.handWide; render() };
   q('#scClear').onclick = () => { scStopPlay(); SC.played = []; SC.held = []; SC.jokers = []; SC_UI.order = []; SC_UI.focus = null; SC_UI.joker = null; SC_UI.step = -1; render() };
   q('#scAddCard').onclick = () => openScPicker('PlayingCard');
   q('#scAddJoker').onclick = () => openScPicker('Joker');
@@ -5711,14 +5745,12 @@ function scOpenJokerEditor (j, keep) {
       (meta.external && meta.external.length ? '　·　它还会读局面：' + meta.external.slice(0, 3).join('、') : ''),
     body: '<div class="scmodalcard">' + (cv ? '<span class="scmodalart"></span>' : '') +
       '<div class="scpkrows">' +
-      '<div class="scgrowbox"><div class="scgrowtitle">版本（影响这张牌的结算：闪箔 +50 筹码 / 镭射 +10 倍率 / 多彩 ×1.5 / 负片）</div>' +
-      scPillGrid('版本', [['', '无']].concat(ITEMS.filter((x) => x.cat === 'Edition' && !x.shader).map((x) => [x.id, nm(x)])), j.ed, 'ed') +
-      '</div>' +
+
       '<div class="scgrowbox"><div class="scgrowtitle">版本（影响这张牌的结算：闪箔 +50 筹码 / 镭射 +10 倍率 / 多彩 ×1.5 / 负片）</div>' +
       scPillGrid('版本', [['', '无']].concat(ITEMS.filter((x) => x.cat === 'Edition' && !x.shader).map((x) => [x.id, nm(x)])), j.ed, 'ed') +
       '</div>' +
       (fields.length
-        ? '<div class="scgrowbox"><div class="scgrowtitle">记录值（原版里这张牌自己累计的数，填了它才算得对）</div><div class="scgrowfs">' + fields.map(fieldInput).join('') + '</div></div>'
+        ? '<div class="scgrowbox"><div class="scgrowtitle">记录值（原版里这张牌自己累计的数，填了它才算得对）</div>' + scJokerDescHtml(j) + '<div class="scgrowfs">' + fields.map(fieldInput).join('') + '</div></div>'
         : '<div class="scgrowbox"><div class="scgrowtitle">这张牌没有累计值 —— 它只看牌型和你选的牌</div></div>') +
       jenvHtml(j) + '</div></div>',
     foot: '<button class="btn" id="scJokerCodex" title="在图鉴里看它的完整数据">在图鉴里看</button>' +

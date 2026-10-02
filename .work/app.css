@@ -318,6 +318,16 @@ table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
 .scrowhead>em{font-style:normal;font-size:11.5px;color:var(--c-jgrey);flex:1 1 120px;min-width:0}
 .scrowhead .btn{font-size:12px;padding:5px 10px;min-height:30px}
 .scrail{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:center;min-height:70px}
+/* 宽松排法：不叠、不弧，每张牌左上角的点数与花色完整可见 */
+.scrail.wide .sctile{margin-right:10px !important;transform:none !important}
+.scrail.wide .sctile:hover{transform:translateY(-7px) scale(1.03) !important}
+.scrail.wide .sctile.sel{transform:translateY(-19px) !important}
+.scrail.wide .sctile.on{transform:translateY(-19px) !important}
+.scrail.wide .sctile.sel:hover,.scrail.wide .sctile.on:hover{transform:translateY(-19px) scale(1.03) !important}
+/* 描述里的动态值占位符（#1# #2#）高亮出来，和输入框对得上 */
+.scjdesc{background:#2b3437;border-radius:6px;padding:6px 8px;margin:0 0 7px}
+.scjdesc .ln{font-size:11.5px;line-height:1.7;color:#dfe7ee}
+.scjdesc .ph{color:var(--c-money);font-weight:700}
 .scrail .scempty{font-size:12px;color:#8b9aa0;padding:18px 2px}
 .sctile{position:relative;cursor:pointer;border-radius:var(--g-r);line-height:0;margin-right:-20px;
   /* --ay / --ar 是每张牌自己的弧形偏移与角度（JS 按原版公式算好塞进来） */
@@ -340,9 +350,12 @@ table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
 .sctile .scbadge{position:absolute;left:0;right:0;bottom:-1px;font-size:9.5px;line-height:1.5;text-align:center;color:#dfe7ee;
   background:#1b2225e6;border-radius:0 0 var(--g-r) var(--g-r);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 2px}
 .sctile .scred{position:absolute;top:2px;right:2px;background:var(--c-red);color:#2b0b0b;font-size:9.5px;border-radius:4px;padding:0 3px;font-style:normal}
-.sctile .scmv{position:absolute;top:-11px;left:50%;transform:translateX(-50%);display:none;gap:2px;z-index:210}
+/* 小按钮：抬到牌上方 30px，下面用 padding 撑出一条透明桥接到牌顶。
+   从牌面往上一路移过去都在命中区里，不会再出现"鼠标看着像能点、其实还差一截"。 */
+.sctile .scmv{position:absolute;top:-30px;left:50%;transform:translateX(-50%);display:none;gap:3px;z-index:210;
+  padding:2px 3px 24px;background:#1b2225cc;border-radius:8px 8px 0 0}
 .sctile:hover .scmv{display:flex}
-.sctile .scmv button{font-size:9px;line-height:1;padding:2px 4px;border:0;border-radius:4px;background:var(--c-lblack);color:#fff;cursor:pointer;box-shadow:var(--g-emboss)}
+.sctile .scmv button{font-size:10px;line-height:1;padding:3px 6px;border:0;border-radius:4px;background:var(--c-lblack);color:#fff;cursor:pointer;box-shadow:var(--g-emboss)}
 /* 选中标记：原版的红色小三角（get_chosen_triangle_from_rect），会轻轻弹 */
 .sctile.sel::before{
   content:'';position:absolute;left:50%;top:-9px;margin-left:-4px;width:0;height:0;
