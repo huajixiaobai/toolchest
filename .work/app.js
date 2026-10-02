@@ -20,6 +20,10 @@ const MUTABLE_FIELDS = new Set(JOKER_STATE.mutable);
 /* 有些牌的累计字段名和通用名不同，这里一并登记，读不出静态配置时按 0 起算 */
 ['caino_xmult', 'yorick_discards', 'perish_tally', 'nine_tally', 'driver_tally', 'steel_tally', 'stone_tally', 'invis_rounds', 'extra_value', 'loyalty_remaining'].forEach(function (f) { MUTABLE_FIELDS.add(f) });
 /* __JOKER_STATE_END__ */
+
+/* __JOKER_LOCVARS_BEGIN__ */
+const JOKER_LOCVARS = {"Joker":["self.ability.mult"],"Mad Joker":["self.ability.t_mult","self.ability.type, 'poker_hands'"],"Droll Joker":["self.ability.t_mult","self.ability.type, 'poker_hands'"],"Clever Joker":["self.ability.t_chips","self.ability.type, 'poker_hands'"],"Crafty Joker":["self.ability.t_chips","self.ability.type, 'poker_hands'"],"Half Joker":["self.ability.extra.mult","self.ability.extra.size"],"Fortune Teller":["self.ability.extra","(G.GAME.consumeable_usage_total and G.GAME.consumeable_usage_total.tarot or 0)"],"Steel Joker":["self.ability.extra","1 + self.ability.extra*(self.ability.steel_tally or 0)"],"Chaos the Clown":["self.ability.extra"],"Space Joker":["''..(G.GAME and G.GAME.probabilities.normal or 1)","self.ability.extra"],"Stone Joker":["self.ability.extra","self.ability.extra*(self.ability.stone_tally or 0)"],"Drunkard":["self.ability.d_size"],"Green Joker":["self.ability.extra.hand_add","self.ability.extra.discard_sub","self.ability.mult"],"Credit Card":["self.ability.extra"],"Greedy Joker":["self.ability.extra.s_mult","self.ability.extra.suit, 'suits_singular'"],"Wrathful Joker":["self.ability.extra.s_mult","self.ability.extra.suit, 'suits_singular'"],"Blue Joker":["self.ability.extra","self.ability.extra*((G.deck and G.deck.cards) and #G.deck.cards or 52)"],"Mime":["self.ability.extra+1"],"Hack":["self.ability.extra+1"],"Pareidolia":["self.ability.extra.dollars","self.ability.extra.faces"],"Faceless Joker":["self.ability.extra.dollars","self.ability.extra.faces"],"Oops! All 6s":["self.ability.h_size"],"Juggler":["self.ability.h_size"],"Golden Joker":["self.ability.extra"],"Joker Stencil":["self.ability.x_mult"],"Four Fingers":["self.ability.mult"],"Ceremonial Dagger":["self.ability.mult"],"Banner":["self.ability.extra"],"Mystic Summit":["self.ability.extra.mult","self.ability.extra.d_remaining"],"Marble Joker":["self.ability.extra.Xmult","self.ability.extra.every + 1","localize{type = 'variable', key = (self.ability.loyalty_remaining == 0 and 'loyalty_active' or 'loyalty_inactive'), vars = {self.ability.loyalty_remaining}}"],"Loyalty Card":["self.ability.extra.Xmult","self.ability.extra.every + 1","localize{type = 'variable', key = (self.ability.loyalty_remaining == 0 and 'loyalty_active' or 'loyalty_inactive'), vars = {self.ability.loyalty_remaining}}"],"8 Ball":["''..(G.GAME and G.GAME.probabilities.normal or 1)","self.ability.extra"],"Dusk":["self.ability.extra+1"],"Raised Fist":["self.ability.extra"],"Fibonacci":["self.ability.extra"],"Scary Face":["self.ability.extra"],"Abstract Joker":["self.ability.extra","(G.jokers and G.jokers.cards and #G.jokers.cards or 0)*self.ability.extra"],"Delayed Gratification":["self.ability.extra"],"Gros Michel":["self.ability.extra.mult","''..(G.GAME and G.GAME.probabilities.normal or 1)","self.ability.extra.odds"],"Even Steven":["self.ability.extra"],"Odd Todd":["self.ability.extra"],"Scholar":["self.ability.extra.mult","self.ability.extra.chips"],"Business Card":["''..(G.GAME and G.GAME.probabilities.normal or 1)","self.ability.extra"],"Supernova":["self.ability.extra","'Two Pair', 'poker_hands'","self.ability.mult"],"Spare Trousers":["self.ability.extra","'Two Pair', 'poker_hands'","self.ability.mult"],"Superposition":["self.ability.extra"],"Ride the Bus":["self.ability.extra","self.ability.mult"],"Egg":["self.ability.extra"],"Burglar":["self.ability.extra"],"Blackboard":["self.ability.extra","'Spades', 'suits_plural'","'Clubs', 'suits_plural'"],"Runner":["self.ability.extra.chips","self.ability.extra.chip_mod"],"Ice Cream":["self.ability.extra.chips","self.ability.extra.chip_mod"],"DNA":["self.ability.extra"],"Splash":["self.ability.extra","self.ability.x_mult"],"Constellation":["self.ability.extra","self.ability.x_mult"],"Hiker":["self.ability.extra"],"To Do List":["self.ability.extra.dollars","self.ability.to_do_poker_hand, 'poker_hands'"],"Cartomancer":["self.ability.extra"],"Astronomer":["self.ability.extra"],"Golden Ticket":["self.ability.extra"],"Mr. Bones":["self.ability.extra"],"Acrobat":["self.ability.extra"],"Sock and Buskin":["self.ability.extra+1"],"Swashbuckler":["self.ability.mult"],"Troubadour":["self.ability.extra.h_size","-self.ability.extra.h_plays"],"Certificate":["self.ability.extra"],"Throwback":["self.ability.extra","self.ability.x_mult"],"Hanging Chad":["self.ability.extra"],"Rough Gem":["self.ability.extra"],"Bloodstone":["''..(G.GAME and G.GAME.probabilities.normal or 1)","self.ability.extra.odds","self.ability.extra.Xmult"],"Arrowhead":["self.ability.extra"],"Onyx Agate":["self.ability.extra"],"Glass Joker":["self.ability.extra","self.ability.x_mult"],"Showman":["self.ability.extra"],"Flower Pot":["self.ability.extra"],"Wee Joker":["self.ability.extra.chips","self.ability.extra.chip_mod"],"Merry Andy":["self.ability.d_size","self.ability.h_size"],"The Idol":["self.ability.extra","G.GAME.current_round.idol_card.rank, 'ranks'","G.GAME.current_round.idol_card.suit, 'suits_plural'"],"Seeing Double":["self.ability.extra"],"Matador":["self.ability.extra"],"Hit the Road":["self.ability.extra","self.ability.x_mult"],"The Duo":["self.ability.x_mult","self.ability.type, 'poker_hands'"],"The Family":["self.ability.x_mult","self.ability.type, 'poker_hands'"],"Cavendish":["self.ability.extra.Xmult","''..(G.GAME and G.GAME.probabilities.normal or 1)","self.ability.extra.odds"],"Card Sharp":["self.ability.extra.Xmult"],"Red Card":["self.ability.extra","self.ability.mult"],"Madness":["self.ability.extra","self.ability.x_mult"],"Square Joker":["self.ability.extra.chips","self.ability.extra.chip_mod"],"Seance":["self.ability.extra.poker_hand, 'poker_hands'"],"Riff-raff":["self.ability.extra"],"Vampire":["self.ability.extra","self.ability.x_mult"],"Shortcut":["self.ability.extra","self.ability.x_mult"],"Hologram":["self.ability.extra","self.ability.x_mult"],"Vagabond":["self.ability.extra"],"Baron":["self.ability.extra"],"Cloud 9":["self.ability.extra","self.ability.extra*(self.ability.nine_tally or 0)"],"Rocket":["self.ability.extra.dollars","self.ability.extra.increase"],"Obelisk":["self.ability.extra","self.ability.x_mult"],"Photograph":["self.ability.extra"],"Gift Card":["self.ability.extra"],"Turtle Bean":["self.ability.extra.h_size","self.ability.extra.h_mod"],"Erosion":["self.ability.extra","math.max(0,self.ability.extra*(G.playing_cards and (G.GAME.starting_deck_size - #G.playing_cards) or 0))","G.GAME.starting_deck_size"],"Reserved Parking":["self.ability.extra.dollars","''..(G.GAME and G.GAME.probabilities.normal or 1)","self.ability.extra.odds"],"Mail-In Rebate":["self.ability.extra","G.GAME.current_round.mail_card.rank, 'ranks'"],"To the Moon":["self.ability.extra"],"Hallucination":["G.GAME.probabilities.normal","self.ability.extra"],"Lucky Cat":["self.ability.extra","self.ability.x_mult"],"Baseball Card":["self.ability.extra"],"Bull":["self.ability.extra","self.ability.extra*math.max(0,G.GAME.dollars) or 0"],"Diet Cola":["localize{type = 'name_text', set = 'Tag', key = 'tag_double', nodes = {}}"],"Trading Card":["self.ability.extra"],"Flash Card":["self.ability.extra","self.ability.mult"],"Popcorn":["self.ability.mult","self.ability.extra"],"Ramen":["self.ability.x_mult","self.ability.extra"],"Ancient Joker":["self.ability.extra","G.GAME.current_round.ancient_card.suit, 'suits_singular'"],"Walkie Talkie":["self.ability.extra.chips","self.ability.extra.mult"],"Seltzer":["self.ability.extra"],"Castle":["self.ability.extra.chip_mod","G.GAME.current_round.castle_card.suit, 'suits_singular'","self.ability.extra.chips"],"Smiley Face":["self.ability.extra"],"Campfire":["self.ability.extra","self.ability.x_mult"],"Stuntman":["self.ability.extra.chip_mod","self.ability.extra.h_size"],"Invisible Joker":["self.ability.extra","self.ability.invis_rounds"],"Shoot the Moon":["self.ability.extra"],"Driver":["self.ability.extra","self.ability.driver_tally or '0'"],"Burnt Joker":["self.ability.extra.mult","self.ability.extra.dollars","self.ability.extra.mult*math.floor((G.GAME.dollars + (G.GAME.dollar_buffer or 0))/self.ability.extra.dollars)"],"Bootstraps":["self.ability.extra.mult","self.ability.extra.dollars","self.ability.extra.mult*math.floor((G.GAME.dollars + (G.GAME.dollar_buffer or 0))/self.ability.extra.dollars)"],"Caino":["self.ability.extra","self.ability.caino_xmult"],"Triboulet":["self.ability.extra"],"Yorick":["self.ability.extra.xmult","self.ability.extra.discards","self.ability.yorick_discards","self.ability.x_mult"],"Chicot":["self.ability.extra"],"Perkeo":["self.ability.extra"]};
+/* __JOKER_LOCVARS_END__ */
 const D = window.__BALATRO_DATA__;
 const ATLAS = window.__BALATRO_ATLAS__;
 const CARD_W = 71, CARD_H = 95;                 // logical tile size (matches game.lua px/py)
@@ -3759,16 +3763,71 @@ function scFieldsFromRule (rule) {
   }
   return out;
 }
-/** 这张牌自己的描述（原版里 #1# #2# 就是动态值的位置）—— 显示在记录值输入框上面，
- *  这样一眼就知道每个输入对应描述里的哪句话。 */
+/** 描述里某个 #N# 对应的表达式 → 这张牌可改的参数（认不出就返回 null） */
+function scParamForExpr (j, expr) {
+  const path = String(expr == null ? '' : expr).split(',')[0].trim();
+  if (!path) return null;
+  for (const p of scJokerParams(j)) if (p.path === path) return p;
+  const re = /self\.ability\.([A-Za-z_][\w.]*)/g;
+  let m;
+  while ((m = re.exec(path))) {
+    const f = m[1];
+    if ((j.fields || []).indexOf(f) >= 0) return { path: 'self.ability.' + f, type: 'num', label: scFieldLabel(f) };
+  }
+  return null;
+}
+
+/** 参数 → 内联控件（花色/点数下拉、数字输入） */
+function scParamCtl (j, prm, cls) {
+  const cur = (j.params && j.params[prm.path]) || '';
+  const k = 'phin ' + (cls || '');
+  if (prm.type === 'suit') {
+    return '<select class="' + k + '" data-jparam="' + esc(prm.path) + '"><option value="">未指定</option>' +
+      ['S', 'H', 'D', 'C'].map((s) => '<option value="' + SUIT_EN[s] + '"' + (cur === SUIT_EN[s] ? ' selected' : '') + '>' + SUIT_LABEL[s] + SUIT_SYM[s] + '</option>').join('') + '</select>';
+  }
+  if (prm.type === 'rank') {
+    return '<select class="' + k + '" data-jparam="' + esc(prm.path) + '"><option value="">未指定</option>' +
+      ['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2'].map((r) => '<option value="' + r + '"' + (cur === r ? ' selected' : '') + '>' + r + '</option>').join('') + '</select>';
+  }
+  return '<input class="' + k + '" type="number" step="0.5" data-jparam="' + esc(prm.path) + '" value="' + (cur === '' ? 0 : cur) + '">';
+}
+
+/** #N# 用不到控件时，直接把原版算出来的数值显示出来（例如 X1.5 倍率） */
+function scExprValue (j, expr) {
+  const v = evalExpr(String(expr).split(',')[0].trim(), j);
+  if (typeof v !== 'number' || !isFinite(v)) return null;
+  return Number.isInteger(v) ? String(v) : String(+v.toFixed(2));
+}
+
+/** 这张牌自己的描述：原版里 #1# #2# 就是动态值的位置，这里就地变成控件。
+ *  古老小丑那句「打出的 #2#」里的 #2# 就是一个花色下拉。 */
 function scJokerDescHtml (j) {
   const it = j && BY_ID[j.id];
   const lines = (it && it.text && (it.text[S.lang] || it.text['en-us'])) || [];
   if (!lines.length) return '';
-  return '<div class="scjdesc">' + lines.map(function (l) {
-    return '<div class="ln">' + markup(l).replace(/#\d+#/g, function (m) { return '<b class="ph">' + m + '</b>' }) + '</div>';
+  const lv = JOKER_LOCVARS[j.name] || [];
+  return '<div class="scjdesc">' + lines.map(function (line) {
+    let html = markup(line).replace(/#(\d+)#/g, function (all, n) {
+      const expr = lv[(+n) - 1];
+      if (!expr) return '<b class="ph">' + all + '</b>';
+      const prm = scParamForExpr(j, expr);
+      if (prm) return scParamCtl(j, prm, 'inline');
+      const v = scExprValue(j, expr);
+      return '<b class="ph">' + (v == null ? all : v) + '</b>';
+    });
+    /* 有些描述在生成数据时就把 #2# 换成了具体花色（打出的黑桃牌），这里把那几个花色词
+     * 本身换成下拉，效果和占位符一样：文本里的动态值就地可改。 */
+    for (const prm of scJokerParams(j)) {
+      if (prm.type !== 'suit') continue;
+      for (const s of ['S', 'H', 'D', 'C']) {
+        const nmS = SUIT_LABEL[s];
+        if (html.indexOf(nmS) >= 0) { html = html.replace(nmS, scParamCtl(j, prm, 'inline')); break }
+      }
+    }
+    return '<div class="ln">' + html + '</div>';
   }).join('') + '</div>';
 }
+
 
 /** 记录值的初值：原版新建时 self.ability.x_mult 之类的起点（Hologram ×1、Ramen ×2、冰激凌 +100…） */
 function scInitJokerState (cfg, fields) {
@@ -4468,24 +4527,7 @@ function scJokerEnvFieldsOld (j) {
 }
 
 /** 小丑牌弹窗里"这张牌要改的动态值"：花色 / 点数 / 数字，各用各的控件 */
-function jenvHtml (j) {
-  const prms = scJokerParams(j);
-  if (!prms.length) return '';
-  const ctl = (prm) => {
-    const cur = (j.params && j.params[prm.path]) || '';
-    if (prm.type === 'suit') {
-      return '<select data-jparam="' + esc(prm.path) + '"><option value="">（未指定）</option>' +
-        ['S', 'H', 'D', 'C'].map((s) => '<option value="' + SUIT_EN[s] + '"' + (cur === SUIT_EN[s] ? ' selected' : '') + '>' + SUIT_LABEL[s] + ' ' + SUIT_SYM[s] + '</option>').join('') + '</select>';
-    }
-    if (prm.type === 'rank') {
-      return '<select data-jparam="' + esc(prm.path) + '"><option value="">（未指定）</option>' +
-        ['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2'].map((r) => '<option value="' + r + '"' + (cur === r ? ' selected' : '') + '>' + r + '</option>').join('') + '</select>';
-    }
-    return '<input type="number" data-jparam="' + esc(prm.path) + '" value="' + (cur === '' ? 0 : cur) + '">';
-  };
-  return '<div class="scgrowbox"><div class="scgrowtitle">这张牌的动态值（原版按它判：改这里才算得对）</div><div class="scgrowfs">' +
-    prms.map((p) => '<label class="scgrowf"><span>' + p.label + '</span>' + ctl(p) + '</label>').join('') + '</div></div>';
-}
+function jenvHtml (j) { return '' }
 
 /** 旧版：它单独用到的局面数值 */
 function jenvHtmlOld (j) {

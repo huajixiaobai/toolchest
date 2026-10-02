@@ -3011,6 +3011,28 @@ const SCENARIOS = {
      r.ancientWithSuit={mult:+x.mult.toFixed(2), rows:x.rows.filter(y=>y.op!=='base'&&y.op!=='card').map(y=>y.label)};
      r.errors=window.__V.errors.length;
      return r })()`,
+  inlinedesc: `(async()=>{
+     const B=window.__BALATRO__; const SC=B.score.state; const r={};
+     const q=(s)=>document.querySelector(s);
+     B.state.tab='score'; B.render(); await __V.wait(600);
+     SC.jokers=[B.score.jokerFromItem(B.byId['j_ancient'])]; B.render(); await __V.wait(500);
+     q('#scJokers .sctile').click(); await __V.wait(600);
+     const d=q('#scPanel .scjdesc');
+     r.descText=d?d.textContent.replace(/\s+/g,'_').slice(0,80):null;
+     r.inlineCtls=[].slice.call(document.querySelectorAll('#scPanel .scjdesc [data-jparam]')).map(e=>({tag:e.tagName,p:e.dataset.jparam,opts:e.options?e.options.length:0}));
+     /* 就地改花色 → 倍率应该跟着变 */
+     SC.played=[B.score.card('5','D')]; SC.held=[]; B.render(); await __V.wait(500);
+     const sel=q('#scPanel .scjdesc [data-jparam]');
+     if(sel){ sel.value='Diamonds'; sel.dispatchEvent(new Event('change',{bubbles:true})); await __V.wait(700) }
+     r.afterPick={mult:q('.scmult b').textContent, params:JSON.stringify(SC.jokers[0].params)};
+     /* 钢铁小丑：描述里的 #2# 应该是数字输入 */
+     const d2=q('#scPanelDone'); if(d2) d2.click(); await __V.wait(300);
+     SC.jokers=[B.score.jokerFromItem(B.byId['j_steel_joker'])]; B.render(); await __V.wait(500);
+     q('#scJokers .sctile').click(); await __V.wait(600);
+     r.steel={desc:(q('#scPanel .scjdesc')||{}).textContent.replace(/\s+/g,'_').slice(0,70),
+              ctls:[].slice.call(document.querySelectorAll('#scPanel .scjdesc [data-jparam]')).map(e=>e.dataset.jparam),
+              fields:[].slice.call(document.querySelectorAll('#scPanel [data-jstate]')).map(e=>e.dataset.jstate)};
+     r.errors=window.__V.errors.length; return r })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};
