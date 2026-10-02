@@ -2662,6 +2662,18 @@ const SCENARIOS = {
      const keys=Object.keys(B.byId).filter(k=>/jolly|duo|stencil|sly|greedy|hologram|blueprint|blackboard/.test(k));
      const ids=B.items.filter(x=>x.cat==='Joker').slice(0,8).map(x=>x.id);
      return {keys, ids, hasJolly:!!B.byId['j_jolly'], n:Object.keys(B.byId).length} })()`,
+  scorePickScrollMobile: `(async()=>{
+     const B=window.__BALATRO__;
+     B.state.tab='score'; B.render(); await __V.wait(900);
+     document.querySelector('#scAddJoker').click(); await __V.wait(1200);
+     const g=document.querySelector('#scPickGrid'), p=document.querySelector('.scpickpanel');
+     const pr=p.getBoundingClientRect(), gr=g.getBoundingClientRect();
+     /* 真滚一下，看内容有没有跟着动 */
+     const before=g.scrollTop; g.scrollTop=400; const after=g.scrollTop;
+     return {win:{w:window.innerWidth,h:window.innerHeight}, panelH:Math.round(pr.height), panelBottom:Math.round(pr.bottom),
+             gridClientH:g.clientHeight, gridScrollH:g.scrollHeight, canScroll:g.scrollHeight>g.clientHeight+4,
+             scrolled:after>before, gridBottom:Math.round(gr.bottom), fitsInWin:gr.bottom<=window.innerHeight+1,
+             errors:window.__V.errors.length} })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};
@@ -3006,6 +3018,7 @@ async function main () {
   if (SCENARIOS.demoLayout && !SCENARIOS.demoLayoutMobile) SCENARIOS.demoLayoutMobile = SCENARIOS.demoLayout
   if (SCENARIOS.scoreCalc && !SCENARIOS.scoreCalcMobile) SCENARIOS.scoreCalcMobile = SCENARIOS.scoreCalc
   if (SCENARIOS.scoreNewPreset && !SCENARIOS.scoreNewPresetMobile) SCENARIOS.scoreNewPresetMobile = SCENARIOS.scoreNewPreset
+  if (SCENARIOS.scorePickOpen && !SCENARIOS.scorePickOpenMobile) { SCENARIOS.scorePickOpenMobile = SCENARIOS.scorePickOpen; SCENARIOS.scorePickOpenMobilePhone = SCENARIOS.scorePickOpen }
   const want = process.argv.slice(2)
   const list = want.length ? want : Object.keys(SCENARIOS)
   const profile = path.join(__dirname, '..', 'chromeprofile-cdp')
@@ -3094,7 +3107,7 @@ async function main () {
       await c.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 560, deviceScaleFactor: 1, mobile: false })
       LongMode = true
     }
-    if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile' || name === 'scoreCalcMobile' || name === 'scoreNewPresetMobile') {
+    if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile' || name === 'scoreCalcMobile' || name === 'scoreNewPresetMobile' || name === 'scorePickOpenMobilePhone' || name === 'scorePickScrollMobile') {
       // emulate a phone viewport (bootPhone tests the start screen visitors land on)
       await c.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
       await c.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {})
