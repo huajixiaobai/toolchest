@@ -279,12 +279,62 @@ function nameI18n (key, set, fallback) {
   return { i18n: out, name: out['en-us'] || fallback || key }
 }
 
+/* 少数条目在各语言表里根本没有名字（游戏里也不会显示），这里直接写死。
+   c_base 是"所有牌面画在它上面"的空白卡体，只有图鉴里会出现。 */
+const MANUAL_NAMES = {
+  c_base: { 'en-us': 'Default Base', zh_CN: '默认牌面底框', zh_TW: '預設牌面底框', ja: '既定のカード本体', ko: '기본 카드 본체' },
+  soul: { 'en-us': 'Soul Sprite', zh_CN: '灵魂虚影', zh_TW: '靈魂虛影', ja: 'ソウルの亡霊', ko: '소울 유령' },
+}
+
+/** 按候选键 / 候选表逐语言找名字。我们用的 id 有时和本地化键不同：
+ *  补充包带序号（p_arcana_normal_1 → p_arcana_normal）、蜡封是 gold_seal、
+ *  注数贴纸是 stake_white —— 找不到才退回英文名。 */
+function nameCand (keys, sets, fallback) {
+  const out = {}
+  for (const [code] of LOCALES) {
+    for (const set of sets) {
+      for (const k of keys) {
+        const d = locData[code].descriptions[set]?.[k]
+        if (d && d.name) { out[code] = d.name; break }
+      }
+      if (out[code]) break
+    }
+    if (!out[code]) {
+      const man = keys.map((k) => MANUAL_NAMES[k]?.[code]).find(Boolean)
+      if (man) out[code] = man
+    }
+  }
+  if (!Object.keys(out).length && fallback) out['en-us'] = fallback
+  return { i18n: out, name: out['en-us'] || fallback || keys[0] }
+}
+
+/** 扑克牌在游戏里"牌面就是名字"，各语言的名字用"花色 + 点数"拼出来（红桃2 / スペードJ）。 */
+const RANK_TXT = {
+  1: 'A', 11: 'J', 12: 'Q', 13: 'K', 14: 'A',
+  Ace: 'A', Jack: 'J', Queen: 'Q', King: 'K',
+  Two: '2', Three: '3', Four: '4', Five: '5', Six: '6', Seven: '7', Eight: '8', Nine: '9', Ten: '10',
+}
+function cardNameI18n (c) {
+  const out = {}
+  for (const [code] of LOCALES) {
+    const m = locData[code].misc
+    const suit = m.suits_singular?.[c.suit] || m.suits_plural?.[c.suit] || c.suit
+    out[code] = suit + (RANK_TXT[c.value] || c.value)
+  }
+  return out
+}
+
 function textI18n (key, set, c, extra) {
   const i18n = {}
   const textRaw = {}
   const cands = candidatesFor(key, set, c)
   for (const [code] of LOCALES) {
-    let arr = toArray(locData[code].descriptions[set]?.[key]?.text)
+    /* 补充包的名字和说明都挂在没有序号的那个键上（p_arcana_normal_1 → p_arcana_normal），
+       而且这版游戏把它放在 Other 里而不是 Booster 里 */
+    const bare = key.replace(/_\d+$/, '')
+    let src = locData[code].descriptions[set]?.[key]
+    if (!src && bare !== key) src = locData[code].descriptions[set]?.[bare] || locData[code].descriptions.Other?.[bare]
+    let arr = toArray(src?.text)
     if (extra && extra.getText) {
       const ov = extra.getText(code)
       if (ov) arr = ov
@@ -363,7 +413,7 @@ for (const key of Object.keys(P_CENTERS)) {
       return null
     },
   })
-  const nm = nameI18n(key, set, c.name)
+  const nm = nameCand([key, key.replace(/_\d+$/, '')], [set, 'Other'], c.name)
   const sp = centerSprite(c)
   items.push({
     id: key, key, cat: SET_CATEGORY[set] || 'Other', set,
@@ -407,11 +457,11 @@ for (const it of items) {
 
 for (const key of Object.keys(P_SEALS)) {
   const s = P_SEALS[key]
-  const nm = nameI18n(key, 'Other', key + ' Seal')
+  const nm = nameCand([key.toLowerCase() + '_seal'], ['Other'], key + ' Seal')
   const tx = textI18n(key.toLowerCase() + '_seal', 'Other', {})
   items.push({
     id: 'seal_' + key, key, cat: 'Seal', set: 'Seal', order: s.order ?? 99,
-    name: EN.misc.labels?.[key.toLowerCase() + '_seal'] || key + ' Seal',
+    name: nm.name,
     i18n: nm.i18n, text: tx.i18n, textRaw: tx.textRaw,
     atlas: 'centers', pos: SEAL_POS[key] || { x: 0, y: 0 },
     sprite: { kind: 'overlay', atlas: 'centers', pos: SEAL_POS[key] || { x: 0, y: 0 } },
@@ -459,11 +509,16 @@ for (const key of Object.keys(P_STAKES)) {
 
 for (const key of Object.keys(STICKER_POS)) {
   const isRun = ['eternal', 'perishable', 'rental'].includes(key)
+  /* 三个运行期贴纸的名字在 Other 里（eternal/perishable/rental），
+     注数贴纸的名字是赌注的名字（sticker_White → descriptions.Stake.stake_white → 白注） */
+  const nm = isRun
+    ? nameCand([key], ['Other'], key[0].toUpperCase() + key.slice(1))
+    : nameCand(['stake_' + key.toLowerCase()], ['Stake'], key + ' Stake')
   const tx = textI18n(key, 'Other', {})
   items.push({
     id: 'sticker_' + key, key, cat: 'Sticker', set: 'Sticker', order: isRun ? 1 : 2,
-    name: EN.misc.labels?.[key] || key[0].toUpperCase() + key.slice(1),
-    i18n: {}, text: tx.i18n, textRaw: tx.textRaw,
+    name: nm.name,
+    i18n: nm.i18n, text: tx.i18n, textRaw: tx.textRaw,
     atlas: 'stickers', pos: STICKER_POS[key],
     sprite: { kind: 'sticker', atlas: 'stickers', pos: STICKER_POS[key] },
     config: {}, raw: {},
@@ -474,21 +529,30 @@ for (const key of Object.keys(P_CARDS)) {
   const c = P_CARDS[key]
   items.push({
     id: key, key, cat: 'PlayingCard', set: 'PlayingCard', order: (c.pos.y * 13) + c.pos.x,
-    name: c.name, i18n: {}, text: {}, textRaw: {},
+    name: c.name, i18n: cardNameI18n(c), text: {}, textRaw: {},
     atlas: 'cards_1', pos: c.pos, sprite: { kind: 'playingcard', atlas: 'cards_1', pos: c.pos },
     value: c.value, suit: c.suit, config: {}, raw: c,
   })
 }
 
-const collabNames = EN.misc.collabs || {}
+/* 联动牌的名字在 misc.collabs[花色][序号] 里，序号就是这张牌在 globals.lua 的
+   G.COLLABS.options[花色] 里的下标（1 起算，"1" 是"默认"）。以前按 collabs['TW'] 去找，
+   永远找不到，所以界面上一直显示裸 id "collab_TW — Jack of Spades"。 */
+const collabNameAt = (code, suit, idx) => locData[code].misc.collabs?.[suit]?.[String(idx)] || null
 for (const suit of Object.keys(COLLABS.options || {})) {
   for (const opt of COLLABS.options[suit]) {
     if (opt === 'default') continue
+    const idx = COLLABS.options[suit].indexOf(opt) + 1
     for (const rank of ['Jack', 'Queen', 'King']) {
-      const cn = collabNames[opt.replace('collab_', '')] || opt
+      const i18n = {}
+      for (const [code] of LOCALES) {
+        const base = collabNameAt(code, suit, idx)
+        if (base) i18n[code] = base + ' · ' + (locData[code].misc.suits_plural?.[suit] || suit) + (code === 'en-us' ? ' ' : '') + ({ Jack: 'J', Queen: 'Q', King: 'K' })[rank]
+      }
+      const cn = collabNameAt('en-us', suit, idx) || opt
       items.push({
         id: `${opt}_${rank}`, key: `${opt}_${rank}`, cat: 'Collab', set: 'Collab', order: 0,
-        name: `${cn} — ${rank} of ${suit}`, i18n: {}, text: {}, textRaw: {},
+        name: i18n['en-us'] || `${cn} — ${rank} of ${suit}`, i18n, text: {}, textRaw: {},
         atlas: opt + '_1', pos: COLLABS.pos[rank],
         sprite: { kind: 'collab', atlas: opt + '_1', atlas2: opt + '_2', pos: COLLABS.pos[rank] },
         suit, value: rank, config: {}, raw: { suit, rank, collab: opt },

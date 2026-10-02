@@ -5540,6 +5540,10 @@ function init () {
       condHand: (cond, j, n) => condMatchesHand(cond, j, n),
       substParams: (txt, j) => scSubstParams(txt, j),
       params: (j) => scJokerParams(j),
+      /* 调试/扫描用：某张牌的描述 HTML（含内联控件）与它的动态值清单 */
+      descHtml: (j) => scJokerDescHtml(j),
+      locVars: (j) => (JOKER_LOCVARS[j.name] || []),
+      nm: (it, lang) => nm(it, lang),
       detect: () => scDetectHand(),
       hand: () => SC.hand },
   };

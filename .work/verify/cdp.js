@@ -3033,6 +3033,48 @@ const SCENARIOS = {
               ctls:[].slice.call(document.querySelectorAll('#scPanel .scjdesc [data-jparam]')).map(e=>e.dataset.jparam),
               fields:[].slice.call(document.querySelectorAll('#scPanel [data-jstate]')).map(e=>e.dataset.jstate)};
      r.errors=window.__V.errors.length; return r })()`,
+  /* 全量扫描：① 描述里有动态值的牌是否都给出了内联控件  ② 哪些条目缺中文 */
+  sweep: `(async()=>{
+     const B=window.__BALATRO__; const S=B.state; S.lang='zh_CN';
+     const r={inline:[], noInline:[], missingCN:{}};
+     /* ① 逐张检查：描述里出现 #N# 或花色词、且 loc_vars 指向可改参数的，应当有 data-jparam */
+     for (const it of B.items) {
+       if (it.cat!=='Joker' && it.cat!=='PlayingCard') continue;
+       let j=null; try{ j=B.score.jokerFromItem(it) }catch(e){ continue }
+       let html=''; try{ html=B.score.descHtml(j) }catch(e){ html='' }
+       const lv=B.score.locVars(j);
+       const hasPh=/#\d+#/.test(html) || /[♠♥♦♣]/.test(html);
+       const ctl=/data-jparam/.test(html);
+       if(ctl) r.inline.push(it.name);
+       else if(hasPh && lv.length) r.noInline.push(it.name+'  lv='+JSON.stringify(lv).slice(0,60));
+     }
+     /* ② 缺中文的条目：按分类统计 */
+     const isCN=(s)=>/[\u4e00-\u9fa5]/.test(s||'');
+     for (const it of B.items) {
+       const n=B.score.nm(it,'zh_CN');
+       if(isCN(n)) continue;
+       const k=it.cat; (r.missingCN[k]=r.missingCN[k]||[]).push(it.id);
+     }
+     for (const k of Object.keys(r.missingCN)) r.missingCN[k]='共 '+r.missingCN[k].length+' 项，例：'+r.missingCN[k].slice(0,3).join(',');
+     /* ③ 本轮补的中文名：抽查（nm）+ 真搜索（#search 输入框 → #content .cell） */
+     const grab=(id)=>{const it=B.byId[id]; return it? B.score.nm(it,'zh_CN') : '(无此条目)'};
+     r.names={booster:grab('p_arcana_mega_1'), seal:grab('seal_Gold'), sticker:grab('sticker_eternal'),
+              stake:grab('sticker_White'), collab:grab('collab_TW_Jack'), collabVS:grab('collab_VS_Jack'),
+              card:grab('H_2'), base:grab('c_base'), soul:grab('soul'), dna:grab('j_dna')};
+     const sameEn=B.items.filter((it)=>{const zh=B.score.nm(it,'zh_CN'),en=B.score.nm(it,'en-us'); return !zh||zh===en});
+     r.sameAsEn=sameEn.length; r.sameAsEnSample=sameEn.map((i)=>i.id).slice(0,12);
+     const sq=document.getElementById('search');
+     r.searchHits={};
+     for (const term of ['巫师','秘术包','金色蜡封','白注','红桃2','Vampire Survivors']) {
+       sq.value=term; sq.dispatchEvent(new Event('input',{bubbles:true}));
+       await __V.wait(350);
+       r.searchHits[term]=document.querySelectorAll('#content .cell').length;
+     }
+     sq.value=''; sq.dispatchEvent(new Event('input',{bubbles:true})); await __V.wait(200);
+     r.inlineCount=r.inline.length; r.noInlineCount=r.noInline.length;
+     r.inline=r.inline.slice(0,40); r.noInline=r.noInline.slice(0,25);
+     r.errors=window.__V.errors.length;
+     return r })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};
