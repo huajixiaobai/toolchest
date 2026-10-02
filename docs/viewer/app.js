@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "f74132af";
+window.__APP_BUILD__ = "c9bfec2a";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -4834,6 +4834,70 @@ function scStopPlay () {
   if (SC_UI.timer) { clearInterval(SC_UI.timer); SC_UI.timer = null }
 }
 
+/* ================================================================ 牌型自动判定
+ * 原版是拿"打出去的牌"判牌型的（evaluate_play 里的 poker_hand 检测），所以这里也按同样的
+ * 顺序从强到弱判一遍。四指 / 捷径 / 涂抹小丑这三张会改判定规则，桌上有它们时自动放宽。 */
+function scDetectHand () {
+  const cards = SC.played.slice();
+  if (!cards.length) return null;
+  const has = (n) => SC.jokers.some((j) => j.name === n);
+  const fingers = has('Four Fingers');       /* 同花 / 顺子 4 张即可 */
+  const shortcut = has('Shortcut');           /* 顺子允许跳点数 */
+  const smeared = has('Smeared Joker');       /* 红桃=方块、黑桃=梅花 */
+  const suitOf = (c) => (smeared ? ({ H: 'R', D: 'R', S: 'B', C: 'B' }[c.suit] || c.suit) : c.suit);
+  /* 石头牌没有点数与花色（原版也是），判牌型时不计入花色/点数 */
+  const live = cards.filter((c) => c.enh !== 'm_stone');
+  const cnt = {};
+  for (const c of live) cnt[RANK_ID[c.rank]] = (cnt[RANK_ID[c.rank]] || 0) + 1;
+  const groups = Object.values(cnt).sort((a, b) => b - a);
+  const sc = {};
+  for (const c of live) sc[suitOf(c)] = (sc[suitOf(c)] || 0) + 1;
+  const need = fingers ? 4 : 5;
+  const allLive = live.length === cards.length;
+  const sameSuit = allLive && live.length >= need && Object.values(sc).some((v) => v >= need);
+  const isStraight = (() => {
+    const u = [...new Set(live.map((c) => RANK_ID[c.rank]))].sort((a, b) => a - b);
+    if (!allLive || u.length < need) return false;
+    const runs = (arr) => {
+      for (let i = 1; i < arr.length; i++) {
+        const gap = arr[i] - arr[i - 1];
+        if (gap === 1) continue;
+        if (shortcut && gap === 2) continue;          /* 捷径：跳一个点数也算连着 */
+        return false;
+      }
+      return arr.length >= need;
+    };
+    if (runs(u)) return true;
+    if (u.includes(14)) {                              /* A 可以当 1（A2345） */
+      const v = [1].concat(u.filter((x) => x !== 14)).sort((a, b) => a - b);
+      if (runs(v)) return true;
+    }
+    return false;
+  })();
+  const five = cards.length >= 5;
+  const top = groups[0] || 0;
+  const second = groups[1] || 0;
+  if (five && top >= 5 && sameSuit) return 'Flush Five';
+  if (five && top === 3 && second === 2 && sameSuit) return 'Flush House';
+  if (five && top >= 5) return 'Five of a Kind';
+  if (sameSuit && isStraight) return 'Straight Flush';
+  if (top >= 4) return 'Four of a Kind';
+  if (top === 3 && second >= 2) return 'Full House';
+  if (sameSuit) return 'Flush';
+  if (isStraight) return 'Straight';
+  if (top >= 3) return 'Three of a Kind';
+  if (top === 2 && second === 2) return 'Two Pair';
+  if (top === 2) return 'Pair';
+  return 'High Card';
+}
+
+/** 把"打出去的牌"判出来的牌型写回 SC.hand；玩家手动指定过就不动 */
+function scSyncHand () {
+  if (SC.handMode === 'manual') return;
+  const d = scDetectHand();
+  if (d) SC.hand = d;
+}
+
 /* ---- 牌型的中文名（图鉴数据里每种牌型都有 5 种语言的 i18n） ---- */
 function handCN (h) {
   const cn = (h && h.i18n && (h.i18n[S.lang] || h.i18n.zh_CN)) || (h && h.name) || '';
@@ -4897,6 +4961,15 @@ const SC_FIELD_LABEL = {
 const scFieldLabel = (f) => SC_FIELD_LABEL[f] || ('记录值 ' + f);
 /** 哪些字段是"选牌型"而不是数字（To Do List 要指定一个牌型） */
 const SC_FIELD_HAND = new Set(['to_do_poker_hand']);
+
+/** 一张牌的短名字：K♠ / K♠ 钢铁牌（强化名走本地化，mod 条目也一样） */
+function scCardLabel (c) {
+  if (!c) return '';
+  return (c.rank === '10' ? '10' : c.rank) + (SUIT_SYM[c.suit] || '') +
+    (c.enh && BY_ID[c.enh] ? ' ' + nm(BY_ID[c.enh]) : '') +
+    (c.ed && BY_ID[c.ed] ? ' · ' + nm(BY_ID[c.ed]) : '') +
+    (c.seal ? ' · ' + c.seal + '蜡封' : '');
+}
 
 /** 一张小丑牌当前记录值的摘要（显示在卡图下面那行小字里） */
 function scJokerStateText (j) {
@@ -4964,6 +5037,7 @@ function viewScore (host) {
     SC_UI.welcomed = true;
     scDefaultHand(8);
   }
+  scSyncHand();                       /* 牌型跟着打出的牌走（手动指定过就不动） */
   const r = scoreCompute();
   const step = (SC_UI.step >= 0 && SC_UI.step < r.rows.length) ? SC_UI.step : -1;
   const shown = step >= 0 ? r.rows[step] : { chips: r.chips, mult: r.mult };
@@ -5010,12 +5084,8 @@ function viewScore (host) {
   stage.innerHTML = `
     <div class="scgrid">
       <div class="schud">
-        <div class="scpickline">
-          <select id="scHandType" title="牌型">${D.hands.slice().sort((a, b) => (b.order || 0) - (a.order || 0)).map((h) => `<option value="${h.name}"${h.name === SC.hand ? ' selected' : ''}>${handLabel(h)}</option>`).join('')}</select>
-          <label class="sclvl">Lv <input id="scLevel" type="number" min="1" max="99" value="${SC.level}" title="牌型等级"></label>
-          <span class="scbase">每级 +${r.hand.chipsPerLevel || 0} / +${r.hand.multPerLevel || 0}</span>
-        </div>
-        <div class="schandname"><b>${handCN(r.hand)}</b><i>Lv.${SC.level}</i><em>基础 ${r.hand.chips} × ${r.hand.mult}　·　本局打过 ${handPlayCount(SC.hand)} 次</em></div>
+        <div class="schandname"><b>${handCN(r.hand)}</b><i>Lv.${SC.level}</i>
+          <em>${SC.played.length ? '由打出的牌自动判定' : '还没选牌'}　·　基础 ${r.hand.chips} × ${r.hand.mult}${SC.handMode === 'manual' ? '　·　手动指定' : ''}　·　本局打过 ${handPlayCount(SC.hand)} 次</em></div>
         <div class="scmath">
           <div class="scchips" title="筹码"><b>${Math.round(shown.chips)}</b></div>
           <div class="scx">X</div>
@@ -5046,9 +5116,14 @@ function viewScore (host) {
         <div class="scrail" id="scHand"></div>
       </div>
       <div class="scrowbox scfull">
-        <div class="scrowhead"><span>局面</span><em>原版算分读到的那些数值：剩余次数、金钱、牌堆、已用塔罗牌…（改这里，依赖它们的牌才算得对）</em>
+        <div class="scrowhead"><span>整体修改</span><em>牌型等级与次数、以及原版算分读到的那些数值：剩余次数、金钱、牌堆、已用塔罗牌…（改这里，依赖它们的牌才算得对）</em>
           <button class="btn" id="scPlaysToggle">牌型次数…</button></div>
         <div class="scenv">
+          <label class="scev" title="牌型等级（每级加多少见 HUD 那行）"><span>牌型等级 Lv</span><input id="scLevel" type="number" min="1" max="99" value="${SC.level}"></label>
+          <label class="scev" title="本局用这个牌型打过几次（G.GAME.hands[x].played）"><span>本牌型已打次数</span><input id="scHandPlays" type="number" min="0" max="999" value="${handPlayCount(SC.hand)}"></label>
+          <label class="scev scsel2" title="正常按打出的牌自动判定；只有 mod 改了牌型规则时才需要手动指定"><span>牌型（自动）</span>
+            <select id="scHandType"><option value="">自动：${handCN(r.hand)}</option>${D.hands.slice().sort((a, b) => (b.order || 0) - (a.order || 0)).map((h) => `<option value="${h.name}"${SC.handMode === 'manual' && h.name === SC.hand ? ' selected' : ''}>${handLabel(h)}</option>`).join('')}</select>
+          </label>
           ${SC_ENV_FIELDS.map(([k, label, min, max]) => `<label class="scev" title="${label}"><span>${label}</span><input type="number" data-env="${k}" min="${min}" max="${max}" value="${SC.env[k]}"></label>`).join('')}
           <label class="scevc"><input type="checkbox" data-envflag="bossBlind"${SC.env.bossBlind ? ' checked' : ''}><span>BOSS 盲注</span></label>
           <label class="scevc"><input type="checkbox" data-envflag="blindDisabled"${SC.env.blindDisabled ? ' checked' : ''}><span>盲注被禁用</span></label>
@@ -5091,7 +5166,7 @@ function viewScore (host) {
     t.addEventListener('dragover', scDragOverTile('joker', j));
     t.addEventListener('dragleave', scDragLeaveTile());
     t.addEventListener('drop', scDropOnTile('joker', SC.jokers, j));
-    t.onclick = (e) => { if (e.target.closest('.scmv')) return; scStopPlay(); SC_UI.joker = (SC_UI.joker === j ? null : j); SC_UI.focus = null; render() };
+    t.onclick = (e) => { if (e.target.closest('.scmv')) return; scOpenJokerEditor(j); render() };
     railJ.appendChild(t);
   });
 
@@ -5111,7 +5186,7 @@ function viewScore (host) {
     t.style.marginRight = (i === SC.played.length - 1 ? 0 : PLAY_PITCH - CARDW) + 'px';
     if (c.seal === 'Red') t.appendChild(Object.assign(document.createElement('i'), { className: 'scred', textContent: '红' }));
     t.onclick = () => { scStopPlay(); scToggleCard(c); render() };
-    t.oncontextmenu = (e) => { e.preventDefault(); scStopPlay(); SC_UI.focus = c; render() };
+    t.oncontextmenu = (e) => { e.preventDefault(); scOpenCardEditor(c); render() };
     railP.appendChild(t);
   });
 
@@ -5133,7 +5208,7 @@ function viewScore (host) {
     t.addEventListener('dragleave', scDragLeaveTile());
     t.addEventListener('drop', scDropOnTile('hand', order, c));
     t.onclick = () => { scStopPlay(); scToggleCard(c); render() };
-    t.oncontextmenu = (e) => { e.preventDefault(); scStopPlay(); SC_UI.focus = c; SC_UI.joker = null; render() };
+    t.oncontextmenu = (e) => { e.preventDefault(); scOpenCardEditor(c); render() };
     railH.appendChild(t);
   });
 
@@ -5145,72 +5220,17 @@ function viewScore (host) {
     ? '　·　手填 +' + SC.manual.chips + ' 筹码 / +' + SC.manual.mult + ' 倍率 / ×' + SC.manual.xmult : '';
   note.innerHTML = heldTxt + (steel ? '　·　<b>钢铁牌 ' + steel + ' 张（每张 ×1.5）</b>' : '') + manual;
 
-  /* ---- 小丑牌面板：记录值（每用一张塔罗牌 +1 倍率那种）+ 手填修正 ---- */
-  if (SC_UI.joker && SC.jokers.indexOf(SC_UI.joker) >= 0) {
-    const j = SC_UI.joker;
-    const idx = SC.jokers.indexOf(j);
-    const rule = jokerRule(j);
-    const fields = (j.fields || []);
-    const fieldInput = (f) => {
-      if (SC_FIELD_HAND.has(f)) {
-        return '<label class="scgrowf"><span>' + scFieldLabel(f) + '</span><select data-jstate="' + f + '">' +
-          '<option value="">（未指定）</option>' +
-          D.hands.map((h) => `<option value="${h.name}"${j.state[f] === h.name ? ' selected' : ''}>${handCN(h)}</option>`).join('') +
-          '</select></label>';
-      }
-      const v = typeof j.state[f] === 'number' ? j.state[f] : 0;
-      return '<label class="scgrowf"><span>' + scFieldLabel(f) + '</span>' +
-        '<input type="number" step="0.5" data-jstate="' + f + '" value="' + v + '">' +
-        '<em>' + esc(f) + '</em></label>';
-    };
-    const dlg = document.createElement('div');
-    dlg.className = 'gdialog scfocus';
-    dlg.innerHTML = `<div class="gin">
-      <div class="scpkh"><span class="gtitle">${esc(j.name || j.id)}</span>
-        <b>第 ${idx + 1} 个结算</b>
-        <span class="scjrulenote">${rule ? (rule.k === 'yes' ? '规则可自动判定' : rule.k === 'manual' ? '条件要靠下面的记录值/手填' : rule.k === 'by-card' ? '按打出的每张牌判定' : '增加重复次数') : '没有自动规则，只能手填'}${(JOKER_STATE.jokers[j.name] || {}).external && (JOKER_STATE.jokers[j.name].external.length) ? '　·　它还会读局面：' + JOKER_STATE.jokers[j.name].external.slice(0, 3).join('、') : ''}</span>
-        <button class="btn" id="scJokerCodex" title="在图鉴里看它的完整数据">图鉴</button>
-        <button class="btn warn" id="scJokerDel">移除</button>
-        <button class="btn" id="scJokerClose">收起</button></div>
-      ${fields.length ? '<div class="scgrowbox"><div class="scgrowtitle">记录值（原版里这张牌自己累计的数）</div><div class="scgrowfs">' + fields.map(fieldInput).join('') + '</div></div>'
-        : '<div class="scgrowbox"><div class="scgrowtitle">这张牌没有累计值 —— 它只看牌型和你选的牌</div></div>'}
-      <div class="scgrowbox">
-        <div class="scgrowtitle">手填修正（自动算不出来的部分，直接加到结算里）</div>
-        <div class="scgrowfs">
-          <label class="scgrowf"><span>+ 筹码</span><input type="number" data-jman="chips" value="${j.manual.chips || 0}"></label>
-          <label class="scgrowf"><span>+ 倍率</span><input type="number" data-jman="mult" value="${j.manual.mult || 0}"></label>
-          <label class="scgrowf"><span>× 倍率</span><input type="number" step="0.1" data-jman="xmult" value="${j.manual.xmult == null ? 1 : j.manual.xmult}"></label>
-        </div>
-      </div></div>`;
-    host.appendChild(dlg);
-  }
+  /* 改牌 / 改小丑牌都走弹窗（scOpenCardEditor / scOpenJokerEditor），不再挤在页面下方 —— 想改
+     哪张就点哪张，弹窗自己滚，手机竖屏也够用。 */
+  if (SC_UI.focus || SC_UI.joker) scSyncPanel();
 
-  /* ---- 卡牌编辑（右键打开；也是对「加进来之后想微调」的回答） ---- */
-  if (SC_UI.focus && (SC.played.indexOf(SC_UI.focus) >= 0 || SC.held.indexOf(SC_UI.focus) >= 0)) {
-    const c = SC_UI.focus;
-    const grid = (label, list, cur, field) => '<div class="scpkrow"><span>' + label + '</span>' +
-      list.map((x) => `<button class="scpk${x[0] === cur ? ' on' : ''}" data-pick="${field}" data-v="${x[0]}">${x[1]}</button>`).join('') + '</div>';
-    const ranks = Object.keys(RANK_CHIPS).map((k) => [k, k]);
-    const suits = Object.keys(SUIT_SYM).map((k) => [k, SUIT_SYM[k]]);
-    const enhs = [['', '无']].concat(ITEMS.filter((x) => x.cat === 'Enhancement').map((x) => [x.id, x.name || x.id]));
-    const eds = [['', '无']].concat(ITEMS.filter((x) => x.cat === 'Edition' && !x.shader).map((x) => [x.id, x.name || x.id]));
-    const seals = [['', '无'], ['Red', '红'], ['Gold', '金'], ['Blue', '蓝'], ['Purple', '紫']];
-    const dlg = document.createElement('div');
-    dlg.className = 'gdialog scfocus';
-    dlg.innerHTML = `<div class="gin">
-      <div class="scpkh"><span class="gtitle">改这张牌</span><b>${cardLabel(c)}</b>
-        <button class="btn warn" id="scDel">移除</button><button class="btn" id="scClose">收起</button></div>
-      <div class="scpkrows">
-        ${grid('点数', ranks, c.rank, 'rank')}${grid('花色', suits, c.suit, 'suit')}
-        ${grid('强化', enhs, c.enh, 'enh')}${grid('版本', eds, c.ed, 'ed')}${grid('蜡封', seals, c.seal, 'seal')}
-      </div></div>`;
-    host.appendChild(dlg);
-  }
-
-  /* ---- 播放条 ---- */
+  /* ---- 播放条：贴在窗口底部，播放时不用往回滚就能看到数字在变 ---- */
   const bar = document.createElement('div');
   bar.className = 'scplay';
   bar.innerHTML = `
+    <span class="scplaymath" title="当前筹码 × 倍率 = 得分">
+      <b class="scpchips">${Math.round(shown.chips)}</b><i>×</i><b class="scpmult">${+shown.mult.toFixed(2)}</b><i>=</i><b class="scpscore">${Math.floor(shown.chips * shown.mult).toLocaleString()}</b>
+    </span>
     <button class="btn" id="scFirst" title="回到结果">⏮</button>
     <button class="btn" id="scPrev" title="上一步">◀</button>
     <button class="btn primary" id="scToggle">${SC_UI.playing ? '⏸ 暂停' : '▶ 逐步播放'}</button>
@@ -5250,7 +5270,17 @@ function viewScore (host) {
   /* 注意：播放条挂在 host 上而不是 stage 里，所以这里从 host 找 */
   const q = (sel) => host.querySelector(sel);
   const stepTo = (v) => { SC_UI.step = Math.max(-1, Math.min(r.rows.length - 1, v)); render() };
-  q('#scHandType').onchange = (e) => { scStopPlay(); SC.hand = e.target.value; render() };
+  q('#scHandType').onchange = (e) => {
+    scStopPlay();
+    const v = e.target.value;
+    if (v) { SC.handMode = 'manual'; SC.hand = v } else { SC.handMode = 'auto'; scSyncHand() }
+    render();
+  };
+  q('#scHandPlays').oninput = (e) => {
+    SC.env.played = SC.env.played || {};
+    SC.env.played[SC.hand] = Number(e.target.value) || 0;
+    scStopPlay(); SC_UI.step = -1; scRefreshNumbers(host);
+  };
   q('#scLevel').onchange = (e) => { scStopPlay(); SC.level = Math.max(1, +e.target.value || 1); render() };
   q('#scDeal').onclick = () => { scDefaultHand(8); render() };
   q('#scClear').onclick = () => { scStopPlay(); SC.played = []; SC.held = []; SC.jokers = []; SC_UI.order = []; SC_UI.focus = null; SC_UI.joker = null; SC_UI.step = -1; render() };
@@ -5267,6 +5297,7 @@ function viewScore (host) {
     SC_UI.playing = true;
     SC_UI.step = -1;
     render();
+    { const b = host.querySelector('.scplay'); if (b && b.scrollIntoView) b.scrollIntoView({ block: 'nearest' }) }
     SC_UI.timer = setInterval(() => {
       const rr = scoreCompute();
       if (SC_UI.step >= rr.rows.length - 1) { scStopPlay(); render(); return }
@@ -5346,6 +5377,161 @@ function viewScore (host) {
   stage.addEventListener('contextmenu', (e) => { if (e.target.closest('.sctile')) e.preventDefault() });
 }
 
+/* ================================================================ 修改弹窗
+ * 玩家的抱怨：改一张牌要滚到页面下面去找那一堆胶囊按钮。改成点一下就弹出来，
+ * 弹窗自己滚；窄屏（手机竖屏）从底部弹出，占满宽度。 */
+
+function scPanel (opts) {
+  let root = document.getElementById('scPanel');
+  if (!root) {
+    root = document.createElement('div');
+    root.id = 'scPanel';
+    root.className = 'scpick scmodal';
+    root.innerHTML = '<div class="scpickpanel"><div class="scpicktop"></div><div class="scpanelscroll"></div><div class="scpanelfoot"></div></div>';
+    document.body.appendChild(root);
+    root.addEventListener('click', (e) => {
+      if (e.target === root || e.target.closest('#scPanelDone')) scClosePanel();
+    });
+  }
+  const top = root.querySelector('.scpicktop');
+  top.innerHTML = '<b>' + opts.title + '</b><span class="scpickhint">' + (opts.hint || '') + '</span>' +
+    '<button class="btn primary" id="scPanelDone">完成 ✓</button>';
+  root.querySelector('.scpanelscroll').innerHTML = opts.body || '';
+  root.querySelector('.scpanelfoot').innerHTML = opts.foot || '';
+  root.querySelector('.scpanelfoot').hidden = !opts.foot;
+  root.classList.toggle('narrow', window.innerWidth < 700);
+  return root;
+}
+
+function scClosePanel (keepSel) {
+  const root = document.getElementById('scPanel');
+  if (root) root.remove();
+  if (!keepSel) { SC_UI.focus = null; SC_UI.joker = null }
+}
+
+/** 内容变了就地把弹窗刷新一遍（不重建 DOM，打字时光标不跳） */
+function scSyncPanel () {
+  if (document.getElementById('scPanel')) {
+    if (SC_UI.focus) scOpenCardEditor(SC_UI.focus, true);
+    else if (SC_UI.joker) scOpenJokerEditor(SC_UI.joker, true);
+  }
+}
+
+function scPillGrid (label, list, cur, field) {
+  return '<div class="scpkrow"><span>' + label + '</span>' +
+    list.map((x) => '<button class="scpk' + (x[0] === cur ? ' on' : '') + '" data-pick="' + field + '" data-v="' + esc(x[0]) + '" title="' + esc(x[0] || '无') + '">' + esc(x[1]) + '</button>').join('') +
+    '</div>';
+}
+
+/** 改一张扑克牌：点数 / 花色 / 强化 / 版本 / 蜡封 —— 名字全部走本地化（mod 条目也一样） */
+function scOpenCardEditor (c, keep) {
+  if (!keep) scStopPlay();
+  SC_UI.focus = c; SC_UI.joker = null;
+  const ranks = Object.keys(RANK_CHIPS).map((k) => [k, k]);
+  const suits = Object.keys(SUIT_SYM).map((k) => [k, SUIT_SYM[k]]);
+  const enhs = [['', '无']].concat(ITEMS.filter((x) => x.cat === 'Enhancement').map((x) => [x.id, nm(x)]));
+  const eds = [['', '无']].concat(ITEMS.filter((x) => x.cat === 'Edition' && !x.shader).map((x) => [x.id, nm(x)]));
+  const seals = [['', '无'], ['Red', '红蜡封'], ['Gold', '金蜡封'], ['Blue', '蓝蜡封'], ['Purple', '紫蜡封']];
+  const cv = scoreCardCanvas(c, 2);
+  scPanel({
+    title: '改这张牌',
+    hint: '点一下就是它现在的样子：' + scCardLabel(c),
+    body: '<div class="scmodalcard">' + (cv ? '<span class="scmodalart"></span>' : '') +
+      '<div class="scpkrows">' +
+      scPillGrid('点数', ranks, c.rank, 'rank') + scPillGrid('花色', suits, c.suit, 'suit') +
+      scPillGrid('强化', enhs, c.enh, 'enh') + scPillGrid('版本', eds, c.ed, 'ed') +
+      scPillGrid('蜡封', seals, c.seal, 'seal') +
+      '</div></div>',
+    foot: '<button class="btn" id="scCardCodex" title="在图鉴里看这张牌的原始数据">在图鉴里看</button>' +
+      '<button class="btn orange" id="scCardToggle">' + (scIsPlayed(c) ? '改成留在手里' : '改成打出去') + '</button>' +
+      '<button class="btn warn" id="scCardDel">移除这张牌</button>',
+  });
+  const root = document.getElementById('scPanel');
+  if (cv) { const art = root.querySelector('.scmodalart'); if (art) { cv.style.width = '71px'; cv.style.height = '95px'; art.appendChild(cv) } }
+  root.querySelector('.scpanelscroll').addEventListener('click', (e) => {
+    const pk = e.target.closest('[data-pick]');
+    if (pk && SC_UI.focus) { SC_UI.focus[pk.dataset.pick] = pk.dataset.v; render(); return }
+  });
+  root.querySelector('.scpanelfoot').addEventListener('click', (e) => {
+    if (e.target.id === 'scCardDel') { const cc = SC_UI.focus; scClosePanel(); scRemoveCard(cc); render(); return }
+    if (e.target.id === 'scCardToggle' && SC_UI.focus) { scToggleCard(SC_UI.focus); render(); return }
+    if (e.target.id === 'scCardCodex' && SC_UI.focus) {
+      const id = SC_UI.focus.suit + '_' + (SC_UI.focus.rank === '10' ? 'T' : SC_UI.focus.rank);
+      scClosePanel(); selectItem(id, true); return;
+    }
+  });
+}
+
+/** 改一张小丑牌：记录值（原版里它自己累计的数）+ 手填修正 */
+function scOpenJokerEditor (j, keep) {
+  if (!keep) scStopPlay();
+  SC_UI.joker = j; SC_UI.focus = null;
+  const idx = SC.jokers.indexOf(j);
+  const rule = jokerRule(j);
+  const fields = j.fields || [];
+  const meta = JOKER_STATE.jokers[j.name] || {};
+  const fieldInput = (f) => {
+    if (SC_FIELD_HAND.has(f)) {
+      return '<label class="scgrowf"><span>' + scFieldLabel(f) + '</span><select data-jstate="' + f + '">' +
+        '<option value="">（未指定）</option>' +
+        D.hands.map((h) => '<option value="' + h.name + '"' + (j.state[f] === h.name ? ' selected' : '') + '>' + handCN(h) + '</option>').join('') +
+        '</select></label>';
+    }
+    const v = typeof j.state[f] === 'number' ? j.state[f] : 0;
+    return '<label class="scgrowf"><span>' + scFieldLabel(f) + '</span>' +
+      '<input type="number" step="0.5" data-jstate="' + f + '" value="' + v + '">' +
+      '<em>' + esc(f) + '</em></label>';
+  };
+  const cv = scoreJokerCanvas(j, 2);
+  scPanel({
+    title: esc(j.name || j.id),
+    hint: '第 ' + (idx + 1) + ' 个结算　·　' +
+      (rule ? (rule.k === 'yes' ? '规则可自动判定' : rule.k === 'manual' ? '条件要靠记录值 / 手填' : rule.k === 'by-card' ? '按打出的每张牌判定' : '增加重复次数') : '没有自动规则，只能手填') +
+      (meta.external && meta.external.length ? '　·　它还会读局面：' + meta.external.slice(0, 3).join('、') : ''),
+    body: '<div class="scmodalcard">' + (cv ? '<span class="scmodalart"></span>' : '') +
+      '<div class="scpkrows">' +
+      (fields.length
+        ? '<div class="scgrowbox"><div class="scgrowtitle">记录值（原版里这张牌自己累计的数，填了它才算得对）</div><div class="scgrowfs">' + fields.map(fieldInput).join('') + '</div></div>'
+        : '<div class="scgrowbox"><div class="scgrowtitle">这张牌没有累计值 —— 它只看牌型和你选的牌</div></div>') +
+      '<div class="scgrowbox"><div class="scgrowtitle">手填修正（自动算不出来的部分，直接加进结算）</div>' +
+      '<div class="scgrowfs">' +
+      '<label class="scgrowf"><span>+ 筹码</span><input type="number" data-jman="chips" value="' + (j.manual.chips || 0) + '"></label>' +
+      '<label class="scgrowf"><span>+ 倍率</span><input type="number" data-jman="mult" value="' + (j.manual.mult || 0) + '"></label>' +
+      '<label class="scgrowf"><span>× 倍率</span><input type="number" step="0.1" data-jman="xmult" value="' + (j.manual.xmult == null ? 1 : j.manual.xmult) + '"></label>' +
+      '</div></div></div></div>',
+    foot: '<button class="btn" id="scJokerCodex" title="在图鉴里看它的完整数据">在图鉴里看</button>' +
+      '<button class="btn warn" id="scJokerDel">移除这张小丑牌</button>',
+  });
+  const root = document.getElementById('scPanel');
+  if (cv) { const art = root.querySelector('.scmodalart'); if (art) { cv.style.width = '71px'; cv.style.height = '95px'; art.appendChild(cv) } }
+  root.querySelector('.scpanelscroll').addEventListener('input', (e) => {
+    const jj = SC_UI.joker;
+    if (!jj) return;
+    const st = e.target.closest('[data-jstate]');
+    if (st) {
+      const f = st.dataset.jstate;
+      jj.state[f] = SC_FIELD_HAND.has(f) ? st.value : (Number(st.value) || 0);
+      scStopPlay(); SC_UI.step = -1; render(); return;
+    }
+    const man = e.target.closest('[data-jman]');
+    if (man) { jj.manual[man.dataset.jman] = Number(man.value) || 0; scStopPlay(); SC_UI.step = -1; render() }
+  });
+  root.querySelector('.scpanelscroll').addEventListener('change', (e) => {
+    const st = e.target.closest('[data-jstate]');
+    if (st && SC_FIELD_HAND.has(st.dataset.jstate) && SC_UI.joker) { SC_UI.joker.state[st.dataset.jstate] = st.value; render() }
+  });
+  root.querySelector('.scpanelfoot').addEventListener('click', (e) => {
+    if (e.target.id === 'scJokerDel') {
+      const jj = SC_UI.joker;
+      scClosePanel();
+      const i = SC.jokers.indexOf(jj);
+      if (i >= 0) SC.jokers.splice(i, 1);
+      render(); return;
+    }
+    if (e.target.id === 'scJokerCodex' && SC_UI.joker) { const id = SC_UI.joker.id; scClosePanel(); selectItem(id, true) }
+  });
+}
+
 /** 只把数字重算一遍（局面输入框在打字时不要整页重建，否则光标会跳） */
 function scRefreshNumbers (host) {
   const r = scoreCompute();
@@ -5356,6 +5542,9 @@ function scRefreshNumbers (host) {
   set('.scchips b', Math.round(shown.chips));
   set('.scmult b', +shown.mult.toFixed(2));
   set('.scscore b', Math.floor(shown.chips * shown.mult).toLocaleString());
+  set('.scpchips', String(Math.round(shown.chips)));
+  set('.scpmult', String(+shown.mult.toFixed(2)));
+  set('.scpscore', Math.floor(shown.chips * shown.mult).toLocaleString());
   const note = q('.schandname em');
   if (note) {
     const hand = handByKey(SC.hand);
@@ -5567,7 +5756,22 @@ function init () {
     mods: MODS, importModZip, importModFiles, importBatch, importZipBuffer, filesFromDrop, removeMod, sourceItems,
     modImport: window.__MODIMPORT__, categoryLabel,
     // --- 得分计算器（脚本化测试与自用都方便）---
-    score: { state: SC, compute: scoreCompute, card: scCard, jokerFromItem, rules: () => (typeof JOKER_RULES !== 'undefined' ? JOKER_RULES : null) },
+    score: { state: SC, compute: scoreCompute, card: scCard, jokerFromItem,
+      rules: () => (typeof JOKER_RULES !== 'undefined' ? JOKER_RULES : null),
+      state2: () => JOKER_STATE,
+      /* 脚本化摆一手牌：顺序、牌型自动判定、重绘都跟着走（验证与自用都方便） */
+      setHand: (cards, jokers) => {
+        SC.played = (cards || []).map((c) => (Array.isArray(c) ? scCard(c[0], c[1], c[2] || '', c[3] || '', c[4] || '') : c));
+        SC.held = [];
+        SC_UI.order = SC.played.slice();
+        SC.jokers = (jokers || []).map((x) => (typeof x === 'string' ? jokerFromItem(BY_ID[x]) : x)).filter(Boolean);
+        SC.handMode = 'auto';
+        scSyncHand();
+        render();
+        return SC.hand;
+      },
+      detect: () => scDetectHand(),
+      hand: () => SC.hand },
   };
   ALL_READY.then(() => {
     // the handle exists before the first paint (which waits for every sheet to decode)

@@ -2674,6 +2674,66 @@ const SCENARIOS = {
              gridClientH:g.clientHeight, gridScrollH:g.scrollHeight, canScroll:g.scrollHeight>g.clientHeight+4,
              scrolled:after>before, gridBottom:Math.round(gr.bottom), fitsInWin:gr.bottom<=window.innerHeight+1,
              errors:window.__V.errors.length} })()`,
+  /* 这一轮的五件事：牌型自动判定 / 改牌弹窗 / 播放条贴底 / 中文名 / 手机适配 */
+  scoreUi2: `(async()=>{
+     const B=window.__BALATRO__; const SC=B.score.state; const r={view:'scoreUi2'};
+     const q=(s)=>document.querySelector(s), qa=(s)=>[].slice.call(document.querySelectorAll(s));
+     const C=(rk,su,enh,ed,seal)=>({rank:rk,suit:su,enh:enh||'',ed:ed||'',seal:seal||''});
+     const setHand=(cards,jokers)=>{ B.state.tab='score'; B.score.setHand(cards.map(c=>[c[0],c[1],c[2]]), jokers||[]); };
+     /* ① 牌型自动判定（含 mod 会改规则的那几张） */
+     const cases={};
+     const t1=[['A','S'],['K','S'],['Q','S'],['J','S'],['10','S']];
+     const t2=[['K','S'],['K','H'],['K','D'],['K','C']];
+     const t3=[['2','H'],['3','H'],['4','H'],['5','H'],['7','H']];
+     const t4=[['A','S'],['2','S'],['3','S'],['4','S'],['5','S']];
+     const t5=[['7','C'],['7','D'],['7','H'],['9','S'],['9','C']];
+     const t6=[['A','H'],['K','H'],['Q','H'],['J','H'],['10','H']];
+     setHand(t1); await __V.wait(200); cases.royal=t0=SC.hand;
+     setHand(t2); await __V.wait(150); cases.four=SC.hand;
+     setHand(t5); await __V.wait(150); cases.fullHouse=SC.hand;
+     setHand(t6); await __V.wait(150); cases.straightFlush=SC.hand;
+     setHand(t3); await __V.wait(150); cases.flushOnly6=SC.hand;
+     setHand(t3,['j_four_fingers']); await __V.wait(200); cases.fourFingers=SC.hand;
+     setHand(t4); await __V.wait(150); cases.aceLowStraight=SC.hand;
+     setHand([[2,2]].map(x=>['2','S'])); await __V.wait(150); cases.pair=SC.hand;
+     /* 手动指定还管用吗 */
+     const sel=q('#scHandType'); sel.value='Flush'; sel.onchange({target:sel});
+     await __V.wait(400); cases.manual=SC.hand+'/'+SC.handMode;
+     sel.value=''; sel.onchange({target:sel}); await __V.wait(400); cases.backToAuto=SC.hand+'/'+SC.handMode;
+     r.handDetect=cases;
+     /* ② 改牌弹窗（右键打开）+ 中文名 */
+     setHand([['K','S'],['3','H']]); await __V.wait(300);
+     const tile=qa('#scHand .sctile')[0];
+     tile.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));
+     await __V.wait(600);
+     const pillNames=qa('#scPanel .scpk').map(b=>b.textContent).filter(x=>/[一-龥]/.test(x));
+     r.cardEditor={open:!!q('#scPanel'), pills:qa('#scPanel .scpk').length, chinese:[].concat(pillNames).length,
+       scrollable:(()=>{const s=q('#scPanel .scpanelscroll'); return s?s.scrollHeight>s.clientHeight:null})(),
+       sample:pillNames.slice(0,8)};
+     /* 点一个强化胶囊 → 牌真的变了，且是中文名 */
+     const enhPill=qa('#scPanel .scpk[data-pick="enh"]')[1];
+     if(enhPill){ enhPill.click(); await __V.wait(500) }
+     r.afterPill={enh:SC.played[0].enh, painted:(()=>{const cv=q('#scPanel .scmodalart canvas'); return !!cv})()};
+     { const d=q('#scPanelDone'); if(d){ d.click(); await __V.wait(300) } }
+     r.editorClosed=!q('#scPanel');
+     /* ③ 播放条：贴底 + 实时数值 */
+     const bar=q('.scplay'); const bs=getComputedStyle(bar);
+     r.playBar={position:bs.position, sticky:bs.position==='sticky',
+       hasMath:!!q('.scplaymath'), chips:(q('.scpchips')||{}).textContent, score:(q('.scpscore')||{}).textContent,
+       barTop:Math.round(bar.getBoundingClientRect().top), winH:window.innerHeight};
+     q('#scNext').click(); await __V.wait(400);
+     q('#scNext').click(); await __V.wait(400);
+     r.playBar.afterSteps={chips:(q('.scpchips')||{}).textContent, score:(q('.scpscore')||{}).textContent,
+       step:(q('.scstepn')||{}).textContent, barVisible:(()=>{const b=bar.getBoundingClientRect(); return b.bottom<=window.innerHeight+2&&b.top>=0})()};
+     /* ④ 小丑牌弹窗里的记录值（手机上也要能滚） */
+     SC.jokers=[B.score.jokerFromItem(B.byId['j_ride_the_bus'])]; B.render(); await __V.wait(400);
+     const jt0=q('#scJokers .sctile'); if(jt0) jt0.click(); await __V.wait(600);
+     const gs=q('#scPanel .scpanelscroll');
+     r.jokerEditor={open:!!q('#scPanel'), recordInputs:qa('#scPanel [data-jstate]').length,
+       manualInputs:qa('#scPanel [data-jman]').length, scrollable:gs?gs.scrollHeight>gs.clientHeight:null};
+     q('#scPanelDone').click();
+     r.errors=window.__V.errors.length;
+     return r })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};
@@ -3018,6 +3078,7 @@ async function main () {
   if (SCENARIOS.demoLayout && !SCENARIOS.demoLayoutMobile) SCENARIOS.demoLayoutMobile = SCENARIOS.demoLayout
   if (SCENARIOS.scoreCalc && !SCENARIOS.scoreCalcMobile) SCENARIOS.scoreCalcMobile = SCENARIOS.scoreCalc
   if (SCENARIOS.scoreNewPreset && !SCENARIOS.scoreNewPresetMobile) SCENARIOS.scoreNewPresetMobile = SCENARIOS.scoreNewPreset
+  if (SCENARIOS.scoreUi2 && !SCENARIOS.scoreUi2Mobile) { SCENARIOS.scoreUi2Mobile = SCENARIOS.scoreUi2; SCENARIOS.scoreUi2Phone = SCENARIOS.scoreUi2 }
   if (SCENARIOS.scorePickOpen && !SCENARIOS.scorePickOpenMobile) { SCENARIOS.scorePickOpenMobile = SCENARIOS.scorePickOpen; SCENARIOS.scorePickOpenMobilePhone = SCENARIOS.scorePickOpen }
   const want = process.argv.slice(2)
   const list = want.length ? want : Object.keys(SCENARIOS)
@@ -3107,7 +3168,7 @@ async function main () {
       await c.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 560, deviceScaleFactor: 1, mobile: false })
       LongMode = true
     }
-    if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile' || name === 'scoreCalcMobile' || name === 'scoreNewPresetMobile' || name === 'scorePickOpenMobilePhone' || name === 'scorePickScrollMobile') {
+    if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile' || name === 'scoreCalcMobile' || name === 'scoreNewPresetMobile' || name === 'scorePickOpenMobilePhone' || name === 'scorePickScrollMobile' || name === 'scoreUi2Phone') {
       // emulate a phone viewport (bootPhone tests the start screen visitors land on)
       await c.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
       await c.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {})

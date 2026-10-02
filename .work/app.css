@@ -796,3 +796,43 @@ body{background:
 }
 .sctile.dropbefore::after{left:-7px}
 .sctile.dropafter::after{right:-7px}
+/* ---- 播放条贴底 + 弹窗排版 ---- */
+/* 播放条贴窗口底部：以前点了播放还要往上滚才看得到动画，滚到的时候都播一半了 */
+.scplay{
+  position:sticky;bottom:0;z-index:40;
+  box-shadow:0 0 0 2px var(--c-uidark), 0 -6px 18px rgba(0,0,0,.35);
+  backdrop-filter:blur(2px)
+}
+.scplaymath{
+  display:flex;align-items:center;gap:5px;padding:2px 10px 2px 2px;border-right:2px solid #3d494c;margin-right:2px;
+  font-variant-numeric:tabular-nums
+}
+.scplaymath b{font-size:19px;line-height:1;text-shadow:var(--g-txt)}
+.scplaymath i{font-style:normal;font-size:13px;color:var(--c-jgrey)}
+.scplaymath .scpchips{color:#8fd4ff}
+.scplaymath .scpmult{color:#ff9d95}
+.scplaymath .scpscore{color:#93e7c4}
+
+/* 修改弹窗：点哪张改哪张，内容自己滚 */
+.scmodal .scpickpanel{max-height:min(86vh,760px)}
+.scpanelscroll{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;background:#3b4b4f;padding:12px}
+.scpanelfoot{display:flex;gap:8px;flex-wrap:wrap;background:var(--c-lblack);border-radius:0 0 var(--g-r) var(--g-r);padding:10px 12px}
+.scmodalcard{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+.scmodalart{flex:0 0 auto;line-height:0}
+.scmodalart canvas{display:block;border-radius:var(--g-r);box-shadow:0 4px 0 rgba(0,0,0,.3)}
+.scmodalcard .scpkrows{flex:1 1 320px;min-width:0}
+.scmodal .scpkrow>span{min-width:44px;color:#fff}
+.scmodal .scpk{background:#2b3437}
+.scmodal .scpk.on{background:var(--c-orange)}
+.scmodal .scgrowbox{background:#313b3d}
+@media(max-width:700px){
+  /* 手机竖屏：从底部整幅弹出，胶囊按钮放大到能点 */
+  .scmodal{align-items:flex-end;padding:0}
+  .scmodal .scpickpanel{width:100%;max-height:92vh;border-radius:11px 11px 0 0}
+  .scmodal .scpk{min-height:34px;padding:6px 11px;font-size:12.5px}
+  .scmodalcard{gap:10px}
+  .scmodalcard .scpkrows{flex:1 1 100%}
+  .scpanelscroll{padding:10px}
+  .scplaymath b{font-size:16px}
+  .scplay{gap:5px;padding:6px 8px}
+}
