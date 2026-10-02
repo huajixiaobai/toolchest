@@ -2315,15 +2315,41 @@ const SCENARIOS = {
      S.jokers = [J('j_joker'), J('j_cavendish')];
      B.state.tab = 'score'; B.render();
      await __V.wait(1200);
+     const q = (s) => document.querySelector(s);
      r.ui = {
-       boxes: document.querySelectorAll('.scbox').length,
-       cards: document.querySelectorAll('.sccard').length,
-       jokers: document.querySelectorAll('.scj').length,
-       lines: document.querySelectorAll('.scline').length,
-       final: (document.querySelector('.scorefinal b') || {}).textContent,
-       hasWarn: !!document.querySelector('.scwarn'),
-       blank: __V.blank(),
+       jokerTiles: document.querySelectorAll('#scJokers .sctile').length,
+       playedTiles: document.querySelectorAll('#scPlayed .sctile').length,
+       heldTiles: document.querySelectorAll('#scHeld .sctile').length,
+       paintedTiles: [].slice.call(document.querySelectorAll('.sctile canvas')).filter((cv) => {
+         const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+         for (let i = 3; i < d.length; i += 4) if (d[i] > 8) return true;
+         return false;
+       }).length,
+       chips: (q('.scchips b') || {}).textContent,
+       mult: (q('.scmult b') || {}).textContent,
+       total: (q('.sctotal b') || {}).textContent,
+       logLines: document.querySelectorAll('.scline').length,
+       hasSlider: !!q('#scStep'),
      };
+     /* 逐步播放：走到第 3 步，检查高亮与数值是否跟着变 */
+     q('#scNext').click(); await __V.wait(300);
+     q('#scNext').click(); await __V.wait(300);
+     q('#scNext').click(); await __V.wait(400);
+     r.step = {
+       now: (q('.scnow') || {}).textContent,
+       stepn: (q('.scstepn') || {}).textContent,
+       chips: (q('.scchips b') || {}).textContent,
+       highlightedRow: document.querySelectorAll('.scline.on').length,
+       highlightedTile: document.querySelectorAll('.sctile.on').length,
+       todoTiles: document.querySelectorAll('.sctile.todo').length,
+     };
+     /* 点第一张打出的牌 → 出现编辑面板；选「方块」 */
+     const t0 = document.querySelectorAll('#scPlayed .sctile')[0];
+     t0.click(); await __V.wait(500);
+     r.edit = { hasPanel: !!document.querySelector('.scpkh'), pkRows: document.querySelectorAll('.scpkrow').length };
+     const suitBtn = [].slice.call(document.querySelectorAll('.scpk')).filter((b) => b.dataset.pick === 'suit' && b.dataset.v === 'D')[0];
+     if (suitBtn) { suitBtn.click(); await __V.wait(500) }
+     r.edit.suitAfter = B.score.state.played[0].suit;
      r.errors = window.__V.errors.length;
      return r })()`,
   gifQuality: `(async()=>{

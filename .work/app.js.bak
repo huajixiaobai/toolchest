@@ -1,0 +1,149 @@
+function viewScore (host) {
+  const r = scoreCompute();
+  const head = document.createElement('div');
+  head.className = 'listhead';
+  head.innerHTML = `<h2>得分计算器</h2><span class="sub">按游戏自己的结算顺序算：牌型 → 打出的牌 → 留手 → 小丑 → 得分 = ⌊筹码 × 倍率⌋</span>`;
+  host.appendChild(head);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'scwrap';
+  wrap.innerHTML = `
+    <div class="scin">
+      <div class="scbox">
+        <h4>① 牌型与等级</h4>
+        <div class="scrow">
+          <select id="scHand">${D.hands.map((h) => `<option value="${h.name}"${h.name === SC.hand ? ' selected' : ''}>${h.name}</option>`).join('')}</select>
+          <label>等级 <input id="scLevel" type="number" min="1" max="99" value="${SC.level}"></label>
+        </div>
+        <div class="scnote">基础 ${r.hand.chips} 筹码 × ${r.hand.mult} 倍率（每级 +${r.hand.chipsPerLevel || 0} / +${r.hand.multPerLevel || 0}）</div>
+      </div>
+      <div class="scbox">
+        <h4>② 打出的牌 <span class="scn">${SC.played.length} 张</span></h4>
+        <div class="sclist" id="scPlayed">${SC.played.map((c, i) => scCardRow(c, i, 'played')).join('') || '<div class="scnote">还没有牌</div>'}</div>
+        <div class="scrow"><button class="btn" data-sc="addPlayed">＋ 加一张牌</button><button class="btn" data-sc="clearPlayed">清空</button></div>
+      </div>
+      <div class="scbox">
+        <h4>③ 留在手里 <span class="scn">${SC.held.length} 张（钢铁牌等）</span></h4>
+        <div class="sclist" id="scHeld">${SC.held.map((c, i) => scCardRow(c, i, 'held')).join('') || '<div class="scnote">还没有牌</div>'}</div>
+        <div class="scrow"><button class="btn" data-sc="addHeld">＋ 加一张牌</button><button class="btn" data-sc="clearHeld">清空</button></div>
+      </div>
+      <div class="scbox">
+        <h4>④ 小丑牌 <span class="scn">${SC.jokers.length} 张（按顺序生效）</span></h4>
+        <div class="scrow"><input id="scJokerSearch" placeholder="搜索小丑牌…" autocomplete="off"><button class="btn" data-sc="addTop">＋ 最常用的</button></div>
+        <div class="sclist" id="scJokerList">${SC.jokers.map((j, i) => scJokerRow(j, i)).join('') || '<div class="scnote">还没有小丑牌</div>'}</div>
+        <div class="scres" id="scJokerHits"></div>
+      </div>
+      <div class="scbox">
+        <h4>⑤ 环境（部分小丑牌要用）</h4>
+        <div class="scrow scgrid">
+          <label>＄ <input type="number" data-env="dollars" value="${SC.env.dollars}"></label>
+          <label>剩余出牌 <input type="number" data-env="handsLeft" value="${SC.env.handsLeft}"></label>
+          <label>剩余弃牌 <input type="number" data-env="discardsLeft" value="${SC.env.discardsLeft}"></label>
+          <label>牌堆张数 <input type="number" data-env="deckCards" value="${SC.env.deckCards}"></label>
+        </div>
+        <div class="scrow scgrid">
+          <label>手填 +筹码 <input type="number" data-man="chips" value="${SC.manual.chips}"></label>
+          <label>手填 +倍率 <input type="number" data-man="mult" value="${SC.manual.mult}"></label>
+          <label>手填 ×倍率 <input type="number" step="0.1" data-man="xmult" value="${SC.manual.xmult}"></label>
+        </div>
+      </div>
+    </div>
+    <div class="scout">
+      <div class="scorefinal"><span>得分</span><b>${r.score.toLocaleString()}</b><em>${r.chips} 筹码 × ${+r.mult.toFixed(2)} 倍率</em></div>
+      <div class="sclog">${r.rows.map((x) => `<div class="scline ${x.op}"><span>${x.label}</span><i>${Math.round(x.chips)} × ${+x.mult.toFixed(2)}</i></div>`).join('')}</div>
+      ${r.warns.length ? `<div class="scwarn"><b>这些没自动算</b>（可以在上面填数值，或用手填修正）：
+        ${r.warns.map((w) => `<div>· ${w.n} <em>${w.why}</em></div>`).join('')}</div>` : ''}
+      <div class="scnote">规则取自游戏自己的 <code>card.lua</code>（Card:calculate_joker）；概率类（幸运牌、8 球…）不参与计算。</div>
+    </div>`;
+  host.appendChild(wrap);
+
+  /* ---- 事件 ---- */
+  const on = (sel, ev, fn) => { const e = wrap.querySelector(sel); if (e) e.addEventListener(ev, fn) }
+  on('#scHand', 'change', (e) => { SC.hand = e.target.value; render() });
+  on('#scLevel', 'change', (e) => { SC.level = Math.max(1, +e.target.value || 1); render() });
+  wrap.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sc]');
+    if (b) {
+      const act = b.dataset.sc;
+      if (act === 'addPlayed') SC.played.push(scCard('10', 'S'));
+      else if (act === 'clearPlayed') SC.played = [];
+      else if (act === 'addHeld') SC.held.push(scCard('10', 'S'));
+      else if (act === 'clearHeld') SC.held = [];
+      else if (act === 'addTop') SC.jokers.push(jokerFromItem(BY_ID['j_joker'] || ITEMS.find((i) => i.cat === 'Joker')));
+      else if (act === 'jokerAdd') SC.jokers.push(jokerFromItem(BY_ID[b.dataset.id]));
+      else if (act === 'jokerDel') SC.jokers.splice(+b.dataset.i, 1);
+      else if (act === 'jokerUp') { const i = +b.dataset.i; if (i > 0) { const t = SC.jokers[i - 1]; SC.jokers[i - 1] = SC.jokers[i]; SC.jokers[i] = t } }
+      else if (act === 'cardDel') {
+        const arr = b.dataset.which === 'held' ? SC.held : SC.played;
+        arr.splice(+b.dataset.i, 1);
+      }
+      render(); return;
+    }
+  });
+  wrap.addEventListener('change', (e) => {
+    const c = e.target.closest('[data-card]');
+    if (c) {
+      const which = c.dataset.which === 'held' ? SC.held : SC.played;
+      const card = which[+c.dataset.i];
+      if (card) { card[c.dataset.field] = e.target.value; render() }
+      return;
+    }
+    const g = e.target.closest('[data-growth]');
+    if (g) { const j = SC.jokers[+g.dataset.growth]; if (j) { j.growth = Number(e.target.value) || 0; render() } return }
+    const m = e.target.closest('[data-jman]');
+    if (m) {
+      const j = SC.jokers[+m.dataset.jman];
+      if (j) { j.manual[m.dataset.field] = Number(m.dataset.mfield === 'xmult' ? e.target.value : e.target.value) || (m.dataset.mfield === 'xmult' ? 1 : 0); render() }
+      return;
+    }
+    const env = e.target.closest('[data-env]');
+    if (env) { SC.env[env.dataset.env] = Number(env.value) || 0; render(); return }
+    const man = e.target.closest('[data-man]');
+    if (man) { SC.manual[man.dataset.man] = Number(man.value) || (man.dataset.man === 'xmult' ? 1 : 0); render(); return }
+  });
+  on('#scJokerSearch', 'input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    const hits = wrap.querySelector('#scJokerHits');
+    if (!q) { hits.innerHTML = ''; return }
+    const list = ITEMS.filter((i) => i.cat === 'Joker' && (i.id + ' ' + (i.name || '') + ' ' + (i.source || '')).toLowerCase().includes(q)).slice(0, 12);
+    hits.innerHTML = list.map((i) => `<button class="btn" data-sc="jokerAdd" data-id="${i.id}">${i.name || i.id}${i.source ? ' ★' : ''}</button>`).join('') || '<div class="scnote">没找到</div>';
+  });
+}
+
+/** 计算器里的一行牌 */
+function scCardRow (c, i, which) {
+  const opt = (list, cur, fmt) => list.map((v) => `<option value="${v[0]}"${v[0] === cur ? ' selected' : ''}>${fmt ? fmt(v) : v[1]}</option>`).join('');
+  const ranks = Object.keys(RANK_CHIPS).map((k) => [k, k]);
+  const suits = Object.keys(SUIT_SYM).map((k) => [k, SUIT_SYM[k]]);
+  const enhs = [['', '无强化']].concat(ITEMS.filter((x) => x.cat === 'Enhancement').map((x) => [x.id, x.name || x.id]));
+  const eds = [['', '无版本']].concat(ITEMS.filter((x) => x.cat === 'Edition' && !x.shader).map((x) => [x.id, x.name || x.id]));
+  const seals = [['', '无蜡封'], ['Red', '红蜡封'], ['Gold', '金蜡封'], ['Blue', '蓝蜡封'], ['Purple', '紫蜡封']];
+  return `<div class="sccard">
+    <select data-card data-which="${which}" data-i="${i}" data-field="rank">${opt(ranks, c.rank)}</select>
+    <select data-card data-which="${which}" data-i="${i}" data-field="suit">${opt(suits, c.suit)}</select>
+    <select data-card data-which="${which}" data-i="${i}" data-field="enh" title="强化">${opt(enhs, c.enh)}</select>
+    <select data-card data-which="${which}" data-i="${i}" data-field="ed" title="版本">${opt(eds, c.ed)}</select>
+    <select data-card data-which="${which}" data-i="${i}" data-field="seal" title="蜡封">${opt(seals, c.seal)}</select>
+    <button class="btn scx" data-sc="cardDel" data-which="${which}" data-i="${i}" title="删掉">✕</button>
+  </div>`;
+}
+
+/** 计算器里的一张（已选）小丑牌 */
+function scJokerRow (j, i) {
+  const rule = jokerRule(j);
+  const k = rule ? rule.k : null;
+  const tag = k === 'yes' ? '<em class="ok">自动</em>' : k === 'by-card' ? '<em class="ok">按牌</em>' : k === 'repeat' ? '<em class="ok">重复</em>' : k === 'repeat' ? '' : k === 'manual' ? '<em class="warn">需手填</em>' : '<em class="warn">无规则</em>';
+  const needsGrowth = rule && /ability\.mult|extra\.mult|extra\.chips|extra\b/.test(rule.e.join(' ')) && /mult|chips/.test(rule.e.join(' '));
+  return `<div class="scj">
+    <span class="scjname">${j.name}</span>${tag}
+    ${needsGrowth ? `<label class="scgrow" title="这张牌当前的成长值（游戏里会随回合变化）">成长 <input type="number" data-growth="${i}" value="${j.growth || 0}" style="width:64px"></label>` : ''}
+    <span class="scjm">
+      <input type="number" data-jman="${i}" data-field="chips" data-mfield="chips" value="${j.manual.chips}" title="手填 +筹码" style="width:60px">
+      <input type="number" data-jman="${i}" data-field="mult" data-mfield="mult" value="${j.manual.mult}" title="手填 +倍率" style="width:60px">
+      <input type="number" step="0.1" data-jman="${i}" data-field="xmult" data-mfield="xmult" value="${j.manual.xmult}" title="手填 ×倍率" style="width:60px">
+    </span>
+    <button class="btn scx" data-sc="jokerUp" data-i="${i}" title="往前挪（结算顺序）">↑</button>
+    <button class="btn scx" data-sc="jokerDel" data-i="${i}" title="移除">✕</button>
+  </div>`;
+}
+
