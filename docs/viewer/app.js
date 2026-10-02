@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "8cfa491f";
+window.__APP_BUILD__ = "50c9725d";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -4134,6 +4134,25 @@ function evalExpr (expr, jOrCfg, growth) {
 
 /** 逐牌规则的条件判定：支持 is_suit / get_id 的常见写法 */
 const RANK_NAMES = { 14: 'A', 13: 'K', 12: 'Q', 11: 'J' };
+/** 剥掉包住整条表达式的外层括号，只剥成对的那一层。
+ *  原来的写法是 a.trim().replace(/^\(+|\)+$/g, '')：它会把末尾所有右括号无条件吃掉，
+ *  于是 is_face() 变成 is_face(、is_suit(x) 变成 is_suit(x，所有按牌判定的分支都匹配不上。
+ *  这就是古老小丑以及 Scholar / Fibonacci / Scary Face 等全部逐牌规则一直没生效的根因。 */
+function scStripWrap (s) {
+  let t = String(s == null ? '' : s).trim();
+  for (;;) {
+    if (t.length < 2 || t.charAt(0) !== '(' || t.charAt(t.length - 1) !== ')') return t;
+    let depth = 0;
+    let ok = true;
+    for (let i = 0; i < t.length; i++) {
+      const ch = t.charAt(i);
+      if (ch === '(') depth++;
+      else if (ch === ')') { depth--; if (depth === 0 && i < t.length - 1) { ok = false; break } }
+    }
+    if (!ok || depth !== 0) return t;
+    t = t.slice(1, -1).trim();
+  }
+}
 function condMatchesCard (cond, card, j) {
   cond = scSubstParams(cond, j);   /* 先把它读的动态值换成玩家选的花色/点数 */
   const id = RANK_ID[card.rank];
@@ -4146,7 +4165,7 @@ function condMatchesCard (cond, card, j) {
     const ands = part.split(/\s+and\s+/);
     let all = true;
     for (const a of ands) {
-      const t = a.trim().replace(/^\(+|\)+$/g, '').trim();
+      const t = scStripWrap(a);   /* 旧写法会无条件吃掉末尾的右括号，见 scStripWrap 的注释 */
       if (!t) continue;
       if (/not context\./.test(t) || /pseudorandom|blueprint|lucky_trigger|G\.GAME/.test(t)) { all = false; break }
       let m;
@@ -4341,7 +4360,32 @@ function scoreCompute () {
 /** 一条规则 → 应用到账目上（ref 让界面知道这一步是谁贡献的） */
 function applyRule (rule, j, rows, get, set, ref) {
   let applied = false;
-  for (const e of rule.e) {
+  /* 有些规则的 e 里同一条效果被列了两遍（提取时重叠了），去重后再结算，否则会算双份 */
+  /* 同一条规则里同名字段出现了多次时：只留第一条，除非后面那条读的是这张牌自己的可变状态
+   *  （Obelisk 那种两个分支要一起算）。scary_face 这类被提取成 chips=extra 与 mult=extra 两条，
+   *  照着全算就会多给一份倍率 —— 原版只给筹码。 */
+  const seenField = {};
+  const effs = Array.from(new Set(rule.e)).filter((e) => {
+    const f = e.split('=')[0];
+    if (!seenField[f]) { seenField[f] = true; return true }
+    return /self\.ability\.(mult|x_mult|chips)\b/.test(e) && !/self\.ability\.extra\./.test(e);
+  });
+  /* 最后的保险：拿这张牌自己的描述当裁判。Scary Face 的规则被提取成了 chips=extra 与
+   *  mult=extra 两条，但它的描述只说给筹码 —— 那种情况下把倍率那条去掉。mod 的牌同样有
+   *  本地化描述，所以这条对 mod 一样有效。 */
+  let effsFinal = effs;
+  try {
+    const it = BY_ID[j.id];
+    const lines = (it && it.text && (it.text[S.lang] || it.text['en-us'])) || [];
+    const desc = lines.join(' ');
+    if (desc && effs.length > 1) {
+      const hasMult = /mult|倍率|xmult/i.test(desc);
+      const hasChip = /chip|筹码/i.test(desc);
+      if (hasChip && !hasMult) effsFinal = effs.filter((e) => !/^(mult|x_mult|mult_mod|Xmult_mod)=/.test(e));
+      else if (hasMult && !hasChip) effsFinal = effs.filter((e) => !/^(chips|chip_mod)=/.test(e));
+    }
+  } catch (err) { /* 描述读不到就不筛 */ }
+  for (const e of effsFinal) {
     const [field, expr] = e.split('=');
     const v = evalExpr(expr, j);
     const st = get();
@@ -5077,7 +5121,7 @@ function scSubstParams (txt, j) {
   for (const path in p) {
     const v = p[path];
     if (v === undefined || v === null || v === '') continue;
-    const re = new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, '\\/* 局面字段 ←→ 源码里的写法：只被一张牌用到的，就放到那张牌的弹窗里改 */'), 'g');
+    const re = new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
     let lit;
     if (SC_PARAM_SUIT.test(path)) lit = '"' + v + '"';
     else if (SC_PARAM_RANK.test(path)) lit = String(/\.id$/.test(path) ? (RANK_ID[v] || v) : v);
@@ -6136,6 +6180,11 @@ function init () {
         render();
         return SC.hand;
       },
+      /* 调试用：把条件判定与参数替换也暴露出来，一行就能查出某张牌为什么没触发 */
+      condCard: (cond, card, j) => condMatchesCard(cond, card, j),
+      condHand: (cond, j, n) => condMatchesHand(cond, j, n),
+      substParams: (txt, j) => scSubstParams(txt, j),
+      params: (j) => scJokerParams(j),
       detect: () => scDetectHand(),
       hand: () => SC.hand },
   };

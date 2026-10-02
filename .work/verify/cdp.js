@@ -2954,6 +2954,63 @@ const SCENARIOS = {
      if(sel){ sel.value='Diamonds'; sel.dispatchEvent(new Event('change',{bubbles:true})); await __V.wait(600) }
      r.ancient={mult:q('.scmult b').textContent, rows:[].slice.call(document.querySelectorAll('.scline')).map(e=>e.textContent.slice(0,26))};
      r.errors=window.__V.errors.length; return r })()`,
+  p28: `(async()=>{
+     const B=window.__BALATRO__; const SC=B.score.state; const r={};
+     B.state.tab='score'; B.render(); await __V.wait(600);
+     B.score.setHand([['5','D']]);
+     const j=B.score.jokerFromItem(B.byId['j_ancient']); SC.jokers=[j]; B.render(); await __V.wait(500);
+     r.cfgExtra=j.cfg.extra;
+     r.rule=(j.__rule===undefined)?'未缓存':(j.__rule?j.__rule.k+'/'+j.__rule.r:'null');
+     r.noParam=(()=>{ const x=B.score.compute(); return {mult:+x.mult.toFixed(2), hasRow:x.rows.some(y=>y.ref&&y.ref.kind==='joker'), warns:x.warns.map(w=>w.n)} })();
+     j.params={'G.GAME.current_round.ancient_card.suit':'Diamonds'};
+     r.withParam=(()=>{ const x=B.score.compute(); return {mult:+x.mult.toFixed(2), rows:x.rows.filter(y=>y.op!=='base'&&y.op!=='card').map(y=>y.label)} })();
+     r.ruleAfter=(j.__rule?j.__rule.k+'/'+j.__rule.r:'null');
+     r.errors=window.__V.errors.length; return r })()`,
+  p29: `(async()=>{
+     const B=window.__BALATRO__; const r={};
+     const j=B.score.jokerFromItem(B.byId['j_ancient']);
+     const c=B.score.card('5','D');
+     r.params=B.score.params(j);
+     r.rawCond=B.score.condCard('context.other_card:is_suit(G.GAME.current_round.ancient_card.suit)', c, j);
+     j.params={'G.GAME.current_round.ancient_card.suit':'Diamonds'};
+     r.subst=B.score.substParams('context.other_card:is_suit(G.GAME.current_round.ancient_card.suit)', j);
+     r.condAfter=B.score.condCard('context.other_card:is_suit(G.GAME.current_round.ancient_card.suit)', c, j);
+     r.condSpade=B.score.condCard('context.other_card:is_suit(G.GAME.current_round.ancient_card.suit)', B.score.card('5','S'), j);
+     r.errors=window.__V.errors.length; return r })()`,
+  p30: `(async()=>{
+     const B=window.__BALATRO__; const r={};
+     const c=B.score.card('5','D');
+     r.card={rank:c.rank, suit:c.suit};
+     r.literal=B.score.condCard('context.other_card:is_suit("Diamonds")', c);
+     r.literalSpade=B.score.condCard('context.other_card:is_suit("Spades")', c);
+     r.faceCond=B.score.condCard('context.other_card:is_face()', B.score.card('K','S'));
+     r.errors=window.__V.errors.length; return r })()`,
+  /* 逐牌规则回归：修好括号 bug 之后，这批牌应该真的算分了 */
+  bycard: `(async()=>{
+     const B=window.__BALATRO__; const SC=B.score.state; const r={};
+     B.state.tab='score'; B.render(); await __V.wait(600);
+     const test=(cards,jokers)=>{
+       SC.jokers=(jokers||[]).map(id=>B.score.jokerFromItem(B.byId[id]));
+       SC.played=cards.map(c=>B.score.card(c[0],c[1])); SC.held=[]; SC.handMode='auto'; scSyncHandDbg();
+       const x=B.score.compute();
+       return {mult:+x.mult.toFixed(2), chips:x.chips, rows:x.rows.filter(y=>y.op!=='base'&&y.op!=='card').map(y=>y.label)};
+     };
+     function scSyncHandDbg(){ const d=B.score.detect(); if(d) SC.hand=d }
+     r.scholar=test([['A','S']],['j_scholar']);
+     r.fibonacci=test([['A','S']],['j_fibonacci']);
+     r.evenSteven=test([['4','H']],['j_even_steven']);
+     r.oddTodd=test([['A','S']],['j_odd_todd']);
+     r.scaryFace=test([['K','S']],['j_scary_face']);
+     r.baron=test([['K','S']],['j_baron']);
+     r.ancient=test([['5','D']],['j_ancient']);
+     /* 古老小丑：指定花色之后再算一次 */
+     const aj=B.score.jokerFromItem(B.byId['j_ancient']);
+     aj.params={'G.GAME.current_round.ancient_card.suit':'Diamonds'};
+     SC.jokers=[aj]; SC.played=[B.score.card('5','D')]; SC.held=[];
+     const x=B.score.compute();
+     r.ancientWithSuit={mult:+x.mult.toFixed(2), rows:x.rows.filter(y=>y.op!=='base'&&y.op!=='card').map(y=>y.label)};
+     r.errors=window.__V.errors.length;
+     return r })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};
