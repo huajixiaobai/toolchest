@@ -49,3 +49,6 @@ desktop.ini
 # 如果你不想把构建产物放进仓库，就改成忽略 docs/，再让 GitHub Actions 现场构建
 # —— 仓库里的 site-meta.json 已经为那种情况准备好了（只含版本号与数量）。
 # docs/
+
+# 从游戏源码里逆出来的 UI 规范（含大段 Lua 摘录）—— 只在本机当参考，不进公开仓库
+.work/specs/

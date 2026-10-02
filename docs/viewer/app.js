@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "680bb066";
+window.__APP_BUILD__ = "0399bc41";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -2546,9 +2546,10 @@ function renderSidebar () {
   const sb = document.getElementById('sidebar');
   sb.innerHTML = '';
   const group = (label) => { const g = document.createElement('div'); g.className = 'catgroup'; g.textContent = label; sb.appendChild(g) };
-  const row = (name, icon, n, active, onclick, title) => {
+  const row = (name, icon, n, active, onclick, title, catKey) => {
     const el = document.createElement('div');
     el.className = 'cat' + (active ? ' on' : '');
+    if (catKey) el.dataset.cat = catKey;   /* 原版收藏页里塔罗/星球/幽灵各有自己的颜色 */
     el.innerHTML = `<span class="k">${icon}</span><span>${esc(name)}</span>${n == null ? '' : `<span class="cnt">${n}</span>`}`;
     if (title) el.title = title;
     el.onclick = onclick;
@@ -2569,7 +2570,7 @@ function renderSidebar () {
     const visible = cats.filter(([k]) => per(k) > 0);
     if (!visible.length) continue;
     group(label);
-    for (const [key, name, icon] of visible) row(name, icon, per(key), S.cat === key, pickCat(key));
+    for (const [key, name, icon] of visible) row(name, icon, per(key), S.cat === key, pickCat(key), null, key);
   }
   const extra = [...new Set(base.map((i) => i.cat))].filter((k) => !knownCat.has(k)).sort();
   if (extra.length) {
@@ -4261,7 +4262,291 @@ function spriteTile (cv, cls, title) {
   return d;
 }
 
-const SC_UI = { edit: null, step: -1, playing: false, timer: null, picker: null };
+const SC_UI = { edit: null, step: -1, playing: false, timer: null, order: [], focus: null };
+
+/* ================================================================ 卡牌选择器
+ * 照游戏的「收藏」页做：分类在左边、搜索在上面、中间是真实卡图网格。
+ * 目的只有一个：加小丑牌 / 加牌别再走「先点＋ → 下拉 → 搜索 → 再点按钮」四步，
+ * 而是「点开 → 点一张 → 点一张 → 完成」。 */
+const SUIT_EN2S = { Spades: 'S', Hearts: 'H', Diamonds: 'D', Clubs: 'C' };
+const SUIT_ORDER = ['S', 'H', 'D', 'C'];
+const SCP = { open: false, tab: 'Joker', q: '', suit: '', added: 0 };
+
+/** 图鉴里的扑克牌条目 → 计分器的牌（点数/花色） */
+function scCardFromItem (it) {
+  const suit = SUIT_EN2S[it.suit] || String(it.id || 'S_2')[0];
+  let rank = it.value != null ? String(it.value) : '';
+  if (!rank) rank = String(it.id || '').split('_')[1] || '10';
+  return scCard(rank === 'T' ? '10' : rank, suit);
+}
+
+/** 当前分类 + 搜索 + 花色筛选下的可选条目 */
+function scPickerList () {
+  const q = SCP.q.trim().toLowerCase();
+  let list = ITEMS.filter((x) => x.cat === SCP.tab);
+  if (SCP.tab === 'PlayingCard') {
+    if (SCP.suit) list = list.filter((x) => scCardFromItem(x).suit === SCP.suit);
+    /* 像游戏里的牌堆那样排：花色 → 点数 */
+    list = list.slice().sort((a, b) => {
+      const A = scCardFromItem(a); const B = scCardFromItem(b);
+      return SUIT_ORDER.indexOf(A.suit) - SUIT_ORDER.indexOf(B.suit) ||
+        (RANK_ID[A.rank] || 0) - (RANK_ID[B.rank] || 0);
+    });
+  }
+  if (q) {
+    list = list.filter((x) => (x.id + ' ' + (x.name || '') + ' ' + (x.source || '') + ' ' + (x.sourceName || '')).toLowerCase().includes(q));
+  }
+  return list;
+}
+
+/** 网格里的一格（真实卡图，滚到才画） */
+function scPickerCell (it) {
+  const cell = document.createElement('button');
+  cell.className = 'scpkcell';
+  cell.dataset.id = it.id;
+  cell.title = (it.name || it.id) + (it.source ? ' · MOD' : '') + '\n点一下加入';
+  const art = document.createElement('span');
+  art.className = 'scpkart';
+  art.innerHTML = '<i class="scpkph"></i>';
+  cell.appendChild(art);
+  let painted = false;
+  const paint = () => {
+    if (painted) return; painted = true;
+    const cv = it.cat === 'Joker' ? scoreJokerCanvas(jokerFromItem(it), 2) : scoreCardCanvas(scCardFromItem(it), 2);
+    if (!cv) return;
+    cv.style.width = '71px'; cv.style.height = '95px';
+    art.innerHTML = ''; art.appendChild(cv);
+  };
+  if (IO) { cell._paint = paint; IO.observe(cell) } else paint();
+  const n = document.createElement('span');
+  n.className = 'scpkname'; n.textContent = nm(it);
+  cell.appendChild(n);
+  if (it.source) {
+    const m = document.createElement('span');
+    m.className = 'scpkmod'; m.textContent = 'MOD'; m.title = it.sourceName || it.source;
+    cell.appendChild(m);
+  }
+  cell.onclick = () => scPickerAdd(it, cell);
+  /* 原版收藏页里「悬停就出说明框」（G.UIDEF.card_h_popup）：名字 + 描述 + 稀有度/价格 */
+  cell.onmouseenter = () => scPickerTip(it, cell);
+  cell.onmouseleave = () => scPickerTipHide();
+  return cell;
+}
+
+/** 悬停说明框：位置照原版 —— 牌在上半屏就显示在下面，在下半屏就显示在上面 */
+function scPickerTip (it, cell) {
+  const panel = document.querySelector('.scpickpanel');
+  if (!panel) return;
+  let tip = document.getElementById('scPickTip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = 'scPickTip';
+    tip.className = 'scpicktip';
+    panel.appendChild(tip);
+  }
+  const lines = (it.text && (it.text[S.lang] || it.text['en-us'])) || [];
+  const meta = [categoryLabel(it.cat), it.rarity ? RARITY[it.rarity] : null, it.cost != null ? '\$' + it.cost : null, it.source ? 'MOD' : null].filter(Boolean).join(' · ');
+  tip.innerHTML = '<div class="scpicktipname">' + esc(nm(it)) + '</div>' +
+    (lines.length ? lines.map((l) => '<div class="ln">' + markup(l) + '</div>').join('') : '<div class="ln" style="opacity:.6">—</div>') +
+    '<div class="scpicktipmeta">' + esc(meta) + (it.source ? '　' + esc(it.id) : '') + '</div>';
+  const pr = panel.getBoundingClientRect();
+  const cr = cell.getBoundingClientRect();
+  tip.style.display = 'block';
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  const above = cr.top < pr.top + pr.height / 2;
+  let left = cr.left + cr.width / 2 - tw / 2 - pr.left;
+  left = Math.max(6, Math.min(pr.width - tw - 6, left));
+  tip.style.left = Math.round(left) + 'px';
+  tip.style.top = Math.round(above ? (cr.bottom - pr.top + 6) : (cr.top - pr.top - th - 6)) + 'px';
+}
+
+function scPickerTipHide () {
+  const tip = document.getElementById('scPickTip');
+  if (tip) tip.style.display = 'none';
+}
+
+function scPickerAdd (it, cell) {
+  scStopPlay();
+  if (it.cat === 'Joker') {
+    const j = jokerFromItem(it);
+    if (!j) return;
+    SC.jokers.push(j);
+  } else {
+    const c = scCardFromItem(it);
+    SC.played.push(c);                 /* 新加的牌默认就是「打出去的」，再点一下才变成留手 */
+    SC_UI.order.push(c);
+    SC_UI.focus = c;
+  }
+  SCP.added++;
+  if (cell) { cell.classList.add('just'); setTimeout(() => cell.classList.remove('just'), 420) }
+  scPickerHead();
+  render();
+}
+
+/** 「已加入 N 张」那行读数 */
+function scPickerHead () {
+  const el = document.querySelector('#scPick .scpickcount');
+  if (el) {
+    const n = SC.jokers.length + SC.played.length + SC.held.length;
+    el.innerHTML = '桌上现在 <b>' + n + '</b> 张' + (SCP.added ? '　·　本次已加入 <b>' + SCP.added + '</b> 张' : '');
+  }
+}
+
+function scPickerRender () {
+  const root = document.getElementById('scPick');
+  if (!root) return;
+  const grid = root.querySelector('#scPickGrid');
+  const list = scPickerList();
+  grid.innerHTML = '';
+  if (!list.length) {
+    grid.innerHTML = '<div class="scpkempty">没找到。换个词，或切到别的分类。</div>';
+  } else {
+    const frag = document.createDocumentFragment();
+    for (const it of list) frag.appendChild(scPickerCell(it));
+    grid.appendChild(frag);
+  }
+  root.querySelectorAll('.scpickcat').forEach((b) => b.classList.toggle('on', b.dataset.tab === SCP.tab));
+  root.querySelector('.scpicksuits').style.display = SCP.tab === 'PlayingCard' ? '' : 'none';
+  root.querySelectorAll('.scpicksuit').forEach((b) => b.classList.toggle('on', b.dataset.suit === SCP.suit));
+  const hint = root.querySelector('.scpickhint');
+  const cnt = { Joker: ITEMS.filter((x) => x.cat === 'Joker').length, PlayingCard: ITEMS.filter((x) => x.cat === 'PlayingCard').length };
+  hint.textContent = (SCP.tab === 'Joker' ? '加入的牌从左到右结算' : '加入的牌默认算「打出去」，点卡图可改成留手') +
+    '　·　共 ' + (cnt[SCP.tab] || 0) + ' 项';
+  scPickerHead();
+}
+
+function openScPicker (tab) {
+  closeScPicker();
+  SCP.open = true; SCP.added = 0;
+  if (tab) SCP.tab = tab;
+  const root = document.createElement('div');
+  root.id = 'scPick';
+  root.className = 'scpick';
+  root.innerHTML = `
+    <div class="scpickpanel">
+      <div class="scpicktop">
+        <b>选择卡牌</b>
+        <span class="scpickhint"></span>
+        <span class="scpickcount"></span>
+        <button class="btn primary" id="scPickDone">完成 ✓</button>
+      </div>
+      <div class="scpickcols">
+        <nav class="scpickcats">
+          <button class="scpickcat" data-tab="Joker">♣ 小丑牌</button>
+          <button class="scpickcat" data-tab="PlayingCard">🂡 扑克牌</button>
+        </nav>
+        <div class="scpickmain">
+          <div class="scpickfilter">
+            <input id="scPickQ" placeholder="搜索名字或 id…" autocomplete="off">
+            <span class="scpicksuits">
+              <button class="scpicksuit" data-suit="">全部</button>
+              <button class="scpicksuit" data-suit="S">♠</button>
+              <button class="scpicksuit" data-suit="H">♥</button>
+              <button class="scpicksuit" data-suit="D">♦</button>
+              <button class="scpicksuit" data-suit="C">♣</button>
+            </span>
+          </div>
+          <div class="scpickgrid" id="scPickGrid"></div>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(root);
+  root.addEventListener('click', (e) => {
+    if (e.target === root) { closeScPicker(); return }
+    const cat = e.target.closest('.scpickcat');
+    if (cat) { SCP.tab = cat.dataset.tab; scPickerRender(); return }
+    const su = e.target.closest('.scpicksuit');
+    if (su) { SCP.suit = su.dataset.suit; scPickerRender(); return }
+    if (e.target.id === 'scPickDone') closeScPicker();
+  });
+  root.querySelector('#scPickQ').addEventListener('input', (e) => { SCP.q = e.target.value; scPickerRender() });
+  scPickerRender();
+  const qi = root.querySelector('#scPickQ');
+  if (qi && !('ontouchstart' in window)) qi.focus();
+}
+
+function closeScPicker () {
+  const root = document.getElementById('scPick');
+  if (root) root.remove();
+  SCP.open = false;
+}
+
+function scPickerToggle (tab) {
+  if (SCP.open && SCP.tab === tab) closeScPicker();
+  else openScPicker(tab);
+}
+
+/* ---- 手牌：SC.played / SC.held 是引擎认的数组，UI 另记一份视觉顺序 ---- */
+/** 原版里选中的牌是「原地抬起」，不是跳到最后一张 —— 所以顺序要单独存 */
+function scOrderSync () {
+  const all = SC.played.concat(SC.held);
+  const kept = SC_UI.order.filter((c) => all.indexOf(c) >= 0);
+  if (kept.length !== all.length) {
+    for (const c of all) if (kept.indexOf(c) < 0) kept.push(c);   /* 外部直接塞进数组的情况 */
+    SC_UI.order = kept;
+  }
+  return SC_UI.order;
+}
+
+function scIsPlayed (c) { return SC.played.indexOf(c) >= 0 }
+
+/** 点一下卡图：在「打出去」和「留在手里」之间切换 */
+function scToggleCard (c) {
+  const i = SC.played.indexOf(c);
+  if (i >= 0) { SC.played.splice(i, 1); SC.held.push(c) } else {
+    const k = SC.held.indexOf(c);
+    if (k >= 0) SC.held.splice(k, 1);
+    SC.played.push(c);
+  }
+  SC_UI.focus = c;
+}
+
+function scRemoveCard (c) {
+  for (const arr of [SC.played, SC.held]) {
+    const i = arr.indexOf(c);
+    if (i >= 0) arr.splice(i, 1);
+  }
+  const k = SC_UI.order.indexOf(c);
+  if (k >= 0) SC_UI.order.splice(k, 1);
+  if (SC_UI.focus === c) SC_UI.focus = null;
+  if (SC_UI.edit && SC_UI.edit.card === c) SC_UI.edit = null;
+}
+
+/** 一手常见的牌，方便一秒钟进入有意义的局面 */
+const SC_PRESETS = {
+  '同花五张': { hand: 'Flush', cards: [['A', 'S'], ['K', 'S'], ['Q', 'S'], ['J', 'S'], ['9', 'S']], held: [['2', 'H'], ['7', 'D']], jokers: ['j_joker', 'j_greedy_joker'] },
+  '葫芦': { hand: 'Full House', cards: [['K', 'S'], ['K', 'H'], ['K', 'D'], ['9', 'C'], ['9', 'S']], held: [['3', 'H']], jokers: ['j_joker', 'j_cavendish'] },
+  '一对 + 钢铁留手': { hand: 'Pair', cards: [['A', 'S'], ['A', 'H']], held: [['K', 'D', 'm_steel'], ['Q', 'C']], jokers: ['j_joker'] },
+  '高牌测试': { hand: 'High Card', cards: [['2', 'C']], held: [], jokers: [] },
+};
+
+function scApplyPreset (name) {
+  const p = SC_PRESETS[name];
+  if (!p) return;
+  scStopPlay();
+  SC.hand = p.hand; SC.level = 1;
+  SC.played = p.cards.map((c) => scCard(c[0], c[1], c[2] || '', c[3] || '', c[4] || ''));
+  SC.held = (p.held || []).map((c) => scCard(c[0], c[1], c[2] || '', c[3] || '', c[4] || ''));
+  SC.jokers = (p.jokers || []).map((id) => jokerFromItem(BY_ID[id])).filter(Boolean);
+  SC.manual = { chips: 0, mult: 0, xmult: 1 };
+  SC_UI.order = SC.played.concat(SC.held);
+  SC_UI.edit = null; SC_UI.focus = null; SC_UI.step = -1;
+  render();
+}
+
+/** 随便发一手（8 张），像发牌那样 */
+function scDealHand (n) {
+  scStopPlay();
+  const ranks = Object.keys(RANK_CHIPS);
+  const suits = SUIT_ORDER;
+  SC.played = []; SC.held = [];
+  for (let i = 0; i < (n || 8); i++) {
+    SC.held.push(scCard(ranks[Math.floor(Math.random() * ranks.length)], suits[Math.floor(Math.random() * 4)]));
+  }
+  SC_UI.order = SC.played.concat(SC.held);
+  SC_UI.focus = null; SC_UI.edit = null; SC_UI.step = -1;
+  render();
+}
 
 function scStopPlay () {
   SC_UI.playing = false;
@@ -4273,7 +4558,7 @@ function viewScore (host) {
   const step = (SC_UI.step >= 0 && SC_UI.step < r.rows.length) ? SC_UI.step : -1;
   const shown = step >= 0 ? r.rows[step] : { chips: r.chips, mult: r.mult };
   const active = step >= 0 ? r.rows[step].ref : null;
-  /* 这一步之前处理过的牌算"已结算"，之后的算"还没轮到" */
+  /* 这一步之前处理过的牌算「已结算」，之后的算「还没轮到」 */
   const reached = (kind, i) => {
     if (step < 0) return true;
     for (let k = 0; k <= step; k++) {
@@ -4282,157 +4567,214 @@ function viewScore (host) {
     }
     return false;
   };
+  scOrderSync();
+  const order = SC_UI.order;
+  /* 行距照原版的 CardArea:align_cards 算：
+       手牌区宽 6*CARD_W，pitch = (12.2927-2.049)/(max(n,8)-1)
+       打出区固定 5 格，pitch = (10.8585-2.049)/4
+       小丑牌 n>=3 铺满 4.9*CARD_W，pitch = 7.990244/(n-1)（n=2 时是它的一半）
+     1 游戏单位 = 73 设计像素 = 34.65 CSS 像素（本站一张牌 71px = 游戏里 149.6px）。 */
+  const GU = 34.65;
+  const handPitch = (n) => (12.2927 - 2.049) / (Math.max(n, 8) - 1) * GU;
+  const jokerPitch = (n) => n <= 1 ? 0 : (n === 2 ? 3.9951 : 7.990244 / (n - 1)) * GU;
+  const PLAY_PITCH = (10.8585 - 2.049) / 4 * GU;
+  const CARDW = 71;
+  const cardLabel = (c) => (c.rank === '10' ? '10' : c.rank) + (SUIT_SYM[c.suit] || '') + (c.enh && BY_ID[c.enh] ? ' ' + (BY_ID[c.enh].name || '') : '');
+  const refOf = (c) => {
+    const i = SC.played.indexOf(c);
+    if (i >= 0) return { kind: 'played', i };
+    const k = SC.held.indexOf(c);
+    return k >= 0 ? { kind: 'held', i: k } : null;
+  };
+  const isActive = (c) => { const rf = refOf(c); return !!(rf && active && rf.kind === active.kind && rf.i === active.i) };
+  const isTodo = (c) => { const rf = refOf(c); return !!(rf && step >= 0 && !reached(rf.kind, rf.i)) };
 
   const head = document.createElement('div');
   head.className = 'listhead';
-  head.innerHTML = `<h2>得分计算器</h2><span class="sub">牌型 → 打出的牌 → 留手 → 小丑 → 得分 = ⌊筹码 × 倍率⌋　·　点卡图可以改，按 ▶ 逐步看每一步</span>`;
+  head.innerHTML = '<h2>得分计算器</h2><span class="sub">结算顺序照游戏的 <code>evaluate_play</code>：牌型 → 每张打出的牌 → 留手 → 小丑（自左向右）→ 底注。' +
+    '点手牌上的一张 = 原版里「选中」它（牌会原地抬起），点第二下就是留在手里。</span>';
   host.appendChild(head);
 
-  const board = document.createElement('div');
-  board.className = 'scboard';
-  board.innerHTML = `
-    <div class="scbar">
-      <select id="scHand" title="牌型">${D.hands.map((h) => `<option value="${h.name}"${h.name === SC.hand ? ' selected' : ''}>${h.name}</option>`).join('')}</select>
-      <label class="sclvl">Lv <input id="scLevel" type="number" min="1" max="99" value="${SC.level}" title="牌型等级（每级的成长见下方读数）"></label>
-      <span class="scbase">基础 ${r.hand.chips} × ${r.hand.mult}　每级 +${r.hand.chipsPerLevel || 0} / +${r.hand.multPerLevel || 0}</span>
-      <button class="btn" id="scReset" title="清空所有牌">清空</button>
-    </div>
+  const stage = document.createElement('div');
+  stage.className = 'scstage';
+  stage.innerHTML = `
+    <div class="scgrid">
+      <div class="schud">
+        <div class="scpickline">
+          <select id="scHandType" title="牌型">${D.hands.map((h) => `<option value="${h.name}"${h.name === SC.hand ? ' selected' : ''}>${h.name}</option>`).join('')}</select>
+          <label class="sclvl">Lv <input id="scLevel" type="number" min="1" max="99" value="${SC.level}" title="牌型等级"></label>
+          <span class="scbase">每级 +${r.hand.chipsPerLevel || 0} / +${r.hand.multPerLevel || 0}</span>
+        </div>
+        <div class="schandname"><b>${SC.hand}</b><i>Lv.${SC.level}</i><em>基础 ${r.hand.chips} × ${r.hand.mult}</em></div>
+        <div class="scmath">
+          <div class="scchips" title="筹码"><b>${Math.round(shown.chips)}</b></div>
+          <div class="scx">X</div>
+          <div class="scmult" title="倍率"><b>${+shown.mult.toFixed(2)}</b></div>
+          <div class="scscore"><span>得分</span><b>${Math.floor(shown.chips * shown.mult).toLocaleString()}</b></div>
+        </div>
+        <div class="scnote" id="scNote"></div>
+      </div>
+      <div class="scrowbox">
+        <div class="scrowhead"><span>小丑牌</span><em>自左向右结算 · 点一张在图鉴里看它</em>
+          <button class="btn" id="scAddJoker">＋ 加小丑牌</button></div>
+        <div class="scrail joks" id="scJokers"></div>
+      </div>
+      <div class="scrowbox scfull">
+        <div class="scrowhead"><span>打出的牌</span><em id="scPlayedNote"></em></div>
+        <div class="scrail plays" id="scPlayed"></div>
+      </div>
+      <div class="scrowbox scfull">
+        <div class="scrowhead"><span>手牌</span><em>点一下 = 打出去，再点一下 = 留在手里（右键改这张牌）</em>
+          <button class="btn primary" id="scAddCard">＋ 加牌</button>
+          <button class="btn" id="scDeal">发一手</button>
+          <select class="scsel" id="scPreset" title="一键摆好一个常见局面">
+            <option value="">示例…</option>
+            ${Object.keys(SC_PRESETS).map((k) => `<option value="${k}">${k}</option>`).join('')}
+          </select>
+          <button class="btn orange" id="scClear">清空</button>
+        </div>
+        <div class="scrail" id="scHand"></div>
+      </div>
+    </div>`;
+  host.appendChild(stage);
 
-    <div class="scrailbox">
-      <div class="scraillabel">小丑牌 <em>结算顺序从左到右</em></div>
-      <div class="scrail" id="scJokers"></div>
-    </div>
-
-    <div class="scrailbox">
-      <div class="scraillabel">打出的牌 <em id="scPlayedNote"></em></div>
-      <div class="scrail" id="scPlayed"></div>
-    </div>
-
-    <div class="scrailbox">
-      <div class="scraillabel">留在手里 <em>钢铁牌等"持有"效果</em></div>
-      <div class="scrail" id="scHeld"></div>
-    </div>
-
-    <div class="scmath">
-      <div class="scchips"><span>筹码</span><b>${Math.round(shown.chips)}</b></div>
-      <div class="scx">×</div>
-      <div class="scmult"><span>倍率</span><b>${+shown.mult.toFixed(2)}</b></div>
-      <div class="sceq">=</div>
-      <div class="sctotal"><span>得分</span><b>${Math.floor(shown.chips * shown.mult).toLocaleString()}</b></div>
-    </div>
-
-    <div class="scplay">
-      <button class="btn" id="scFirst" title="回到开头">⏮</button>
-      <button class="btn" id="scPrev" title="上一步">◀</button>
-      <button class="btn primary" id="scToggle">${SC_UI.playing ? '⏸ 暂停' : '▶ 逐步播放'}</button>
-      <button class="btn" id="scNext" title="下一步">▶</button>
-      <button class="btn" id="scLast" title="直接看结果">⏭</button>
-      <input type="range" id="scStep" min="-1" max="${r.rows.length - 1}" value="${step}" title="结算进度">
-      <span class="scstepn">${step < 0 ? '结果' : (step + 1) + ' / ' + r.rows.length}</span>
-      <span class="scnow">${step < 0 ? '最终得分' : r.rows[step].label}</span>
-    </div>
-
-    <div class="scpickers" id="scPickers"></div>
-  `;
-  host.appendChild(board);
-
-  /* ---- 卡图行 ---- */
-  const railJ = board.querySelector('#scJokers');
-  if (!SC.jokers.length) railJ.appendChild(Object.assign(document.createElement('div'), { className: 'scempty', textContent: '点下面「＋ 小丑牌」加一张' }));
+  /* ---- 小丑牌行（原版在顶部一排，自左向右结算） ---- */
+  const railJ = stage.querySelector('#scJokers');
+  if (!SC.jokers.length) {
+    railJ.appendChild(Object.assign(document.createElement('div'), { className: 'scempty', textContent: '还没有小丑牌——点右上角「＋ 加小丑牌」，在图鉴网格里点几张就加几张。' }));
+  }
   SC.jokers.forEach((j, i) => {
-    const t = spriteTile(scoreJokerCanvas(j, 1), 'scj' + (active && active.kind === 'joker' && active.i === i ? ' on' : (step >= 0 && !reached('joker', i) ? ' todo' : '')), '点一下移除');
+    const cls = 'scj' + (active && active.kind === 'joker' && active.i === i ? ' on' : (step >= 0 && !reached('joker', i) ? ' todo' : ''));
+    const t = spriteTile(scoreJokerCanvas(j, 1), cls, (j.name || j.id) + '　·　第 ' + (i + 1) + ' 个结算');
     t.style.zIndex = String(100 - i);
+    t.style.marginRight = (i === SC.jokers.length - 1 ? 0 : jokerPitch(SC.jokers.length) - CARDW) + 'px';
     const badge = document.createElement('i');
     badge.className = 'scbadge';
-    badge.textContent = j.name;
+    badge.textContent = j.name || j.id;
     t.appendChild(badge);
-    if (SC.jokers.length > 1) {
-      const mv = document.createElement('span');
-      mv.className = 'scmv';
-      mv.innerHTML = `<button data-mv="${i}" data-dir="-1" title="往前挪">◀</button><button data-mv="${i}" data-dir="1" title="往后挪">▶</button>`;
-      t.appendChild(mv);
-    }
-    t.onclick = (e) => {
-      if (e.target.closest('.scmv')) return;
-      scStopPlay(); SC.jokers.splice(i, 1); render();
-    };
+    const mv = document.createElement('span');
+    mv.className = 'scmv';
+    mv.innerHTML = (i > 0 ? '<button data-mv="' + i + '" data-dir="-1" title="往前挪">◀</button>' : '') +
+      (i < SC.jokers.length - 1 ? '<button data-mv="' + i + '" data-dir="1" title="往后挪">▶</button>' : '') +
+      '<button data-mv="' + i + '" data-dir="del" title="移除">✕</button>';
+    t.appendChild(mv);
+    t.onclick = (e) => { if (e.target.closest('.scmv')) return; scStopPlay(); selectItem(j.id, true); };
     railJ.appendChild(t);
   });
 
-  const railP = board.querySelector('#scPlayed');
-  board.querySelector('#scPlayedNote').textContent = SC.played.length ? SC.played.length + ' 张 · 点卡图改 / 再点一次移除' : '';
-  if (!SC.played.length) railP.appendChild(Object.assign(document.createElement('div'), { className: 'scempty', textContent: '点下面「＋ 牌」加一张打出去的牌' }));
+  /* ---- 打出的牌（原版里按下「打出」之后牌飞到中间的那一排） ---- */
+  const railP = stage.querySelector('#scPlayed');
+  const pn = stage.querySelector('#scPlayedNote');
+  pn.textContent = SC.played.length
+    ? SC.played.length + ' 张：' + SC.played.map(cardLabel).join('、')
+    : '还没选牌——在手牌里点几张就是「打出去」。';
+  if (!SC.played.length) {
+    railP.appendChild(Object.assign(document.createElement('div'), { className: 'scempty', textContent: '（空）' }));
+  }
   SC.played.forEach((c, i) => {
-    const t = spriteTile(scoreCardCanvas(c, 1), 'scc' + (active && active.kind === 'played' && active.i === i ? ' on' : (step >= 0 && !reached('played', i) ? ' todo' : '')), '点一下编辑，双击移除');
+    const cls = 'scc' + (active && active.kind === 'played' && active.i === i ? ' on' : (step >= 0 && !reached('played', i) ? ' todo' : ''));
+    const t = spriteTile(scoreCardCanvas(c, 1), cls, cardLabel(c) + '　·　点一下改回留手，右键改牌');
     t.style.zIndex = String(100 - i);
+    t.style.marginRight = (i === SC.played.length - 1 ? 0 : PLAY_PITCH - CARDW) + 'px';
     if (c.seal === 'Red') t.appendChild(Object.assign(document.createElement('i'), { className: 'scred', textContent: '红' }));
-    t.onclick = () => { scStopPlay(); SC_UI.edit = (SC_UI.edit && SC_UI.edit.kind === 'played' && SC_UI.edit.i === i) ? null : { kind: 'played', i }; render() };
-    t.ondblclick = () => { scStopPlay(); SC.played.splice(i, 1); SC_UI.edit = null; render() };
+    t.onclick = () => { scStopPlay(); scToggleCard(c); render() };
+    t.oncontextmenu = (e) => { e.preventDefault(); scStopPlay(); SC_UI.focus = c; render() };
     railP.appendChild(t);
   });
 
-  const railH = board.querySelector('#scHeld');
-  if (!SC.held.length) railH.appendChild(Object.assign(document.createElement('div'), { className: 'scempty', textContent: '（可选）手里留着的牌' }));
-  SC.held.forEach((c, i) => {
-    const t = spriteTile(scoreCardCanvas(c, 1), 'scc' + (active && active.kind === 'held' && active.i === i ? ' on' : ''), '点一下编辑，双击移除');
+  /* ---- 手牌（原版最下面那一排；点一下就是原版的「选中」） ---- */
+  const railH = stage.querySelector('#scHand');
+  if (!order.length) {
+    railH.appendChild(Object.assign(document.createElement('div'), { className: 'scempty', textContent: '手牌是空的——「＋ 加牌」从图鉴里挑，或者「发一手」随机发 8 张。' }));
+  }
+  order.forEach((c, i) => {
+    const sel = scIsPlayed(c);
+    const cls = 'scc' + (sel ? ' sel' : '') + (isActive(c) ? ' on' : (isTodo(c) ? ' todo' : ''));
+    const t = spriteTile(scoreCardCanvas(c, 1), cls, cardLabel(c) + (sel ? '　·　打出去' : '　·　留在手里') + '（点一下切换，右键改牌）');
     t.style.zIndex = String(100 - i);
-    t.onclick = () => { scStopPlay(); SC_UI.edit = (SC_UI.edit && SC_UI.edit.kind === 'held' && SC_UI.edit.i === i) ? null : { kind: 'held', i }; render() };
-    t.ondblclick = () => { scStopPlay(); SC.held.splice(i, 1); SC_UI.edit = null; render() };
+    t.style.marginRight = (i === order.length - 1 ? 0 : handPitch(order.length) - CARDW) + 'px';
+    if (c.seal === 'Red') t.appendChild(Object.assign(document.createElement('i'), { className: 'scred', textContent: '红' }));
+    t.onclick = () => { scStopPlay(); scToggleCard(c); render() };
+    t.oncontextmenu = (e) => { e.preventDefault(); scStopPlay(); SC_UI.focus = c; render() };
     railH.appendChild(t);
   });
 
-  /* ---- 卡牌编辑面板 / 选择器 ---- */
-  const pick = board.querySelector('#scPickers');
-  if (SC_UI.edit) {
-    const which = SC_UI.edit.kind === 'held' ? SC.held : SC.played;
-    const c = which[SC_UI.edit.i];
-    if (!c) { SC_UI.edit = null; render(); return }
-    const grid = (label, list, cur, field) => `<div class="scpkrow"><span>${label}</span>${
-      list.map((x) => `<button class="scpk${x[0] === cur ? ' on' : ''}" data-pick="${field}" data-v="${x[0]}">${x[1]}</button>`).join('')}</div>`;
+  /* ---- HUD 下面那行读数：留手在算什么 / 手填修正 ---- */
+  const note = stage.querySelector('#scNote');
+  const heldTxt = SC.held.length ? '留手 ' + SC.held.length + ' 张：' + SC.held.map(cardLabel).join('、') : '留手 0 张';
+  const steel = SC.held.filter((c) => c.enh && (c.enh === 'm_steel' || /steel/i.test(c.enh))).length;
+  const manual = (SC.manual.chips || SC.manual.mult || (SC.manual.xmult && SC.manual.xmult !== 1))
+    ? '　·　手填 +' + SC.manual.chips + ' 筹码 / +' + SC.manual.mult + ' 倍率 / ×' + SC.manual.xmult : '';
+  note.innerHTML = heldTxt + (steel ? '　·　<b>钢铁牌 ' + steel + ' 张（每张 ×1.5）</b>' : '') + manual;
+
+  /* ---- 卡牌编辑（右键打开；也是对「加进来之后想微调」的回答） ---- */
+  if (SC_UI.focus && (SC.played.indexOf(SC_UI.focus) >= 0 || SC.held.indexOf(SC_UI.focus) >= 0)) {
+    const c = SC_UI.focus;
+    const grid = (label, list, cur, field) => '<div class="scpkrow"><span>' + label + '</span>' +
+      list.map((x) => `<button class="scpk${x[0] === cur ? ' on' : ''}" data-pick="${field}" data-v="${x[0]}">${x[1]}</button>`).join('') + '</div>';
     const ranks = Object.keys(RANK_CHIPS).map((k) => [k, k]);
     const suits = Object.keys(SUIT_SYM).map((k) => [k, SUIT_SYM[k]]);
     const enhs = [['', '无']].concat(ITEMS.filter((x) => x.cat === 'Enhancement').map((x) => [x.id, x.name || x.id]));
     const eds = [['', '无']].concat(ITEMS.filter((x) => x.cat === 'Edition' && !x.shader).map((x) => [x.id, x.name || x.id]));
     const seals = [['', '无'], ['Red', '红'], ['Gold', '金'], ['Blue', '蓝'], ['Purple', '紫']];
-    pick.innerHTML = `<div class="scpkh">改这张牌 <button class="btn scx" id="scDel">移除</button><button class="btn scx" id="scClose">收起</button></div>` +
-      grid('点数', ranks, c.rank, 'rank') + grid('花色', suits, c.suit, 'suit') +
-      grid('强化', enhs, c.enh, 'enh') + grid('版本', eds, c.ed, 'ed') + grid('蜡封', seals, c.seal, 'seal');
-  } else {
-    pick.innerHTML = `
-      <button class="btn" id="scAddCard">＋ 牌</button>
-      <button class="btn" id="scAddHeld">＋ 留手牌</button>
-      <button class="btn" id="scAddJoker">＋ 小丑牌</button>
-      <input id="scJokerSearch" placeholder="搜索小丑牌（含已导入的 mod）…" autocomplete="off">
-      <div class="scjres" id="scJokerRes"></div>`;
+    const dlg = document.createElement('div');
+    dlg.className = 'gdialog scfocus';
+    dlg.innerHTML = `<div class="gin">
+      <div class="scpkh"><span class="gtitle">改这张牌</span><b>${cardLabel(c)}</b>
+        <button class="btn warn" id="scDel">移除</button><button class="btn" id="scClose">收起</button></div>
+      <div class="scpkrows">
+        ${grid('点数', ranks, c.rank, 'rank')}${grid('花色', suits, c.suit, 'suit')}
+        ${grid('强化', enhs, c.enh, 'enh')}${grid('版本', eds, c.ed, 'ed')}${grid('蜡封', seals, c.seal, 'seal')}
+      </div></div>`;
+    host.appendChild(dlg);
   }
 
-  /* ---- 账目（折叠，播放时跟着高亮） ---- */
+  /* ---- 播放条 ---- */
+  const bar = document.createElement('div');
+  bar.className = 'scplay';
+  bar.innerHTML = `
+    <button class="btn" id="scFirst" title="回到结果">⏮</button>
+    <button class="btn" id="scPrev" title="上一步">◀</button>
+    <button class="btn primary" id="scToggle">${SC_UI.playing ? '⏸ 暂停' : '▶ 逐步播放'}</button>
+    <button class="btn" id="scNext" title="下一步">▶</button>
+    <button class="btn" id="scLast" title="直接看结果">⏭</button>
+    <input type="range" id="scStep" min="-1" max="${r.rows.length - 1}" value="${step}" title="结算进度">
+    <span class="scstepn">${step < 0 ? '结果' : (step + 1) + ' / ' + r.rows.length}</span>
+    <span class="scnow">${step < 0 ? '最终得分' : r.rows[step].label}</span>`;
+  host.appendChild(bar);
+
+  /* ---- 账目（点一行就跳到那一步） ---- */
   const log = document.createElement('details');
   log.className = 'sclog';
   log.open = step >= 0;
-  log.innerHTML = `<summary>结算账目（${r.rows.length} 步）</summary>` +
+  log.innerHTML = '<summary>结算账目（' + r.rows.length + ' 步）</summary>' +
     r.rows.map((x, k) => `<div class="scline ${x.op}${k === step ? ' on' : ''}" data-step="${k}"><span>${x.label}</span><i>${Math.round(x.chips)} × ${+x.mult.toFixed(2)}</i></div>`).join('');
   host.appendChild(log);
 
   if (r.warns.length) {
     const w = document.createElement('div');
     w.className = 'scwarn';
-    w.innerHTML = `<b>这些没自动算</b>（依赖运行时状态或条件无法判定；可以在账目里手填修正）：
-      ${r.warns.map((x) => `<div>· ${x.n} <em>${x.why}</em></div>`).join('')}`;
+    w.innerHTML = '<b>这些没自动算</b>（依赖运行时状态或条件无法判定）：' +
+      r.warns.map((x) => `<div>· ${x.n} <em>${x.why}</em></div>`).join('');
     host.appendChild(w);
   }
   const foot = document.createElement('div');
   foot.className = 'scfoot';
-  foot.innerHTML = `规则取自游戏自己的 <code>card.lua</code>（Card:calculate_joker）：<b>${(JOKER_RULES.rules || []).length}</b> 条具名规则 + 4 条通用配置规则。
-    概率类（幸运牌、8 球、骰子…）不参与计算。手牌上限 8 张、出牌最多 5 张这些规则由你自己把握。`;
+  foot.innerHTML = '规则取自游戏自己的 <code>card.lua</code>（<code>Card:calculate_joker</code>）：<b>' + (JOKER_RULES.rules || []).length +
+    '</b> 条具名规则 + 4 条通用配置规则。概率类（幸运牌、8 球、骰子…）不参与计算；手牌上限 8 张、出牌最多 5 张这类规则由你自己把握。';
   host.appendChild(foot);
 
   /* ---- 事件 ---- */
-  const q = (sel) => board.querySelector(sel);
+  /* 注意：播放条挂在 host 上而不是 stage 里，所以这里从 host 找 */
+  const q = (sel) => host.querySelector(sel);
   const stepTo = (v) => { SC_UI.step = Math.max(-1, Math.min(r.rows.length - 1, v)); render() };
-  q('#scHand').onchange = (e) => { scStopPlay(); SC.hand = e.target.value; render() };
+  q('#scHandType').onchange = (e) => { scStopPlay(); SC.hand = e.target.value; render() };
   q('#scLevel').onchange = (e) => { scStopPlay(); SC.level = Math.max(1, +e.target.value || 1); render() };
-  q('#scReset').onclick = () => { scStopPlay(); SC.played = []; SC.held = []; SC.jokers = []; SC_UI.edit = null; SC_UI.step = -1; render() };
+  q('#scDeal').onclick = () => scDealHand(8);
+  q('#scClear').onclick = () => { scStopPlay(); SC.played = []; SC.held = []; SC.jokers = []; SC_UI.order = []; SC_UI.focus = null; SC_UI.step = -1; render() };
+  q('#scAddCard').onclick = () => openScPicker('PlayingCard');
+  q('#scAddJoker').onclick = () => openScPicker('Joker');
+  q('#scPreset').onchange = (e) => { const v = e.target.value; if (v) scApplyPreset(v) };
   q('#scFirst').onclick = () => { scStopPlay(); stepTo(-1) };
   q('#scPrev').onclick = () => { scStopPlay(); stepTo(SC_UI.step < 0 ? r.rows.length - 2 : SC_UI.step - 1) };
   q('#scNext').onclick = () => { scStopPlay(); stepTo(SC_UI.step < 0 ? 0 : SC_UI.step + 1) };
@@ -4454,45 +4796,34 @@ function viewScore (host) {
     const row = e.target.closest('[data-step]');
     if (row) { scStopPlay(); stepTo(+row.dataset.step) }
   });
-  board.addEventListener('click', (e) => {
+  stage.addEventListener('click', (e) => {
     const mv = e.target.closest('[data-mv]');
     if (mv) {
-      const i = +mv.dataset.mv, d = +mv.dataset.dir, k = i + d;
-      if (k >= 0 && k < SC.jokers.length) { const t = SC.jokers[i]; SC.jokers[i] = SC.jokers[k]; SC.jokers[k] = t; render() }
-      return;
+      const i = +mv.dataset.mv;
+      if (mv.dataset.dir === 'del') SC.jokers.splice(i, 1);
+      else {
+        const k = i + (+mv.dataset.dir);
+        if (k >= 0 && k < SC.jokers.length) { const t = SC.jokers[i]; SC.jokers[i] = SC.jokers[k]; SC.jokers[k] = t }
+      }
+      scStopPlay(); render(); return;
     }
     const pk = e.target.closest('[data-pick]');
-    if (pk && SC_UI.edit) {
-      const which = SC_UI.edit.kind === 'held' ? SC.held : SC.played;
-      which[SC_UI.edit.i][pk.dataset.pick] = pk.dataset.v;
-      render(); return;
-    }
-    if (e.target.id === 'scClose') { SC_UI.edit = null; render(); return }
-    if (e.target.id === 'scDel' && SC_UI.edit) {
-      (SC_UI.edit.kind === 'held' ? SC.held : SC.played).splice(SC_UI.edit.i, 1);
-      SC_UI.edit = null; render(); return;
-    }
-    if (e.target.id === 'scAddCard') { scStopPlay(); SC.played.push(scCard('10', 'S')); SC_UI.edit = { kind: 'played', i: SC.played.length - 1 }; render(); return }
-    if (e.target.id === 'scAddHeld') { scStopPlay(); SC.held.push(scCard('K', 'D', 'm_steel')); SC_UI.edit = { kind: 'held', i: SC.held.length - 1 }; render(); return }
-    if (e.target.id === 'scAddJoker') {
-      scStopPlay();
-      const j = jokerFromItem(BY_ID['j_joker']) || jokerFromItem(ITEMS.find((x) => x.cat === 'Joker'));
-      if (j) SC.jokers.push(j);
-      render(); return;
-    }
-    const jr = e.target.closest('[data-jid]');
-    if (jr) { scStopPlay(); SC.jokers.push(jokerFromItem(BY_ID[jr.dataset.jid])); render() }
+    if (pk && SC_UI.focus) { SC_UI.focus[pk.dataset.pick] = pk.dataset.v; render(); return }
+    if (e.target.id === 'scClose') { SC_UI.focus = null; render(); return }
+    if (e.target.id === 'scDel' && SC_UI.focus) { scRemoveCard(SC_UI.focus); render(); return }
   });
-  const srch = q('#scJokerSearch');
-  if (srch) {
-    srch.oninput = () => {
-      const s = srch.value.trim().toLowerCase();
-      const res = q('#scJokerRes');
-      if (!s) { res.innerHTML = ''; return }
-      const hits = ITEMS.filter((x) => x.cat === 'Joker' && (x.id + ' ' + (x.name || '') + ' ' + (x.source || '')).toLowerCase().includes(s)).slice(0, 24);
-      res.innerHTML = hits.map((x) => `<button class="btn" data-jid="${x.id}" title="${x.id}">${x.name || x.id}${x.source ? ' ★' : ''}</button>`).join('') || '<span class="scempty">没找到</span>';
-    };
+  const dlg = host.querySelector('.scfocus');
+  if (dlg) {
+    dlg.addEventListener('contextmenu', (e) => e.preventDefault());
+    dlg.addEventListener('click', (e) => {
+      const pk = e.target.closest('[data-pick]');
+      if (pk && SC_UI.focus) { SC_UI.focus[pk.dataset.pick] = pk.dataset.v; render(); return }
+      if (e.target.id === 'scClose') { SC_UI.focus = null; render(); return }
+      if (e.target.id === 'scDel' && SC_UI.focus) { scRemoveCard(SC_UI.focus); render(); return }
+    });
   }
+  /* 右键：浏览器菜单挡掉，用来改牌 */
+  stage.addEventListener('contextmenu', (e) => { if (e.target.closest('.sctile')) e.preventDefault() });
 }
 
 /* ---------------------------------------------------------------- shell */
@@ -4501,6 +4832,7 @@ function render () {
   if (detailTimer) { clearInterval(detailTimer); detailTimer = null; }
   stopAnim();
   S.anim.t = S.phase;
+  if (S.tab !== 'score' && SCP.open) closeScPicker();   /* 离开计分页就把选择器收掉 */
   renderSidebar();
   const content = document.getElementById('content');
   content.innerHTML = '';
@@ -4610,6 +4942,7 @@ function showHelp () {
     ${window.__SITE_HOME__ ? `<br><br>想回到工具箱看别的工具？<a href="${window.__SITE_HOME__}" style="color:var(--accent)">← 返回工具箱</a>（左下角状态栏也有一个入口）` : ''}
   </div></div>`;
 }
+
 function buildStatus () {
   const st = document.getElementById('status');
   const stamp = window.__APP_BUILD__ ? ` · 构建 ${window.__APP_BUILD__}` : '';
@@ -4632,6 +4965,8 @@ function init () {
   if (bd) bd.onclick = closeDrawers;
   window.addEventListener('resize', () => { if (!isNarrow()) closeDrawers(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawers(); });
+  /* 选择器开着的时候 Esc 先关它（搜索框里也认） */
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && SCP.open) closeScPicker(); });
   document.addEventListener('keydown', (e) => {    const tag = (e.target.tagName || '').toLowerCase();
     if (e.key === '/' && tag !== 'input' && tag !== 'select') { e.preventDefault(); document.getElementById('search').focus(); return; }
     if (tag === 'input' || tag === 'select') return;

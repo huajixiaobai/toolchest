@@ -252,92 +252,206 @@ table.data tbody tr:hover{background:#18222d}
 table.data tbody tr{cursor:pointer}
 table.data td.num{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:11.5px}
 table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
+/* ---------- 得分计算器：照原版的「对局中」画面做 ----------
+   位置关系照游戏：左上是牌型信息（hand_text_area，colour = darken(G.C.BLACK,.1)），
+   它下面就是游戏同款的「蓝色筹码框 X 红色倍率框」（UI_CHIPS / UI_MULT，emboss .05），
+   小丑牌在顶部一排，打出的牌在中间，手牌在底部（点一下就是原版的「选中」，牌会原地抬起）。
+   数字用 --pix（游戏自带 m6x11plus.ttf，公开站由访客的游戏文件提供）。 */
+.scboard{display:flex;flex-direction:column;gap:10px;--g-r2:8px}
+.scstage{
+  background:#313b3d;border-radius:var(--g-r2);padding:10px;
+  box-shadow:0 0 0 2px var(--c-uidark), inset 0 0 0 2px #22222222
+}
+.scgrid{display:grid;grid-template-columns:minmax(250px,320px) minmax(0,1fr);gap:10px}
+.scgrid .scfull{grid-column:1 / -1}
+@media(max-width:860px){.scgrid{grid-template-columns:minmax(0,1fr)}}
 
-/* ---------- 得分计算器（牌桌式 · 用游戏自己的配色与字体） ----------
-   颜色取自 globals.lua 的 G.C：CHIPS #009dff / MULT #fe5f55 / MONEY #f3b958
-   GREEN #4BC292 / PURPLE #8867a5，面板用 DYN_UI.MAIN 的 #374244、边框 #4f6367。
-   数字用 --pix（游戏自带 m6x11plus.ttf；公开站点版由访客自己的游戏文件提供）。 */
-.scboard{display:flex;flex-direction:column;gap:10px;
-  --g-panel:#374244;--g-line:#4f6367;--g-chips:#009dff;--g-mult:#fe5f55;--g-green:#4bc292;--g-money:#f3b958;--g-purple:#8867a5}
-.scchips b,.scmult b,.sctotal b,.scline i,.scstepn,.scnow,.scbase{font-family:var(--pix,var(--mono))}
-.scbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--g-panel);border:2px solid var(--g-line);border-radius:10px;padding:8px 12px}
-.scbar select,.scbar input{font:inherit;font-size:12.5px;color:var(--fg);background:#2b3437;border:2px solid var(--g-line);border-radius:8px;padding:4px 7px;min-height:30px}
-.scbar label.sclvl{display:flex;align-items:center;gap:5px;font-size:12px;color:#dfe7ee}
-.scbar label.sclvl input{width:62px}
-.scbase{font-size:11.5px;color:#c9d4dc}
-.scrailbox{background:linear-gradient(180deg,#2f393c,#232b2e);border:2px solid var(--g-line);border-radius:12px;padding:8px 12px 12px}
-.scraillabel{font-size:12px;color:#c9d4dc;letter-spacing:1px;margin-bottom:8px;font-family:var(--pix,var(--sans))}
-.scraillabel em{font-style:normal;color:#8b9aa0;margin-left:6px;font-family:var(--sans);font-size:11px}
-.scrail{display:flex;flex-wrap:wrap;align-items:flex-end;min-height:64px;gap:0}
-.scrail .scempty{font-size:12px;color:var(--fg3);padding:16px 2px}
-/* 卡位：真实卡图，互相压一点，像游戏里那样摆 */
-.sctile{position:relative;cursor:pointer;border-radius:7px;transition:transform .12s,box-shadow .12s,filter .12s;line-height:0;margin-right:-14px}
+/* —— 牌型信息 + 筹码×倍率（游戏左上的 HUD 块） —— */
+.schud{background:#313b3d;border-radius:var(--g-r);padding:8px 10px;box-shadow:inset 0 0 0 2px #22222233}
+.schandname{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:0 2px 6px}
+.schandname b{font-size:19px;color:#fff;text-shadow:var(--g-txt);letter-spacing:.5px}
+.schandname i{font-style:normal;font-size:13px;color:var(--c-jgrey);background:#2b3437;border-radius:4px;padding:1px 6px}
+.schandname em{font-style:normal;font-size:12px;color:var(--c-jgrey);margin-left:auto;font-variant-numeric:tabular-nums}
+.scmath{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.scchips,.scmult{
+  min-width:88px;min-height:46px;border-radius:var(--g-r);padding:2px 12px;
+  display:flex;align-items:center;box-shadow:var(--g-emboss)
+}
+.scchips{background:var(--c-blue);justify-content:flex-end}
+.scmult{background:var(--c-red);justify-content:flex-start}
+.scchips b,.scmult b{font-size:30px;line-height:1;color:#fff;text-shadow:var(--g-txt)}
+.scx{font-size:26px;line-height:1;color:var(--c-red);text-shadow:var(--g-txt);padding:0 1px}
+.scscore{
+  margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;
+  background:#2b3437;border-radius:var(--g-r);padding:4px 12px;box-shadow:var(--g-emboss)
+}
+.scscore span{font-size:10.5px;letter-spacing:2px;color:var(--c-jgrey)}
+.scscore b{font-size:24px;line-height:1.1;color:#fff;text-shadow:var(--g-txt);font-variant-numeric:tabular-nums}
+.scnote{padding:6px 2px 0;font-size:11.5px;color:var(--c-jgrey);line-height:1.7}
+.scnote b{color:var(--c-money)}
+/* 牌型 / 等级 / 每级成长 —— 工具比游戏多的那一行，做成游戏里的小按钮 */
+.scpickline{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:0 2px 7px}
+.scpickline select,.scpickline input,.scsel{
+  font:inherit;font-size:12.5px;font-weight:700;color:#fff;background:var(--c-red);border:0;
+  border-radius:var(--g-r);padding:6px 9px;min-height:32px;box-shadow:var(--g-shadow);cursor:pointer;text-shadow:var(--g-txt)
+}
+.scpickline select:hover,.scsel:hover{background-image:linear-gradient(var(--c-hover),var(--c-hover))}
+.scpickline label{display:flex;align-items:center;gap:5px;font-size:12px;color:#fff}
+.scpickline label input{width:58px;background:var(--c-lblack);cursor:text}
+.scbase{font-size:11.5px;color:var(--c-jgrey);margin-left:auto;font-variant-numeric:tabular-nums}
+/* 改牌面板：一行行胶囊按钮 */
+.scfocus{margin-top:2px}
+.scpkh{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:8px}
+.scpkh b{font-size:13px;color:#fff}
+.scpkh .btn{margin-left:auto}
+.scpkh .btn+.btn{margin-left:0}
+.scpkrows{display:flex;flex-direction:column;gap:5px}
+.scpkrow{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+.scpkrow>span{font-size:11.5px;color:#e3e9ee;min-width:34px}
+.scpk{font-size:11.5px;padding:4px 9px;min-height:28px;background:var(--c-black)}
+.scpk.on{background:var(--c-orange)}
+
+/* —— 一行牌（原版 CardArea：互相压着、悬停抬起、选中上浮） —— */
+.scrowbox{background:#313b3d;border-radius:var(--g-r);padding:8px 10px 12px;box-shadow:inset 0 0 0 2px #22222233}
+.scrowhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.scrowhead>span{font-size:13px;color:#fff;text-shadow:var(--g-txt);letter-spacing:.5px}
+.scrowhead>em{font-style:normal;font-size:11.5px;color:var(--c-jgrey);flex:1 1 120px;min-width:0}
+.scrowhead .btn{font-size:12px;padding:5px 10px;min-height:30px}
+.scrail{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:center;min-height:70px}
+.scrail .scempty{font-size:12px;color:#8b9aa0;padding:18px 2px}
+.sctile{position:relative;cursor:pointer;border-radius:var(--g-r);line-height:0;margin-right:-20px;transition:transform .12s,box-shadow .12s,filter .12s}
 .sctile:last-child{margin-right:0}
-.sctile canvas{width:71px;height:95px;display:block;border-radius:7px;box-shadow:0 3px 10px #0008}
-.scrail .scj canvas{width:64px;height:86px}
-.sctile:hover{transform:translateY(-8px);z-index:200 !important}
-.sctile.on{transform:translateY(-10px);box-shadow:0 0 0 3px var(--g-green),0 8px 22px #000a}
-.sctile.todo{filter:grayscale(.75) brightness(.7)}
+.sctile canvas{display:block;border-radius:var(--g-r);box-shadow:0 4px 0 rgba(0,0,0,.3)}
+.scrail .scc canvas{width:71px;height:95px}
+.scrail .scj canvas{width:71px;height:95px}
+/* 原版悬停只是把牌放大 5%（0.95 → 1.00），不抬起；抬起是「选中」才有的 */
+.sctile:hover{transform:scale(1.05);z-index:200 !important}
+/* 原版里「打出去」的牌是原地抬起一截（不是跳到最后），底部再补一块桌面色，免得露出压着的牌 */
+.sctile.sel{transform:translateY(-19px)}
+.sctile.sel canvas{box-shadow:0 8px 0 rgba(0,0,0,.3)}
+.sctile.on{transform:translateY(-19px);z-index:210 !important}`n.sctile.sel:hover,.sctile.on:hover{transform:translateY(-19px) scale(1.05)}
+.sctile.on canvas{box-shadow:0 4px 0 rgba(0,0,0,.3),0 0 0 3px var(--c-red)}
+.sctile.todo{filter:grayscale(.7) brightness(.75)}
 .sctile .scbadge{position:absolute;left:0;right:0;bottom:-1px;font-size:9.5px;line-height:1.5;text-align:center;color:#dfe7ee;
-  background:#1b2225e6;border-radius:0 0 7px 7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 2px;font-style:normal}
-.sctile .scred{position:absolute;top:2px;right:2px;background:var(--g-mult);color:#2b0b0b;font-size:9.5px;border-radius:5px;padding:0 3px;font-style:normal}
-.sctile .scmv{position:absolute;top:-9px;left:50%;transform:translateX(-50%);display:none;gap:2px;z-index:210}
+  background:#1b2225e6;border-radius:0 0 var(--g-r) var(--g-r);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 2px}
+.sctile .scred{position:absolute;top:2px;right:2px;background:var(--c-red);color:#2b0b0b;font-size:9.5px;border-radius:4px;padding:0 3px;font-style:normal}
+.sctile .scmv{position:absolute;top:-11px;left:50%;transform:translateX(-50%);display:none;gap:2px;z-index:210}
 .sctile:hover .scmv{display:flex}
-.sctile .scmv button{font-size:9px;line-height:1;padding:2px 4px;border-radius:4px;border:2px solid var(--g-line);background:#2b3437;color:#dfe7ee;cursor:pointer}
-/* 游戏同款的「筹码 × 倍率」 */
-.scmath{display:flex;align-items:stretch;gap:8px;flex-wrap:wrap}
-.scchips,.scmult,.sctotal{flex:1 1 150px;border-radius:12px;padding:8px 14px;display:flex;flex-direction:column;gap:1px;min-width:0;border:2px solid}
-.scchips{background:#0b3a55;border-color:var(--g-chips);box-shadow:inset 0 0 0 2px #009dff33}
-.scmult{background:#4a1414;border-color:var(--g-mult);box-shadow:inset 0 0 0 2px #fe5f5533}
-.sctotal{background:#0d3a2a;border-color:var(--g-green);box-shadow:inset 0 0 0 2px #4bc29233}
-.scchips span,.scmult span,.sctotal span{font-size:11px;letter-spacing:2px;color:#ffffffa8}
-.scchips b,.scmult b,.sctotal b{font-size:32px;line-height:1.1}
-.scchips b{color:#8fd4ff}
-.scmult b{color:#ff9d95}
-.sctotal b{color:#93e7c4}
-.scx,.sceq{display:grid;place-items:center;font-size:22px;color:#c9d4dc;padding:0 2px;font-family:var(--pix,var(--mono))}
-.scplay{display:flex;align-items:center;gap:7px;flex-wrap:wrap;background:var(--g-panel);border:2px solid var(--g-line);border-radius:10px;padding:8px 12px}
-.scplay input[type=range]{flex:1 1 160px;min-width:120px;accent-color:var(--g-chips)}
-.scstepn{font-size:12px;color:#c9d4dc}
-.scnow{font-size:12.5px;color:var(--g-chips);flex:1 1 100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.scpickers{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--g-panel);border:2px solid var(--g-line);border-radius:10px;padding:10px 12px}
-.scpkh{flex:1 1 100%;display:flex;align-items:center;gap:8px;font-size:12.5px;color:#dfe7ee}
-.scpkrow{flex:1 1 100%;display:flex;gap:5px;align-items:center;flex-wrap:wrap}
-.scpkrow>span{font-size:12px;color:#c9d4dc;min-width:34px}
-.scpk{font:inherit;font-size:11.5px;color:#dfe7ee;background:#2b3437;border:2px solid var(--g-line);border-radius:7px;padding:4px 9px;min-height:28px;cursor:pointer}
-.scpk:hover{border-color:#7a8f96}
-.scpk.on{color:#0f1a14;background:var(--g-green);border-color:var(--g-green);font-weight:700}
-.scpickers input{font:inherit;font-size:12.5px;color:var(--fg);background:#2b3437;border:2px solid var(--g-line);border-radius:8px;padding:5px 8px;min-height:30px;flex:0 1 220px}
-.scjres{flex:1 1 100%;display:flex;gap:6px;flex-wrap:wrap}
-.scjres .btn{font-size:11.5px;padding:4px 9px;min-height:28px}
-.sclog{border:2px solid var(--g-line);border-radius:10px;background:#1b2225;overflow:hidden}
-.sclog summary{cursor:pointer;padding:8px 12px;font-size:12.5px;color:#dfe7ee;list-style:none;font-family:var(--pix,var(--sans))}
+.sctile .scmv button{font-size:9px;line-height:1;padding:2px 4px;border:0;border-radius:4px;background:var(--c-lblack);color:#fff;cursor:pointer;box-shadow:var(--g-emboss)}
+/* 选中标记：原版的红色小三角（get_chosen_triangle_from_rect），会轻轻弹 */
+.sctile.sel::before{
+  content:'';position:absolute;left:50%;top:-9px;margin-left:-4px;width:0;height:0;
+  border:4px solid transparent;border-top:0;border-bottom:7px solid var(--c-red);
+  animation:gchosen 1.4s linear infinite
+}
+
+/* —— 播放条 / 账目 —— */
+.scplay{display:flex;align-items:center;gap:7px;flex-wrap:wrap;background:var(--c-black);border-radius:var(--g-r);padding:8px 12px;box-shadow:0 0 0 2px var(--c-uidark)}
+.scplay .btn{font-size:12.5px;padding:5px 11px;min-height:32px}
+.scplay input[type=range]{flex:1 1 160px;min-width:120px;accent-color:var(--c-blue)}
+.scstepn{font-size:12.5px;color:#fff;font-variant-numeric:tabular-nums}
+.scnow{font-size:12.5px;color:var(--c-money);flex:1 1 100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sclog{border-radius:var(--g-r);background:#2b3437;overflow:hidden;box-shadow:0 0 0 2px var(--c-uidark)}
+.sclog summary{cursor:pointer;padding:8px 12px;font-size:12.5px;color:#fff;list-style:none;text-shadow:var(--g-txt)}
 .sclog summary::-webkit-details-marker{display:none}
-.sclog summary::before{content:'▸ ';color:#8b9aa0}
+.sclog summary::before{content:'▸ ';color:var(--c-jgrey)}
 .sclog[open] summary::before{content:'▾ '}
-.scline{display:flex;justify-content:space-between;gap:10px;padding:5px 12px;font-size:12px;border-top:1px solid #2f393c;cursor:pointer}
-.scline span{color:#c9d4dc;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.scline i{font-size:12px;color:#8b9aa0;font-style:normal;white-space:nowrap}
-.scline:hover{background:#2b3437}
-.scline.on{background:#12503a;box-shadow:inset 3px 0 0 var(--g-green)}
+.scline{display:flex;justify-content:space-between;gap:10px;padding:5px 12px;font-size:12px;border-top:1px solid #3d494c;cursor:pointer}
+.scline span{color:#dfe7ee;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scline i{font-style:normal;color:var(--c-jgrey);white-space:nowrap;font-variant-numeric:tabular-nums}
+.scline:hover{background-image:linear-gradient(var(--c-hover),var(--c-hover))}
+.scline.on{background:#4a1414;box-shadow:inset 3px 0 0 var(--c-red)}
 .scline.on span{color:#fff}
 .scline.base span{color:#fff}
-.scline.x i{color:var(--g-chips)}
-.scline.joker i{color:var(--g-green)}
-.scline.ed i{color:var(--g-purple)}
-.scline.manual i{color:var(--g-money)}
+.scline.x i{color:var(--c-blue)}
+.scline.joker i{color:var(--c-green)}
+.scline.ed i{color:var(--c-purple)}
+.scline.manual i{color:var(--c-money)}
 .scline.note i{display:none}
-.scwarn{border:2px solid #7a6430;background:#2a2211;border-radius:10px;padding:10px 12px;font-size:12px;color:#e7c98a}
-.scwarn b{display:block;margin-bottom:5px;color:var(--g-money)}
-.scwarn em{font-style:normal;color:#a99372}
+.scwarn{border-radius:var(--g-r);background:#3a2f14;padding:10px 12px;font-size:12px;color:#f0d79c;box-shadow:0 0 0 2px #7a6430}
+.scwarn b{display:block;margin-bottom:5px;color:var(--c-money)}
+.scwarn em{font-style:normal;color:#bda67e}
 .scwarn div{margin-top:3px}
 .scfoot{font-size:11.5px;color:var(--fg3);line-height:1.8;padding:2px 2px 8px}
-.scfoot code{font-family:var(--mono);background:#0a1016;padding:1px 5px;border-radius:4px}
+.scfoot code{font-family:var(--mono);background:#232c2e;padding:1px 5px;border-radius:4px}
+
+/* ---------- 卡牌选择器：照原版的「收藏」页（create_UIBox_generic_options） ---------- */
+.scpick{position:fixed;inset:0;z-index:300;background:#0d1214cc;display:flex;align-items:center;justify-content:center;padding:14px}
+.scpickpanel{
+  width:min(1080px,100%);max-height:min(88vh,900px);display:flex;flex-direction:column;
+  background:var(--c-jgrey);border-radius:11px;padding:4px;box-shadow:0 8px 0 rgba(0,0,0,.35)
+}
+.scpickpanel>.scpicktop,.scpickpanel>.scpickcols{background:var(--c-lblack)}
+.scpicktop{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-radius:var(--g-r) var(--g-r) 0 0;padding:9px 12px
+}
+.scpicktop>b{font-size:15px;color:#fff;text-shadow:var(--g-txt);letter-spacing:.5px}
+.scpickhint{font-size:11.5px;color:#e3e9ee;flex:1 1 200px;min-width:0}
+.scpickcount{font-size:11.5px;color:var(--c-jgrey)}
+.scpickcount b{color:#fff}
+#scPickDone{margin-left:auto}
+.scpickcols{display:grid;grid-template-columns:150px minmax(0,1fr);border-radius:0 0 var(--g-r) var(--g-r);overflow:hidden}
+.scpickcats{display:flex;flex-direction:column;gap:6px;padding:10px 10px 12px;background:#43565a}
+.scpickcat{
+  border:0;border-radius:var(--g-r);padding:9px 8px;font:inherit;font-weight:700;font-size:12.5px;color:#fff;
+  background:var(--c-red);box-shadow:var(--g-shadow);cursor:pointer;position:relative;text-shadow:var(--g-txt)
+}
+.scpickcat:hover{background-image:linear-gradient(var(--c-hover),var(--c-hover))}
+.scpickcat:active{transform:scale(.985)}
+.scpickcat.on{background:var(--c-blue)}
+.scpickcat.on::before{
+  content:'';position:absolute;left:-9px;top:50%;margin-top:-5px;width:0;height:0;
+  border:5px solid transparent;border-left:0;border-right:7px solid var(--c-red);
+  animation:gchosenv 1.4s linear infinite
+}
+@keyframes gchosenv{0%,100%{transform:translateX(0)}50%{transform:translateX(-1.5px)}}
+.scpickmain{display:flex;flex-direction:column;min-width:0;background:#3b4b4f}
+.scpickfilter{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px 6px}
+.scpickfilter input{
+  flex:1 1 200px;min-width:120px;font:inherit;font-size:13px;color:#fff;background:#2b3437;
+  border:0;border-radius:var(--g-r);padding:7px 10px;min-height:34px;box-shadow:inset 0 2px 0 rgba(0,0,0,.25)
+}
+.scpickfilter input::placeholder{color:#9fb0b6}
+.scpicksuits{display:flex;gap:5px}
+.scpicksuit{
+  border:0;border-radius:var(--g-r);font:inherit;font-size:12.5px;font-weight:700;color:#fff;cursor:pointer;
+  background:var(--c-lblack);box-shadow:var(--g-emboss);padding:6px 10px;min-height:32px
+}
+.scpicksuit.on{background:var(--c-orange)}
+.scpickgrid{
+  flex:1 1 auto;overflow:auto;display:grid;gap:12px 10px;padding:8px 12px 16px;
+  grid-template-columns:repeat(auto-fill,minmax(78px,1fr));align-content:start
+}
+.scpkempty{grid-column:1/-1;color:#c3ccd1;font-size:12.5px;padding:20px 2px}
+.scpkcell{
+  border:0;background:none;padding:0;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;
+  position:relative;transition:transform .12s
+}
+.scpkcell:hover{transform:translateY(-9px)}
+.scpkcell:active{transform:translateY(-9px) scale(.97)}
+.scpkart{position:relative;display:block;width:71px;height:95px;border-radius:var(--g-r);line-height:0}
+.scpkart canvas{display:block;border-radius:var(--g-r);box-shadow:0 4px 0 rgba(0,0,0,.3)}
+.scpkph{display:block;width:71px;height:95px;border-radius:var(--g-r);background:#2b3437}
+.scpkname{
+  font-size:10.5px;color:#fff;text-shadow:var(--g-txt);max-width:82px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;text-align:center
+}
+.scpkmod{position:absolute;top:-2px;right:-2px;font-size:9px;padding:0 4px;border-radius:8px;background:var(--c-purple);color:#fff}
+.scpkcell.just::after{
+  content:'';position:absolute;inset:-6px -4px;border-radius:10px;box-shadow:0 0 0 3px var(--c-green);
+  animation:gjuice .4s ease-out;pointer-events:none
+}
 @media(max-width:700px){
-  .sctile canvas{width:58px;height:78px}
+  .scrail .scc canvas{width:58px;height:78px}
   .scrail .scj canvas{width:54px;height:73px}
-  .scchips b,.scmult b,.sctotal b{font-size:26px}
-  .scchips,.scmult,.sctotal{flex:1 1 100px;padding:7px 11px}
+  .scchips b,.scmult b{font-size:24px}
+  .scchips,.scmult{min-width:70px;min-height:40px;padding:2px 9px}
+  .scscore b{font-size:20px}
+  .scpickcols{grid-template-columns:minmax(0,1fr)}
+  .scpickcats{flex-direction:row;overflow-x:auto;padding:8px}
+  .scpickcat.on::before{display:none}
+  .scpickgrid{grid-template-columns:repeat(auto-fill,minmax(66px,1fr))}
+  .scpkname{max-width:70px}
 }
 
 /* ---------- status ---------- */
@@ -486,3 +600,142 @@ body.dropping::after{
   .modsview{padding:12px 10px 100px}
   .drop{padding:16px 12px}
 }
+
+/* ============================================================================
+   原版样式层 —— 每条都能在游戏源码里对上号
+   · 调色板：globals.lua 的 G.C（每个变量后面标了游戏里的名字）
+   · 圆角：UIElement:draw_pixellated_rect 的 4*res ≈ 3.2 设计像素；本站一张牌 71px
+     = 游戏里 41 设计像素，所以换算过来 ≈ 6px
+   · 描边：原版几乎不用 stroke，而是「浅色盒子垫在深色盒子后面」（create_UIBox_generic_options）
+   · 阴影：rgba(0,0,0,.3)，向下偏 1.5 设计像素 ≈ 4px（Moveable.shadow_parrallax）
+   · 悬停：G.C.UI.HOVER = #00000055 叠一层（UIElement:draw_self）
+   · 按下：scale(0.985)；点击/悬停的弹跳：Moveable:juice_up（0.4s，50.8rad/s 正弦衰减）
+   · 选中：按钮外侧一个会轻轻上下弹的红色三角（get_chosen_triangle_from_rect）
+   ==========================================================================*/
+:root{
+  --c-black:#374244;    /* G.C.BLACK     面板底 */
+  --c-lblack:#4f6367;   /* G.C.L_BLACK   二级底/对话框内板 */
+  --c-grey:#5f7377;     /* G.C.GREY      对话框背景 */
+  --c-jgrey:#bfc7d5;    /* G.C.JOKER_GREY 最常用的描边色 */
+  --c-red:#fe5f55;      /* G.C.RED / MULT */
+  --c-blue:#009dff;     /* G.C.BLUE / CHIPS */
+  --c-green:#4bc292;    /* G.C.GREEN */
+  --c-orange:#fda200;   /* G.C.ORANGE    返回/小按钮的主色 */
+  --c-imp:#ff9a00;      /* G.C.IMPORTANT 强调数字 */
+  --c-gold:#eac058;     /* G.C.GOLD */
+  --c-money:#f3b958;    /* G.C.MONEY */
+  --c-purple:#8867a5;   /* G.C.PURPLE */
+  --c-set:#424e54;      /* G.C.SET.*     收藏页的动态底色 */
+  --c-uidark:#22222233; /* G.C.UI.TRANSPARENT_DARK */
+  --c-uiline:#d8d8d8;   /* G.C.UI.OUTLINE_LIGHT */
+  --c-hover:#00000055;  /* G.C.UI.HOVER */
+  --g-r:6px;            /* 4*res 换算 */
+  --g-shadow:0 4px 0 rgba(0,0,0,.3);      /* shadow = true */
+  --g-emboss:0 2px 0 rgba(0,0,0,.28);     /* emboss = 0.05 */
+  --g-txt:0 2px 0 rgba(0,0,0,.3);         /* DynaText shadow */
+  --pixui:var(--pix,"Cascadia Mono"),Consolas,"Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+  /* 语义变量：整站跟着原版走 */
+  --bg:#2f3a3d; --bg2:#374244; --bg3:#424e54;
+  --line:#4f6367; --line2:#5f7377;
+  --fg:#ffffff; --fg2:#dfe7ee; --fg3:#a9b6bb;
+  --accent:#fda200; --accent2:#009dff; --red:#fe5f55; --money:#f3b958;
+  --purple:#8867a5; --blue:#009dff; --green:#4bc292; --orange:#fda200;
+  --radius:6px;
+}
+body{background:
+  radial-gradient(1200px 700px at 12% -12%, #3b474a 0%, transparent 62%),
+  radial-gradient(900px 520px at 102% 4%, #3a4340 0%, transparent 58%),
+  var(--bg);
+  font-family:var(--pixui);}
+/* 原版所有 UI 文字都带一层向下 2px 的黑色投影 */
+#topbar,.tbtn,#tabs button,.cat,.btn,.sect h4,.listhead h2,#status{text-shadow:var(--g-txt)}
+::selection{background:#fda20055}
+
+/* ---- 按钮：UIBox_button（默认 RED、minh .9、r=.1、hover、shadow） ---- */
+.btn,.tbtn,.cat,.pick,.forgenav .nv,.scpk,.cat.on{
+  border:0;border-radius:var(--g-r);box-shadow:var(--g-shadow);
+  color:#fff;font-family:var(--pixui);font-weight:700;letter-spacing:.3px;
+  background:var(--c-lblack);transition:transform .06s;position:relative
+}
+.btn:hover,.tbtn:hover,.pick:hover,.forgenav .nv:hover,.scpk:hover{background-image:linear-gradient(var(--c-hover),var(--c-hover))}
+.btn:active,.tbtn:active,.cat:active,.pick:active,.scpk:active,.forgenav .nv:active{transform:scale(.985)}
+.btn{background:var(--c-lblack)}
+.btn.primary{background:var(--c-blue)}          /* 游戏里的主按钮是「打出」的蓝 */
+.btn.warn,.btn.danger{background:var(--c-red)}
+.btn.orange{background:var(--c-orange)}
+.btn.gold{background:var(--c-gold);color:#3a2a06;text-shadow:none}
+.tbtn.on,.cat.on{background:var(--c-red)}
+/* 选中标记：红色的三角，会轻轻弹（get_chosen_triangle_from_rect，sin(REAL*9)） */
+.tbtn.on::before{
+  content:'';position:absolute;left:50%;top:-8px;width:0;height:0;margin-left:-4px;
+  border:4px solid transparent;border-top:0;border-bottom:7px solid var(--c-red);
+  animation:gchosen 1.4s linear infinite
+}
+/* 竖排的列表用「左边」那个三角（原版 get_chosen_triangle_from_rect 的 vert 分支） */
+.cat.on::before{
+  content:'';position:absolute;left:-9px;top:50%;margin-top:-5px;width:0;height:0;
+  border:5px solid transparent;border-left:0;border-right:7px solid var(--c-red);
+  animation:gchosenv 1.4s linear infinite
+}
+@keyframes gchosen{0%,100%{transform:translateY(0)}50%{transform:translateY(1.5px)}}
+/* juice：Moveable:juice_up 的手感（0.4s 弹一下） */
+@keyframes gjuice{
+  0%{transform:scale(.76)} 8%{transform:scale(1.02) rotate(1deg)} 20%{transform:scale(.94) rotate(-.6deg)}
+  32%{transform:scale(1.02) rotate(.4deg)} 46%{transform:scale(.98) rotate(-.25deg)}
+  62%{transform:scale(1.005)} 80%{transform:scale(.998)} 100%{transform:scale(1)}
+}
+.juice{animation:gjuice .4s ease-out}
+
+/* ---- HUD 面板：UIBox_dyn_container（半透明外圈 + #374244 面板） ---- */
+#topbar,#sidebar,#status,.sect,.opt,.listhead,.modcard,.scbar,.scrailbox,.scplay,.scpickers{
+  background:var(--c-black);border:0;border-radius:var(--g-r);
+  box-shadow:0 0 0 2px var(--c-uidark)
+}
+#topbar{background:linear-gradient(180deg,#3d4a4d,#374244)}
+/* ---- 对话框：create_UIBox_generic_options（#bfc7d5 外框 → #4f6367 内板） ---- */
+.gdialog{background:var(--c-jgrey);border-radius:9px;padding:3px;box-shadow:var(--g-shadow)}
+.gdialog>.gin{background:var(--c-lblack);border-radius:var(--g-r);padding:10px 12px}
+.gdialog .gtitle{font-weight:700;color:#fff;text-shadow:var(--g-txt)}
+
+/* ---- 卡位：游戏的卡牌手感（悬停抬起 + 点击 juice + 选中上浮） ---- */
+.cell,.sctile{transition:transform .12s,box-shadow .12s,filter .12s}
+.cell:hover{transform:translateY(-9px) scale(1.03)}
+.cell.on{box-shadow:0 0 0 3px var(--c-red),0 8px 18px #0009}
+.cell canvas{filter:drop-shadow(0 4px 0 rgba(0,0,0,.3))}
+.cell.on canvas{filter:drop-shadow(0 4px 0 rgba(0,0,0,.3)) drop-shadow(0 0 6px #fe5f5588)}
+
+
+/* ---- 收尾补丁：原版配方落地时的小修 ---- */
+:root{--g-r2:9px}
+.gdialog{border-radius:var(--g-r2)}
+.scstage{border-radius:var(--g-r2)}
+/* 主按钮的字是白的（游戏里 PLAY HAND 就是蓝底白字）；旧规则里有条 .btn.primary 把字染成主题色 */
+.btn.primary,.btn.warn,.btn.danger,.btn.orange{color:#fff}
+.btn.gold{color:#3a2a06}
+/* 图鉴里的卡位：底改成原版的深板色，选中时用游戏的红色三角而不是发光边框 */
+.cell{background:linear-gradient(180deg,#3d4a4d,#374244)}
+.cell.on{box-shadow:0 0 0 2px var(--c-red),0 6px 0 rgba(0,0,0,.3)}
+.cell.on::before{
+  content:'';position:absolute;left:50%;top:-8px;margin-left:-4px;width:0;height:0;z-index:3;
+  border:4px solid transparent;border-top:0;border-bottom:7px solid var(--c-red);
+  animation:gchosen 1.4s linear infinite
+}
+/* 原版收藏页的按钮配色：塔罗紫 / 星球青 / 幽灵蓝 / 优惠券橙 / 版本青绿（G.C.SECONDARY_SET） */
+.cat[data-cat="Tarot"]{background:#a782d1}
+.cat[data-cat="Planet"]{background:#13afce}
+.cat[data-cat="Spectral"]{background:#4584fa}
+.cat[data-cat="Voucher"]{background:#fd682b}
+.cat[data-cat="Edition"]{background:#4ca893}
+.cat[data-cat="Enhancement"]{background:#8389dd}
+.cat[data-cat="Joker"]{background:#708b91}
+/* 悬停说明框：照原版 G.UIDEF.card_h_popup —— 浅色外框 + 名字 + 描述白块（深色字） */
+.scpickpanel{position:relative}
+.scpicktip{
+  display:none;position:absolute;z-index:20;max-width:290px;pointer-events:none;
+  background:var(--c-jgrey);border-radius:8px;padding:3px;box-shadow:0 6px 0 rgba(0,0,0,.3)
+}
+.scpicktip>.scpicktipname{background:#7a9e9f;border-radius:6px 6px 0 0;padding:4px 8px;font-size:12.5px;font-weight:700;color:#fff;text-shadow:var(--g-txt)}
+.scpicktip>.ln{background:#f4f6f7;color:#4f6367;font-size:11.5px;line-height:1.5;padding:3px 8px;margin:0}
+.scpicktip>.ln:last-of-type{border-radius:0 0 6px 6px}
+.scpicktip .x,.scpicktip .ph{color:#4f6367;font-weight:700}
+.scpicktipmeta{background:#f4f6f7;border-radius:0 0 6px 6px;padding:3px 8px;font-size:10.5px;color:#6d7f83}

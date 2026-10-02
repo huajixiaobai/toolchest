@@ -335,12 +335,12 @@ const SCENARIOS = {
      /* 计分器上真正落地的样式 */
      B.state.tab='score'; B.render();
      for(let i=0;i<40 && !q('.scboard');i++) await __V.wait(250);
-     r.scoreBoard=!!q('.scboard');
+     r.scoreBoard=!!q('.scstage');
      if(q('.scchips b')){
        r.chipsFamily=getComputedStyle(q('.scchips b')).fontFamily;
        r.chipsWeight=getComputedStyle(q('.scchips b')).fontWeight;
-       r.palette={panel:getComputedStyle(q('.scbar')).backgroundColor,chips:getComputedStyle(q('.scchips')).borderTopColor,
-         mult:getComputedStyle(q('.scmult')).borderTopColor,total:getComputedStyle(q('.sctotal')).borderTopColor};
+       r.palette={panel:getComputedStyle(q('.schud')).backgroundColor,chips:getComputedStyle(q('.scchips')).backgroundColor,
+         mult:getComputedStyle(q('.scmult')).backgroundColor,total:getComputedStyle(q('.scscore')).backgroundColor};
      }
      /* 记下计分板位置，driver 会裁一张 2× 的图 —— 公开站点版也要肉眼确认字是真的像素字体 */
      r.board=(()=>{ const b=q('.scboard'); if(!b) return null; const rc=b.getBoundingClientRect();
@@ -2355,7 +2355,7 @@ const SCENARIOS = {
      r.ui = {
        jokerTiles: document.querySelectorAll('#scJokers .sctile').length,
        playedTiles: document.querySelectorAll('#scPlayed .sctile').length,
-       heldTiles: document.querySelectorAll('#scHeld .sctile').length,
+       heldTiles: document.querySelectorAll('#scHand .sctile:not(.sel)').length,
        paintedTiles: [].slice.call(document.querySelectorAll('.sctile canvas')).filter((cv) => {
          const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
          for (let i = 3; i < d.length; i += 4) if (d[i] > 8) return true;
@@ -2363,7 +2363,7 @@ const SCENARIOS = {
        }).length,
        chips: (q('.scchips b') || {}).textContent,
        mult: (q('.scmult b') || {}).textContent,
-       total: (q('.sctotal b') || {}).textContent,
+       total: (q('.scscore b') || {}).textContent,
        logLines: document.querySelectorAll('.scline').length,
        hasSlider: !!q('#scStep'),
      };
@@ -2379,7 +2379,7 @@ const SCENARIOS = {
          pixVar: getComputedStyle(document.documentElement).getPropertyValue('--pix').trim(),
          computed: getComputedStyle(el).fontFamily, weight: getComputedStyle(el).fontWeight, size: getComputedStyle(el).fontSize,
          wPix: probe('BalatroPixel'), wMono: probe('monospace'), wSans: probe('sans-serif'),
-         palette: { panel: getComputedStyle(q('.scbar')).backgroundColor, chips: getComputedStyle(q('.scchips')).borderTopColor, mult: getComputedStyle(q('.scmult')).borderTopColor, total: getComputedStyle(q('.sctotal')).borderTopColor },
+         palette: { panel: getComputedStyle(q('.schud')).backgroundColor, chips: getComputedStyle(q('.scchips')).backgroundColor, mult: getComputedStyle(q('.scmult')).backgroundColor, total: getComputedStyle(q('.scscore')).backgroundColor },
        }
      })();
      /* 记下整块计分板的位置，跑完由 driver 裁下来放大看排版（数值断言看不出好不好看） */
@@ -2387,7 +2387,7 @@ const SCENARIOS = {
        const b = q('.scboard');
        if (!b) return null;
        const rc = b.getBoundingClientRect();
-       return { t: Math.round(rc.top + (window.scrollY || 0)), w: Math.round(rc.width), h: Math.round(rc.height) };
+       return { x: Math.round(rc.left), t: Math.round(rc.top + (window.scrollY || 0)), w: Math.round(rc.width), h: Math.round(rc.height) };
      })();
      r.vw = window.innerWidth;
      /* 逐步播放：走到第 3 步，检查高亮与数值是否跟着变 */
@@ -2404,12 +2404,147 @@ const SCENARIOS = {
      };
      /* 点第一张打出的牌 → 出现编辑面板；选「方块」 */
      const t0 = document.querySelectorAll('#scPlayed .sctile')[0];
-     t0.click(); await __V.wait(500);
+     t0.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true})); await __V.wait(500);
      r.edit = { hasPanel: !!document.querySelector('.scpkh'), pkRows: document.querySelectorAll('.scpkrow').length };
      const suitBtn = [].slice.call(document.querySelectorAll('.scpk')).filter((b) => b.dataset.pick === 'suit' && b.dataset.v === 'D')[0];
      if (suitBtn) { suitBtn.click(); await __V.wait(500) }
      r.edit.suitAfter = B.score.state.played[0].suit;
      r.errors = window.__V.errors.length;
+     return r })()`,
+  /* 新版计分页 + 卡牌选择器：一次点几张就加几张 */
+  scorePickNew: `(async()=>{
+     const B=window.__BALATRO__; const r={view:'scorePickNew'};
+     if(!B||!B.score) return {fatal:'no score api'};
+     B.state.tab='score'; B.render();
+     await __V.wait(1200);
+     const q=(s)=>document.querySelector(s);
+     r.stage=!!q('.scstage');
+     r.hud={name:(q('.schandname b')||{}).textContent, lvl:(q('.schandname i')||{}).textContent,
+            chips:(q('.scchips b')||{}).textContent, mult:(q('.scmult b')||{}).textContent,
+            score:(q('.scscore b')||{}).textContent, x:(q('.scx')||{}).textContent};
+     r.empty=[].slice.call(document.querySelectorAll('.scrail .scempty')).map(e=>e.textContent.slice(0,12));
+     q('#scAddJoker').click(); await __V.wait(700);
+     r.picker={open:!!q('#scPick'), cats:[].slice.call(document.querySelectorAll('.scpickcat')).map(b=>b.textContent.trim()),
+               cells:document.querySelectorAll('#scPickGrid .scpkcell').length, search:!!q('#scPickQ')};
+     const cells=[].slice.call(document.querySelectorAll('#scPickGrid .scpkcell'));
+     for(let i=0;i<3;i++){ if(cells[i]){ cells[i].click(); await __V.wait(180) } }
+     r.afterJokers={jokerTiles:document.querySelectorAll('#scJokers .sctile').length, count:(q('.scpickcount')||{}).textContent};
+     __V.byText('.scpickcat','扑克牌').click(); await __V.wait(800);
+     r.cardTab={cells:document.querySelectorAll('#scPickGrid .scpkcell').length, suits:document.querySelectorAll('.scpicksuit').length};
+     const cc=[].slice.call(document.querySelectorAll('#scPickGrid .scpkcell'));
+     for(let i=0;i<5;i++){ if(cc[i]){ cc[i].click(); await __V.wait(180) } }
+     r.afterCards={handTiles:document.querySelectorAll('#scHand .sctile').length,
+                   selTiles:document.querySelectorAll('#scHand .sctile.sel').length,
+                   playedTiles:document.querySelectorAll('#scPlayed .sctile').length,
+                   chips:(q('.scchips b')||{}).textContent, score:(q('.scscore b')||{}).textContent};
+     q('#scPickDone').click(); await __V.wait(400);
+     r.closed=!q('#scPick');
+     document.querySelectorAll('#scHand .sctile')[0].click(); await __V.wait(400);
+     r.toggleOff={sel:document.querySelectorAll('#scHand .sctile.sel').length, played:document.querySelectorAll('#scPlayed .sctile').length};
+     document.querySelectorAll('#scHand .sctile')[0].click(); await __V.wait(400);
+     r.toggleOn={sel:document.querySelectorAll('#scHand .sctile.sel').length, played:document.querySelectorAll('#scPlayed .sctile').length};
+     const ev=new MouseEvent('contextmenu',{bubbles:true,cancelable:true});
+     document.querySelectorAll('#scHand .sctile')[0].dispatchEvent(ev);
+     await __V.wait(500);
+     r.focusPanel={open:!!q('.scfocus'), rows:document.querySelectorAll('.scpkrow').length,
+                   pills:document.querySelectorAll('.scpk').length};
+     if(q('.scpk[data-pick="suit"][data-v="H"]')){ q('.scpk[data-pick="suit"][data-v="H"]').click(); await __V.wait(400) }
+     const st=B.score.state;
+     r.suitAfter=(st.played[0]||{}).suit;
+     r.painted=[].slice.call(document.querySelectorAll('#scHand .sctile canvas')).filter(cv=>{
+        const d=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data;
+        for(let i=3;i<d.length;i+=4) if(d[i]>8) return true; return false }).length;
+     r.palette={chips:getComputedStyle(q('.scchips')).backgroundColor, mult:getComputedStyle(q('.scmult')).backgroundColor,
+                stage:getComputedStyle(q('.scstage')).backgroundColor};
+     r.board=(()=>{const b=q('.scstage'); if(!b) return null; const rc=b.getBoundingClientRect();
+        return {t:Math.round(rc.top+(window.scrollY||0)),w:Math.round(rc.width),h:Math.round(rc.height)}})();
+     r.errors=window.__V.errors.length;
+     /* 量一下真实排版：卡距/重叠/抬起高度，跟原版的数字对一下 */
+     r.geom=(()=>{
+       const R=(el)=>{ if(!el) return null; const b=el.getBoundingClientRect(); return {x:Math.round(b.x),y:Math.round(b.y),w:Math.round(b.width),h:Math.round(b.height)} };
+       const tiles=[].slice.call(document.querySelectorAll('#scHand .sctile'));
+       const rd=(t)=>Math.round(t.getBoundingClientRect().x);
+       const xs=tiles.map(rd), ys=tiles.map(t=>Math.round(t.getBoundingClientRect().y));
+       const played=[].slice.call(document.querySelectorAll('#scPlayed .sctile')).map(rd);
+       const jok=[].slice.call(document.querySelectorAll('#scJokers .sctile')).map(rd);
+       return {hud:R(q('.schud')), chips:R(q('.scchips')), mult:R(q('.scmult')), score:R(q('.scscore')),
+               stage:R(q('.scstage')), handRail:R(q('#scHand')), playedRail:R(q('#scPlayed')),
+               cardW:tiles[0]?Math.round(tiles[0].getBoundingClientRect().width):null,
+               handStep:xs.length>1?xs[1]-xs[0]:null,
+               playedStep:played.length>1?played[1]-played[0]:null,
+               jokerStep:jok.length>1?jok[1]-jok[0]:null,
+               ysRange:ys.length?[Math.min.apply(null,ys),Math.max.apply(null,ys)]:null};
+     })();
+     return r })()`,
+  bootErr: `(async()=>{
+     const r={};
+     r.ready=window.__BALATRO_READY__;
+     r.hasB=typeof window.__BALATRO__;
+     r.hasShell=!!document.getElementById('shell');
+     r.topbarKids=document.getElementById('topbar')?document.getElementById('topbar').children.length:-1;
+     r.cats=document.querySelectorAll('.cat').length;
+     r.cells=document.querySelectorAll('.cell').length;
+     r.vErr=(window.__V&&window.__V.errors)||null;
+     r.scripts=[].slice.call(document.scripts).map(s=>s.textContent.length);
+     return r })()`,
+  /* 只把选择器打开，好截图看它像不像原版的收藏页 */
+  scorePickOpen: `(async()=>{
+     const B=window.__BALATRO__;
+     B.state.tab='score'; B.render();
+     await __V.wait(1000);
+     document.querySelector('#scAddJoker').click();
+     await __V.wait(1500);
+     const r={open:!!document.querySelector('#scPick'),
+       cells:document.querySelectorAll('#scPickGrid .scpkcell').length,
+       painted:[].slice.call(document.querySelectorAll('#scPickGrid .scpkart canvas')).length,
+       grid:getComputedStyle(document.querySelector('#scPickGrid')).gridTemplateColumns.split(' ').length,
+       panel:getComputedStyle(document.querySelector('.scpickpanel')).backgroundColor,
+       errors:window.__V.errors.length};
+     /* 悬停第一格 → 原版那样的说明框（G.UIDEF.card_h_popup） */
+     const c0=document.querySelector('#scPickGrid .scpkcell');
+     if(c0){ c0.dispatchEvent(new MouseEvent('mouseenter',{bubbles:false})); await __V.wait(300); }
+     const tip=document.querySelector('#scPickTip');
+     r.tip=tip?{shown:getComputedStyle(tip).display!=='none', text:(tip.textContent||'').slice(0,60), w:Math.round(tip.getBoundingClientRect().width)}:null;
+     return r })()`,
+  /* 主题体检：把原版配方该落地的地方量一遍（背景/圆角/阴影/字色） */
+  themeAudit: `(async()=>{
+     const B=window.__BALATRO__; const r={};
+     const cs=(sel,prop)=>{ const el=document.querySelector(sel); return el?getComputedStyle(el)[prop]:null };
+     const box=(sel)=>{ const el=document.querySelector(sel); if(!el) return null; const s=getComputedStyle(el);
+       return {bg:s.backgroundColor,bgImg:s.backgroundImage.slice(0,30),r:s.borderRadius,shadow:s.boxShadow.slice(0,40),color:s.color,font:s.fontFamily.split(",")[0],txtShadow:s.textShadow.slice(0,30)} };
+     r.body={bg:getComputedStyle(document.body).backgroundColor, font:getComputedStyle(document.body).fontFamily.split(",")[0]};
+     r.topbar=box("#topbar"); r.tab=box("#tabs button"); r.tabOn=box("#tabs button.on");
+     r.cat=box(".cat"); r.catOn=box(".cat.on"); r.tbtn=box(".tbtn");
+     r.varAccent=cs(":root","--accent");
+     r.vars={accent:getComputedStyle(document.documentElement).getPropertyValue("--accent").trim(),
+             bg:getComputedStyle(document.documentElement).getPropertyValue("--bg").trim(),
+             line:getComputedStyle(document.documentElement).getPropertyValue("--line").trim(),
+             pix:getComputedStyle(document.documentElement).getPropertyValue("--pix").trim().slice(0,30)};
+     /* 图鉴网格里的卡位 */
+     r.cell=box(".cell"); r.cellOn=box(".cell.on");
+     B.state.tab='score'; B.render(); await __V.wait(900);
+     r.stage=box(".scstage"); r.hud=box(".schud"); r.chips=box(".scchips"); r.mult=box(".scmult");
+     r.btnPrimary=box(".btn.primary"); r.btnOrange=box(".btn.orange"); r.btnPlain=box(".btn");
+     r.errors=window.__V.errors.length;
+     return r })()`,
+  /* 一键示例之后的计分页：截图给肉眼看（2× 裁切由 driver 做） */
+  scoreNewPreset: `(async()=>{
+     const B=window.__BALATRO__; const r={view:'scoreNewPreset'};
+     B.state.tab='score'; B.render(); await __V.wait(800);
+     const sel=document.querySelector('#scPreset');
+     sel.value='同花五张'; sel.onchange({target:sel});
+     await __V.wait(1400);
+     const q=(s)=>document.querySelector(s);
+     r.hud={name:(q('.schandname b')||{}).textContent, chips:(q('.scchips b')||{}).textContent,
+            mult:(q('.scmult b')||{}).textContent, score:(q('.scscore b')||{}).textContent};
+     r.rows={jokers:document.querySelectorAll('#scJokers .sctile').length,
+             played:document.querySelectorAll('#scPlayed .sctile').length,
+             hand:document.querySelectorAll('#scHand .sctile').length,
+             sel:document.querySelectorAll('#scHand .sctile.sel').length};
+     r.note=(q('#scNote')||{}).textContent;
+     r.board=(()=>{const b=q('.scstage').getBoundingClientRect(); return {x:Math.round(b.left),t:Math.round(b.top+(window.scrollY||0)),w:Math.round(b.width),h:Math.round(b.height)}})();
+     r.stage=r.board;
+     r.errors=window.__V.errors.length;
      return r })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
@@ -2507,7 +2642,7 @@ const SCENARIOS = {
     const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 
     // 1) every view renders without throwing and without blank canvases
-    const views = ['codex', 'forge', 'atlas', 'hands', 'shaders', 'data', 'mods'];
+    const views = ['codex', 'forge', 'atlas', 'hands', 'shaders', 'data', 'mods', 'scorePickOpen', 'scorePickNew', 'scoreNewPreset'];
     r.views = {};
     for (const v of views) {
       try {
@@ -2754,6 +2889,7 @@ async function main () {
   if (SCENARIOS.demoRect && !SCENARIOS.demoRectMobile) SCENARIOS.demoRectMobile = SCENARIOS.demoRect
   if (SCENARIOS.demoLayout && !SCENARIOS.demoLayoutMobile) SCENARIOS.demoLayoutMobile = SCENARIOS.demoLayout
   if (SCENARIOS.scoreCalc && !SCENARIOS.scoreCalcMobile) SCENARIOS.scoreCalcMobile = SCENARIOS.scoreCalc
+  if (SCENARIOS.scoreNewPreset && !SCENARIOS.scoreNewPresetMobile) SCENARIOS.scoreNewPresetMobile = SCENARIOS.scoreNewPreset
   const want = process.argv.slice(2)
   const list = want.length ? want : Object.keys(SCENARIOS)
   const profile = path.join(__dirname, '..', 'chromeprofile-cdp')
@@ -2842,7 +2978,7 @@ async function main () {
       await c.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 560, deviceScaleFactor: 1, mobile: false })
       LongMode = true
     }
-    if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile' || name === 'scoreCalcMobile') {
+    if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile' || name === 'scoreCalcMobile' || name === 'scoreNewPresetMobile') {
       // emulate a phone viewport (bootPhone tests the start screen visitors land on)
       await c.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
       await c.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {})
@@ -3019,23 +3155,27 @@ async function main () {
     }
     let errs = []
     try { errs = await c.eval('window.__V.errors') } catch { /* ignore */ }
+    /* 页面自己抛的异常走 Runtime.exceptionThrown，不是 console —— 漏掉它就会「静默白屏」 */
+    const thrown = c.events.filter((e) => e.method === 'Runtime.exceptionThrown')
+      .map((e) => { const d = e.params.exceptionDetails || {}; return 'UNCAUGHT ' + (d.text || '') + ' ' + ((d.exception && (d.exception.description || d.exception.value)) || '') + ' @' + ((d.url || '') + ':' + (d.lineNumber != null ? d.lineNumber + 1 : '?')) })
     const consoleMsgs = c.events.filter((e) => e.method === 'Runtime.consoleAPICalled' || e.method === 'Log.entryAdded').slice(-8)
       .map((e) => e.method === 'Log.entryAdded' ? e.params.entry.text : (e.params.args || []).map((a) => String(a.value ?? a.description ?? '')).join(' '))
       .filter(Boolean)
+    if (thrown.length) console.log('             ❗页面异常:\n' + thrown.map((m) => '               · ' + String(m).slice(0, 300)).join('\n'))
     c.events.length = 0
     results[name] = { rep, errors: errs, consoleMsgs, clipShots }
-    if (['codex', 'jokers', 'forge', 'atlas', 'hands', 'tarot', 'shaders', 'blind', 'cards', 'data', 'showcase', 'mobile', 'soulCompare', 'boxCompare', 'modImport', 'modView', 'modCryptid', 'forgeUx', 'modForge', 'srcBack', 'forgePhone', 'siteHome', 'siteViewer', 'bootPhone', 'scoreCalc', 'siteFontLive'].includes(name)) {
+    if (['codex', 'jokers', 'forge', 'atlas', 'hands', 'tarot', 'shaders', 'blind', 'cards', 'data', 'showcase', 'mobile', 'soulCompare', 'boxCompare', 'modImport', 'modView', 'modCryptid', 'forgeUx', 'modForge', 'srcBack', 'forgePhone', 'siteHome', 'siteViewer', 'bootPhone', 'scoreCalc', 'siteFontLive', 'scorePickOpen', 'scorePickNew'].includes(name)) {
       try { await c.shot(name) } catch (e) { /* ignore */ }
     }
     /* 计分板：裁一张整块的图，用来肉眼看配色和排版（桌面/手机各一张；站点版再放大 2×） */
-    if ((name === 'scoreCalc' || name === 'scoreCalcMobile' || name === 'siteFontLive') && rep && rep.board) {
+    if ((name === 'scoreCalc' || name === 'scoreCalcMobile' || name === 'siteFontLive' || name === 'scorePickNew' || name === 'scoreNewPreset' || name === 'scoreNewPresetMobile') && rep && rep.board) {
       try {
-        const big = name === 'siteFontLive'
+        const big = (name === 'siteFontLive' || name === 'scoreNewPreset')
         const clip = big
-          ? { x: 0, y: Math.max(0, rep.board.t - 8), width: Math.max(320, rep.board.w + 6), height: 430, scale: 2 }
-          : { x: 0, y: Math.max(0, rep.board.t - 8), width: Math.max(320, rep.board.w + 6), height: rep.board.h + 16, scale: 1 }
+          ? { x: Math.max(0, (rep.board.x || 0) - 6), y: Math.max(0, rep.board.t - 8), width: Math.max(320, rep.board.w + 12), height: Math.min(rep.board.h + 16, 900), scale: 2 }
+          : { x: Math.max(0, (rep.board.x || 0) - 6), y: Math.max(0, rep.board.t - 8), width: Math.max(320, rep.board.w + 12), height: rep.board.h + 16, scale: 1 }
         const shot = await c.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip })
-        const f = (big ? 'score-fonts-site.png' : 'score-board-' + (MobileMode ? 'mobile' : 'desktop') + '.png')
+        const f = (name === 'siteFontLive' ? 'score-fonts-site.png' : ((name === 'scorePickNew' || name === 'scoreNewPreset' || name === 'scoreNewPresetMobile') ? 'score-new-' + (MobileMode ? 'mobile' : 'desktop') + '.png' : 'score-board-' + (MobileMode ? 'mobile' : 'desktop') + '.png'))
         fs.writeFileSync(path.join(SHOTS, f), Buffer.from(shot.data, 'base64'))
         console.log('             clip:', f, Math.round(clip.width) + 'x' + Math.round(clip.height) + ' @' + clip.scale + 'x')
       } catch (e) { console.log('             clip 失败:', String(e.message).slice(0, 120)) }
