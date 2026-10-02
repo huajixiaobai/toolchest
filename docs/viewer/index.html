@@ -342,35 +342,35 @@ table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
 .scblindcur{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .scblindcur.none .scblindname{color:var(--c-jgrey)}
 .scblindrowmain{flex:1 1 260px;min-width:0}
+/* 盲注贴图：跟图鉴里用的同一张图集（blind_chips 34×34），大块 52、列表 34 */
+.scblindart{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:52px;height:52px;
+  background:#1b232a;border-radius:10px;box-shadow:inset 0 0 0 2px #00000033}
+.scblindart canvas{display:block;image-rendering:pixelated}
+.scblindart.none{color:#5b6b73;font-size:18px;background:none;box-shadow:none}
+.scblindrow .scblindart{width:34px;height:34px;border-radius:8px}
+.scblindtag{flex:0 0 auto;font-style:normal;font-size:10.5px;letter-spacing:.5px;border-radius:999px;padding:2px 8px;white-space:nowrap}
+.scblindtag.score{background:#5a2a26;color:#ffb4ad}
+.scblindtag.play{background:#3a3320;color:#f3d9a0}
+.scblindtag.none{background:#2a3339;color:#9fb0c0}
 .scblindname{font-size:16px;font-weight:700;color:#fff;text-shadow:var(--g-txt)}
 .scblindname .mod,.scblindrow b .mod{font-style:normal;font-size:10px;letter-spacing:.5px;background:var(--c-purple);color:#fff;border-radius:4px;padding:1px 5px;vertical-align:2px}
 .scblindfx{font-size:12.5px;line-height:1.6;color:#cfd8de;margin-top:3px}
 .scblinda{display:inline-block;margin-left:8px;color:#ffb4ad;font-weight:700}
 .scblindpick,.scblindclear{flex:0 0 auto;min-height:38px}
 .scblindlist{display:flex;flex-direction:column;gap:6px;padding:10px}
-.scblindrow{display:flex;flex-direction:column;gap:3px;text-align:left;width:100%;min-height:56px;
-  background:#18232d;border:1px solid var(--line2);border-radius:8px;padding:9px 12px;cursor:pointer;transition:.12s}
+.scblindrow{display:flex;flex-direction:row;align-items:center;gap:10px;text-align:left;width:100%;min-height:56px;
+  background:#18232d;border:1px solid var(--line2);border-radius:8px;padding:8px 12px;cursor:pointer;transition:.12s}
+.scblindtext{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
 .scblindrow:hover{border-color:var(--accent);background:#1d2a35}
 .scblindrow.on{border-color:var(--accent);background:#12352b}
-.scblindrow b{font-size:14px;color:#fff;font-weight:700}
+.scblindrow b{font-size:14px;color:#fff;font-weight:700;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.scblindrow .fx{font-size:12px;line-height:1.5;color:#b9c6cf}
 .scblindrow b .cur{font-style:normal;font-size:10px;background:#4bc292;color:#0d2118;border-radius:4px;padding:1px 5px;vertical-align:2px}
-.scblindrow span{font-size:12px;line-height:1.5;color:#b9c6cf}
+
 .scblindrow.none b{color:var(--c-jgrey)}
 /* 账目：被削弱 / 盲注那几行用红色调，一眼看出这一手为什么少分 */
 .scline.debuff,.scline.blind{color:#ffb4ad}
-/* 结算飘字（原版 card_eval_status_text / attention_text）：带同色底框，向上浮起淡出 */
-.scfloat{position:fixed;transform:translate(-50%,0);color:#fff;font-weight:700;padding:2px 7px;border-radius:6px;
-  pointer-events:none;z-index:900;white-space:nowrap;box-shadow:0 3px 0 rgba(0,0,0,.35);text-shadow:0 1px 0 rgba(0,0,0,.35);
-  opacity:.96;transition:transform .7s cubic-bezier(.2,.7,.3,1),opacity .7s ease-out}
-.scfloat.rise{transform:translate(-50%,-42px);opacity:0}
-/* pop（「简洁」模式仍会用到的老样式） */
-.scchips b,.scmult b,.scscore b{display:inline-block}
-@keyframes scpop{0%{transform:scale(1)}35%{transform:scale(1.16)}100%{transform:scale(1)}}
-.scchips b.pop,.scmult b.pop,.scscore b.pop{animation:scpop .24s ease-out}
-/* 整屏轻抖（原版 G.ROOM.jiggle += 0.7） */
-@keyframes scjiggle{0%{transform:translate(0,0)}20%{transform:translate(-2px,1px)}40%{transform:translate(2px,-1px)}
-  60%{transform:translate(-1px,2px)}80%{transform:translate(1px,-1px)}100%{transform:translate(0,0)}}
-.scstage.jiggle{animation:scjiggle .26s linear;will-change:transform}
+
 /* 触屏 / 平板：盲注行与按钮按手指尺寸放大 */
 @media (hover:none){
   .scblindrow{min-height:68px;padding:12px 14px}
@@ -379,10 +379,21 @@ table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
   .scblindpick,.scblindclear{min-height:46px;font-size:14px}
   .scblindname{font-size:17px}
 }
+@media (max-width:520px){
+  /* 窄屏播放条：算式独占一行，按钮与滑杆各自排开，别挤成一团 */
+  .scplay{gap:5px;padding:7px 9px}
+  .scplay .scplaymath{flex:1 1 100%;justify-content:center}
+  .scplay .btn{min-height:40px;padding:6px 10px}
+  .scplay input[type=range]{flex:1 1 100%;order:5}
+  .scplay .scnow{flex:1 1 100%}
+  .scblindpick,.scblindclear{flex:1 1 46%}
+}
+/* 局面那一堆数字：窄屏与平板都用密一点的网格（手机两列、平板四五行） */
+@media (max-width:900px){
+  .scenv{grid-template-columns:repeat(auto-fill,minmax(132px,1fr))}
+}
 @media (prefers-reduced-motion: reduce){
-  .scfloat{transition:none}
-  .scstage.jiggle{animation:none}
-  .scchips b.pop,.scmult b.pop,.scscore b.pop{animation:none}
+  .scblindrow,.scblindpick{transition:none}
 }
 .scrowhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
 .scrowhead>span{font-size:13px;color:#fff;text-shadow:var(--g-txt);letter-spacing:.5px}
@@ -468,6 +479,8 @@ table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
 .scstepn{font-size:12.5px;color:#fff;font-variant-numeric:tabular-nums}
 .scnow{font-size:12.5px;color:var(--c-money);flex:1 1 100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sclog{border-radius:var(--g-r);background:#2b3437;overflow:hidden;box-shadow:0 0 0 2px var(--c-uidark)}
+/* 账目在手机上别把页面撑得老长：限高 + 框内滚动（details 本身就是容器） */
+.sclog[open]{max-height:min(44vh,460px);overflow:auto;overscroll-behavior:contain}
 .sclog summary{cursor:pointer;padding:8px 12px;font-size:12.5px;color:#fff;list-style:none;text-shadow:var(--g-txt)}
 .sclog summary::-webkit-details-marker{display:none}
 .sclog summary::before{content:'▸ ';color:var(--c-jgrey)}
@@ -624,7 +637,7 @@ kbd{background:#1b2530;border:1px solid var(--line2);border-bottom-width:2px;bor
   .opt h4 .ocur{max-width:44%}
 }
 /* ---------- phones / small tablets ---------- */
-@media(max-width:820px){
+@media(max-width:900px){
   #topbar{padding:8px 10px;gap:8px;row-gap:6px}
   #logo b{font-size:14px}
   #logo span{display:none}
@@ -712,7 +725,7 @@ body.dropping::after{
   position:absolute;top:5px;right:5px;font-size:9px;letter-spacing:.4px;padding:1px 5px;border-radius:9px;
   background:#2b2140;border:1px solid var(--purple);color:#cbb8ee
 }
-@media(max-width:820px){
+@media(max-width:900px){
   .modsview{padding:12px 10px 100px}
   .drop{padding:16px 12px}
 }

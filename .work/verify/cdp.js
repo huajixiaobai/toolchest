@@ -3076,6 +3076,11 @@ const SCENARIOS = {
       rowHeights:rows.map(function(x){return Math.round(x.getBoundingClientRect().height)}).slice(0,6),
       everyRowHasEffect:rows.slice(1).every(function(x){ var s=x.querySelector("span"); return s && s.textContent.trim().length>4 }),
       everyRowHasName:rows.slice(1).every(function(x){ var b=x.querySelector("b"); return b && b.textContent.trim().length>1 }),
+      artPainted:qa('#scBlindList .scblindart canvas').length,
+      artSlots:qa('#scBlindList .scblindart').length,
+      tags:qa('#scBlindList .scblindtag').length,
+      tagScore:qa('#scBlindList .scblindtag.score').length,
+      firstArtBox:(function(){ var a=qa('#scBlindList .scblindart')[1]; if(!a) return null; var bb=a.getBoundingClientRect(); return Math.round(bb.width)+'x'+Math.round(bb.height) })(),
       club:(function(){ var x=rows.filter(function(y){return /梅花|Club/i.test(y.textContent)})[0]; return x?x.textContent.replace(/\s+/g," ").slice(0,60):null })(),
       nameFont:(function(){ var b=rows[1]&&rows[1].querySelector("b"); return b?getComputedStyle(b).fontSize:null })(),
       effectFont:(function(){ var s=rows[1]&&rows[1].querySelector("span"); return s?getComputedStyle(s).fontSize:null })() };
@@ -3101,7 +3106,64 @@ const SCENARIOS = {
     ];
     r.errors=window.__V.errors.length;
     return r })()`,
-  /* 结算动画三档：原版（juice + 飘字 + 轻抖）/ 简洁（只有数字）/ 关闭（直接出结果） */
+  /* 逐步播放（动画已删）：只检查步骤推进、数字变化与各机型的空间 */
+  playStep: `(async()=>{
+    const B=window.__BALATRO__; const S=B.state; const r={}; await __V.wait(1400);
+    const q=(s)=>document.querySelector(s); const qa=(s)=>[].slice.call(document.querySelectorAll(s));
+    S.tab='score'; B.render(); await __V.wait(900);
+    B.score.setHand(['2','3','4','5','6'].map(function(k){return B.score.card(k,'H')}),
+      [B.score.jokerFromItem(B.byId['j_joker'])]);
+    await __V.wait(900);
+    r.animLeftovers={ scfloat:qa('.scfloat').length, jiggle:qa('.schud.jiggle,.scstage.jiggle').length, animBtn:!!q('#scAnim') };
+    const seen={}; const steps=[]; let frames=0; let last=performance.now(); let gap=0;
+    const loop=function(now){ frames++; gap=Math.max(gap, now-last); last=now; requestAnimationFrame(loop) };
+    requestAnimationFrame(loop);
+    const t0=performance.now();
+    q('#scToggle').click();
+    for (let i=0;i<28;i++){
+      await __V.wait(120);
+      const st=q("#scStep"); if (st) steps.push(st.value);
+      const sEl=q(".scscore b"); if (sEl) seen[sEl.textContent]=1;
+    }
+    r.stepValues=steps.filter(function(v,i,a){return a.indexOf(v)===i}).join(",");
+    r.scoreVariants=Object.keys(seen).length;
+    r.fps=+((frames*1000)/(performance.now()-t0)).toFixed(0);
+    r.maxGap=Math.round(gap);
+    r.playing=S.playing===true;
+    r.layout={ vw:innerWidth, docW:document.documentElement.scrollWidth, noHScroll:document.documentElement.scrollWidth<=innerWidth+2 };
+    const bar=q('.scplay'); const log=q('.sclog');
+    if (log) { log.open = true; await __V.wait(250) }
+    if (bar && log) {
+      const b=bar.getBoundingClientRect(), lg=log.getBoundingClientRect();
+      r.layout.barH=Math.round(b.height); r.layout.barShare=+(b.height/innerHeight).toFixed(2);
+      r.layout.barCoversLog = lg.bottom > b.top && lg.top < b.bottom;
+      const lr=qa('.scline'); const lastRow=lr[lr.length-1];
+      if (lastRow) {
+        log.scrollIntoView({block:'center'}); await __V.wait(350);
+        lastRow.scrollIntoView({block:'nearest'}); await __V.wait(350);
+        const rb=lastRow.getBoundingClientRect();
+        r.layout.lastRowBox={t:Math.round(rb.top),b:Math.round(rb.bottom)};
+        r.layout.lastRowVisible = rb.top>=0 && rb.bottom<=innerHeight+2;
+        const hit=document.elementFromPoint(Math.round(rb.left+18), Math.round(rb.top+rb.height/2));
+        r.layout.lastRowHit = hit===lastRow || !!(hit && lastRow.contains(hit));
+        r.layout.lastRowHitWhat = hit ? (hit.className||hit.tagName) : null; }
+    }
+    r.layout.logMaxH=(q('.sclog')?getComputedStyle(q('.sclog')).maxHeight:null);
+    r.layout.envCols=(q('.scenv')?getComputedStyle(q('.scenv')).gridTemplateColumns.split(' ').length:null);
+    r.layout.wide=(function(){
+      const w=(sel)=>{ const e=q(sel); return e?Math.round(e.getBoundingClientRect().width):null };
+      const grid=q('.scgrid');
+      return { innerW:innerWidth, content:w('#content'), stage:w('.scstage'), board:w('.scboard'), scgrid:w('.scgrid'),
+        gridCols:grid?getComputedStyle(grid).gridTemplateColumns:null,
+        mq860:matchMedia('(max-width:860px)').matches, mq900:matchMedia('(max-width:900px)').matches,
+        narrow:document.body.className };
+    })();
+    r.layout.envWidth=(function(){ var e=q('.scenv'); if(!e) return null; var p=e.parentElement;
+      return { env:Math.round(e.getBoundingClientRect().width), parent:Math.round(p.getBoundingClientRect().width),
+        parentCls:p.className||p.tagName, parentOverflow:getComputedStyle(p).overflowX } })();
+    r.errors=window.__V.errors.length;
+    return r })()`,
+  /* 结算动画三档（已删，保留占位以免老命令报错）：*/
   animAudit: `(async()=>{
     const B=window.__BALATRO__; const S=B.state; const r={}; await __V.wait(1400);
     const q=(s)=>document.querySelector(s);
@@ -3821,6 +3883,7 @@ async function main () {
   if (SCENARIOS.uiFix && !SCENARIOS.uiFixMobile) SCENARIOS.uiFixMobile = SCENARIOS.uiFix
   if (SCENARIOS.uxAudit && !SCENARIOS.uxAuditMobile) { SCENARIOS.uxAuditMobile = SCENARIOS.uxAudit; SCENARIOS.uxAuditTablet = SCENARIOS.uxAudit }
   if (SCENARIOS.blindPick && !SCENARIOS.blindPickMobile) { SCENARIOS.blindPickMobile = SCENARIOS.blindPick; SCENARIOS.blindPickTablet = SCENARIOS.blindPick }
+  if (SCENARIOS.playStep && !SCENARIOS.playStepMobile) { SCENARIOS.playStepMobile = SCENARIOS.playStep; SCENARIOS.playStepTablet = SCENARIOS.playStep }
   if (SCENARIOS.demoLayout && !SCENARIOS.demoLayoutMobile) SCENARIOS.demoLayoutMobile = SCENARIOS.demoLayout
   if (SCENARIOS.scoreCalc && !SCENARIOS.scoreCalcMobile) SCENARIOS.scoreCalcMobile = SCENARIOS.scoreCalc
   if (SCENARIOS.scoreNewPreset && !SCENARIOS.scoreNewPresetMobile) SCENARIOS.scoreNewPresetMobile = SCENARIOS.scoreNewPreset
@@ -3914,12 +3977,12 @@ async function main () {
       await c.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 560, deviceScaleFactor: 1, mobile: false })
       LongMode = true
     }
-    if (name === 'uxAuditTablet' || name === 'blindPickTablet') {
+    if (name === 'uxAuditTablet' || name === 'blindPickTablet' || name === 'playStepTablet') {
       /* iPad Air 竖屏 / 常见安卓平板：触摸 + 无悬停，最能暴露"只能鼠标用"的交互 */
       await c.send('Emulation.setDeviceMetricsOverride', { width: 834, height: 1112, deviceScaleFactor: 2, mobile: true })
       await c.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {})
       MobileMode = true
-    } else if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile' || name === 'scoreCalcMobile' || name === 'scoreNewPresetMobile' || name === 'scorePickOpenMobilePhone' || name === 'scorePickScrollMobile' || name === 'scoreUi2Phone' || name === 'bootMobile' || name === 'uiFixMobile' || name === 'uxAuditMobile' || name === 'blindPickMobile' || name === 'animAuditMobile') {
+    } else if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile' || name === 'scoreCalcMobile' || name === 'scoreNewPresetMobile' || name === 'scorePickOpenMobilePhone' || name === 'scorePickScrollMobile' || name === 'scoreUi2Phone' || name === 'bootMobile' || name === 'uiFixMobile' || name === 'uxAuditMobile' || name === 'blindPickMobile' || name === 'animAuditMobile' || name === 'playStepMobile') {
       // emulate a phone viewport (bootPhone tests the start screen visitors land on)
       await c.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
       await c.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {})

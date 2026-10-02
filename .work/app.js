@@ -3671,6 +3671,42 @@ function scCardDebuffed (card) {
   if (rule && rule.debuffAll) return true;
   return !!(it.raw && it.raw.debuff && scSpecDebuffs(card, it.raw.debuff));
 }
+/** 这个盲注会不会影响这一手的分（列表里给个标签，用户一眼知道该不该管它）
+ *  返回 true=影响算分 / 'play'=只影响能不能这样出牌 / false=不影响 */
+function scBlindImpact (it) {
+  const rule = scBlindRule(it);
+  const spec = (it.raw && it.raw.debuff) || {};
+  if (rule && (rule.handLevel || rule.halfBase || rule.debuffAll)) return true;
+  if (spec.all || spec.suit || spec.is_face || spec.value || spec.nominal) return true;
+  if (spec.h_size_ge || spec.h_size_le || spec.hand) return 'play';
+  return false;
+}
+/** 盲注贴图的小图（blind_chips 是 34×34 的格子、x 是帧号，取第 0 帧） */
+function scBlindArt (it, px) {
+  if (!it || !it.pos) return null;
+  const atlasName = (it.source && it.atlas && it.atlas !== 'blind_chips') ? it.atlas : 'blind_chips';
+  if (!D.atlases[atlasName]) return null;
+  let src = null;
+  try { src = compose({ standalone: { atlas: atlasName, pos: { x: 0, y: it.pos.y } } }, 2, 0) } catch (e) { return null }
+  if (!src || !src.width) return null;
+  const size = px || 34;
+  const cv = newCanvas(size, size);
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  const r = Math.min(size / src.width, size / src.height);
+  const w = src.width * r, h = src.height * r;
+  ctx.drawImage(src, (size - w) / 2, (size - h) / 2, w, h);
+  return cv;
+}
+/** 列表/大块里的贴图占位：滚到才画（29 个盲注一次性 compose 没必要） */
+function scPaintBlindArt (holder, item, px) {
+  if (!holder || holder.__painted) return;
+  holder.__painted = true;
+  const cv = scBlindArt(item, px);
+  if (!cv) { holder.classList.add('noart'); return }
+  holder.innerHTML = '';
+  holder.appendChild(cv);
+}
 /** 两句话是不是一个意思（够用的近似：汉字集合重合度 ≥ 0.7 就算） */
 function scSameMeaning (a, b) {
   const set = (t) => new Set(String(t || '').replace(/[^\u4e00-\u9fa5]/g, '').split(''));
@@ -3704,11 +3740,15 @@ function scBlindBoxHtml () {
   const it = scBlindItem();
   const auto = SC.played.filter((c) => scCardDebuffed(c)).length;
   if (!it) {
-    return '<div class="scblindcur none"><div class="scblindrowmain"><div class="scblindname">不算盲注</div>' +
+    return '<div class="scblindcur none"><span class="scblindart none">—</span><div class="scblindrowmain"><div class="scblindname">不算盲注</div>' +
       '<div class="scblindfx">这一手按普通回合算。点「选择盲注」挑一个 BOSS，它的效果（谁被削弱、等级变化…）会自动算进去。</div></div>' +
       '<button class="btn primary scblindpick" type="button">选择盲注</button></div>';
   }
-  return '<div class="scblindcur"><div class="scblindrowmain"><div class="scblindname">' + esc(nm(it)) + (it.source ? ' <i class="mod">MOD</i>' : '') + '</div>' +
+  const impact = scBlindImpact(it);
+  const tag = impact === true ? '<i class="scblindtag score">影响算分</i>'
+    : (impact === 'play' ? '<i class="scblindtag play">影响出牌</i>' : '<i class="scblindtag none">不影响算分</i>');
+  return '<div class="scblindcur"><span class="scblindart" data-art="' + it.id + '"></span>' +
+    '<div class="scblindrowmain"><div class="scblindname">' + esc(nm(it)) + (it.source ? ' <i class="mod">MOD</i>' : '') + tag + '</div>' +
     '<div class="scblindfx">' + scBlindEffectText(it) + (auto ? '<span class="scblinda">这手里 ' + auto + ' 张牌被削弱</span>' : '') + '</div></div>' +
     '<button class="btn scblindpick" type="button">换一个</button>' +
     '<button class="btn scblindclear" type="button">取消</button></div>';
@@ -3721,24 +3761,38 @@ function scBlindPicker () {
   root.id = 'scBlindPick'; root.className = 'scpick scmodal';
   const list = ITEMS.filter((i) => i.cat === 'Blind' && i.raw && i.raw.boss);
   root.innerHTML = '<div class="scpickpanel"><div class="scpicktop"><b>选择 BOSS 盲注</b>' +
-    '<span class="dim">' + list.length + ' 个（含 mod）</span>' +
+    '<span class="dim">' + list.length + ' 个（含 mod）· 每行都写了它在这一手里做什么</span>' +
     '<input id="scBlindQ" placeholder="搜索名字或效果…" autocomplete="off">' +
     '<button class="btn" id="scBlindDone" type="button">关闭</button></div>' +
     '<div class="scpanelscroll scblindlist" id="scBlindList"></div></div>';
   document.body.appendChild(root);
   const q = (s) => root.querySelector(s);
   const rowHtml = (it) => {
-    if (!it) return '<button class="scblindrow none" data-blind=""><b>不算盲注</b><span>这一手按普通回合算</span></button>';
+    if (!it) return '<button class="scblindrow none" data-blind=""><span class="scblindart none">—</span>' +
+      '<span class="scblindtext"><b>不算盲注</b><span class="fx">这一手按普通回合算</span></span></button>';
     const cur = SC.blind === it.id ? ' on' : '';
-    return '<button class="scblindrow' + cur + '" data-blind="' + it.id + '"><b>' + esc(nm(it)) +
-      (it.source ? ' <i class="mod">MOD</i>' : '') + (cur ? ' <i class="cur">当前</i>' : '') + '</b>' +
-      '<span>' + scBlindEffectText(it) + '</span></button>';
+    const impact = scBlindImpact(it);
+    const tag = impact === true ? '<i class="scblindtag score">影响算分</i>'
+      : (impact === 'play' ? '<i class="scblindtag play">影响出牌</i>' : '<i class="scblindtag none">不影响算分</i>');
+    return '<button class="scblindrow' + cur + '" data-blind="' + it.id + '">' +
+      '<span class="scblindart" data-art="' + it.id + '"></span>' +
+      '<span class="scblindtext"><b>' + esc(nm(it)) + (it.source ? ' <i class="mod">MOD</i>' : '') +
+      (cur ? ' <i class="cur">当前</i>' : '') + '</b>' +
+      '<span class="fx">' + scBlindEffectText(it) + '</span></span>' + tag + '</button>';
   };
   const paint = (query) => {
     const s = (query || '').toLowerCase();
     const hit = list.filter((i) => !s || (nm(i) + ' ' + scBlindEffectText(i) + ' ' + i.id).toLowerCase().includes(s));
     q('#scBlindList').innerHTML = rowHtml(null) + (hit.length ? hit.map(rowHtml).join('')
       : '<div class="hint" style="padding:14px">没有匹配的盲注</div>');
+    /* 贴图滚到才画（IntersectionObserver 有 300px 提前量） */
+    for (const el of q('#scBlindList').querySelectorAll('[data-art]')) {
+      const id = el.dataset.art;
+      const it2 = list.filter((x) => x.id === id)[0];
+      if (!it2) continue;
+      el.__paintBlind = () => scPaintBlindArt(el, it2, 34);
+      if (IO) { el._paint = el.__paintBlind; IO.observe(el) } else el.__paintBlind();
+    }
   };
   paint('');
   q('#scBlindQ').oninput = (e) => paint(e.target.value);
@@ -3936,98 +3990,6 @@ function scoreCompute () {
     rows.push({ label: '手填修正', chips, mult, op: 'manual', ref: { kind: 'manual' } });
   }
   return { chips, mult, score: Math.floor(chips * mult), rows, warns, hand, lvl };
-}
-
-/** 缓动滚动（「简洁」模式用）：只写 textContent，不重画卡图。 */
-function scTweenNum (el, from, to, ms, fmt) {
-  if (!el || !isFinite(from) || !isFinite(to)) return;
-  const t0 = performance.now();
-  const step = (now) => {
-    const k = Math.min(1, (now - t0) / ms);
-    el.textContent = fmt(from + (to - from) * (1 - Math.pow(1 - k, 3)));
-    if (k < 1) requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
-}
-/* ================================================================ 结算动画
- * 全部照原版源码：
- *  · 数字框抖动：engine/moveable.lua:juice_up —— 0.4s 阻尼正弦，
- *      scale = (1-0.6*amt) + amt*sin(50.8*t)*max(0,(1-t/0.4)^3)
- *      rot   = r_amt*sin(40.8*t)*max(0,(1-t/0.4)^2)      （amt 默认 0.4，HUD 上用 0.3）
- *  · 飘字：common_events.lua:779 card_eval_status_text —— 筹码 a_chips「+#1#」配筹码蓝、
- *      倍率 a_mult「+#1#倍率」配倍率红、倍数 a_xmult「X#1#倍率」，被削弱就是「被削弱」；
- *      文字带同色底框，从牌上方浮起淡出（默认 0.65s×1.25）。
- *  · 结算到某张牌时原版会 card:juice_up(0.6, 0.1) 并把 G.ROOM.jiggle 加 0.7（整屏轻抖）。
- * 模式由「结算动画」按键切换：原版 / 简洁（只有数字变，就是这一轮之前的样子）/ 关闭（不逐步播放）。 */
-function scJuice (el, amt, rot, ms) {
-  if (!el || SC_UI.anim === 'plain' || SC_UI.anim === 'off') return;
-  const a = amt == null ? 0.4 : amt;
-  const r0 = rot || 0;
-  const dur = (ms == null ? 400 : ms) / 1000;
-  const t0 = performance.now();
-  const loop = (now) => {
-    const t = (now - t0) / 1000;
-    if (t >= dur) { el.style.transform = ''; return }
-    const dec = Math.max(0, 1 - t / dur);
-    const s = (1 - 0.6 * a) + a * Math.sin(50.8 * t) * Math.pow(dec, 3);
-    const r = r0 * Math.sin(40.8 * t) * Math.pow(dec, 2) * 57.2958;
-    el.style.transform = 'scale(' + s.toFixed(4) + ') rotate(' + r.toFixed(2) + 'deg)';
-    requestAnimationFrame(loop);
-  };
-  requestAnimationFrame(loop);
-}
-/** 飘字（原版 attention_text）：带同色底框，从锚点上方浮起并淡出 */
-function scFloatText (anchor, text, colour, scale) {
-  if (!anchor || !text || SC_UI.anim !== 'game') return;
-  const r = anchor.getBoundingClientRect();
-  const el = document.createElement('span');
-  el.className = 'scfloat';
-  el.textContent = text;
-  el.style.background = colour;
-  el.style.fontSize = ((scale || 0.7) * 15).toFixed(1) + 'px';
-  el.style.left = Math.round(r.left + r.width / 2) + 'px';
-  el.style.top = Math.round(r.top - 4) + 'px';
-  document.body.appendChild(el);
-  requestAnimationFrame(() => { el.classList.add('rise') });
-  setTimeout(() => el.remove(), 900);
-}
-/** 结算到某张牌：牌自己抖一下（原版 0.6 / 0.1）+ 牌桌轻抖（G.ROOM.jiggle） */
-function scJuiceCard (tile, host) {
-  if (!tile || SC_UI.anim !== 'game') return;
-  scJuice(tile, 0.6, 0.1);
-  /* 原版抖的是整个房间（G.ROOM.jiggle），但那在浏览器里等于让所有卡图重绘
-     （实测 54fps → 38fps）。这里改成抖 HUD 那一块：看得见的抖动照旧，代价小得多。 */
-  const stage = host.querySelector('.schud');
-  if (stage) { stage.classList.remove('jiggle'); void stage.offsetWidth; stage.classList.add('jiggle') }
-}
-/** 每一步的动画：数字直接变（原版如此），抖的是框；飘字按这一步的效果类型选文案与颜色。
- *  简洁模式走回旧的缓动滚动，关闭模式什么都不做。 */
-function scJuiceStep (host, prev, now, row) {
-  const chipsEl = host.querySelector('.scchips b'), multEl = host.querySelector('.scmult b');
-  const scoreEl = host.querySelector('.scscore b');
-  if (SC_UI.anim === 'plain') {
-    scTweenNum(chipsEl, prev.chips, now.chips, 200, (v) => String(Math.round(v)));
-    scTweenNum(multEl, prev.mult, now.mult, 200, (v) => String(Math.round(v * 100) / 100));
-    scTweenNum(scoreEl, prev.score, now.score, 300, (v) => Math.floor(v).toLocaleString());
-    return;
-  }
-  if (SC_UI.anim === 'off') return;
-  const dChips = now.chips - prev.chips, dMult = now.mult - prev.mult;
-  if (dChips) scJuice(host.querySelector('.scchips'), 0.3, 0);
-  if (dMult) scJuice(host.querySelector('.scmult'), 0.3, 0);
-  scJuice(scoreEl, 0.25, 0);
-  const tile = host.querySelector('.sctile.on');
-  const op = row && row.op;
-  if (op === 'debuff') scFloatText(tile, '被削弱', '#fe5f55', 0.6);
-  else if (op === 'x' && prev.mult) scFloatText(tile, 'X' + (Math.round((now.mult / prev.mult) * 100) / 100) + '倍率', '#fe5f55', 0.7);
-  else if (dMult) scFloatText(tile, '+' + (Math.round(dMult * 100) / 100) + '倍率', '#fe5f55', 0.7);
-  else if (dChips) scFloatText(tile, '+' + Math.round(dChips), '#009dff', 0.7);
-  scJuiceCard(tile, host);
-}
-/** 第 i 步时面板上该显示的数字（播放动画拿它当滚动起点 / 终点） */
-function scShownAt (r, i) {
-  const row = (i >= 0 && i < r.rows.length) ? r.rows[i] : null;
-  return row ? { chips: row.chips, mult: row.mult, score: Math.floor(row.chips * row.mult) } : { chips: 0, mult: 0, score: 0 };
 }
 
 /** 一条规则 → 应用到账目上（ref 让界面知道这一步是谁贡献的） */
@@ -4343,9 +4305,7 @@ function spriteTile (cv, cls, title) {
   return d;
 }
 
-const SC_UI = { edit: null, step: -1, playing: false, timer: null, order: [], focus: null, joker: null,
-  /* 结算动画模式：game = 照原版（juice + 飘字 + 轻抖）/ plain = 只有数字变化 / off = 直接出结果 */
-  anim: 'game' };
+const SC_UI = { edit: null, step: -1, playing: false, timer: null, order: [], focus: null, joker: null };
 
 /* ================================================================ 卡牌选择器
  * 照游戏的「收藏」页做：分类在左边、搜索在上面、中间是真实卡图网格。
@@ -5287,7 +5247,6 @@ function viewScore (host) {
     <button class="btn primary" id="scToggle">${SC_UI.playing ? '⏸ 暂停' : '▶ 逐步播放'}</button>
     <button class="btn" id="scNext" title="下一步">▶</button>
     <button class="btn" id="scLast" title="直接看结果">⏭</button>
-    <button class="btn" id="scAnim" title="结算动画：原版 = 照引擎的 juice 与飘字；简洁 = 只有数字变化；关闭 = 直接出结果">结算动画：${({ game: '原版', plain: '简洁', off: '关闭' })[SC_UI.anim || 'game']}</button>
     <input type="range" id="scStep" min="-1" max="${r.rows.length - 1}" value="${step}" title="结算进度">
     <span class="scstepn">${step < 0 ? '结果' : (step + 1) + ' / ' + r.rows.length}</span>
     <span class="scnow">${step < 0 ? '最终得分' : r.rows[step].label}</span>`;
@@ -5322,6 +5281,7 @@ function viewScore (host) {
   /* 注意：播放条挂在 host 上而不是 stage 里，所以这里从 host 找 */
   const q = (sel) => host.querySelector(sel);
   const stepTo = (v) => { SC_UI.step = Math.max(-1, Math.min(r.rows.length - 1, v)); render() };
+  { const art = q('.scblindbox .scblindart'); if (art && SC.blind) scPaintBlindArt(art, scBlindItem(), 52) }
   q('.scblindpick').onclick = () => scBlindPicker();
   { const cx = q('.scblindclear'); if (cx) cx.onclick = () => { scStopPlay(); SC.blind = ''; SC_UI.step = -1; render() } }
   q('#scHandType').onchange = (e) => {
@@ -5352,11 +5312,7 @@ function viewScore (host) {
   q('#scAddCard').onclick = () => openScPicker('PlayingCard');
   q('#scAddJoker').onclick = () => openScPicker('Joker');
   q('#scPreset').onchange = (e) => { const v = e.target.value; if (v) scApplyPreset(v) };
-  q('#scAnim').onclick = () => {
-    const order = ['game', 'plain', 'off'];
-    SC_UI.anim = order[(order.indexOf(SC_UI.anim || 'game') + 1) % order.length];
-    scStopPlay(); SC_UI.step = -1; render();
-  };
+
   q('#scFirst').onclick = () => { scStopPlay(); stepTo(-1) };
   q('#scPrev').onclick = () => { scStopPlay(); stepTo(SC_UI.step < 0 ? r.rows.length - 2 : SC_UI.step - 1) };
   q('#scNext').onclick = () => { scStopPlay(); stepTo(SC_UI.step < 0 ? 0 : SC_UI.step + 1) };
@@ -5366,25 +5322,14 @@ function viewScore (host) {
     if (SC_UI.playing) { scStopPlay(); render(); return }
     SC_UI.playing = true;
     SC_UI.step = -1;
-    if (SC_UI.anim === 'off') { SC_UI.step = scoreCompute().rows.length - 1; SC_UI.playing = false; render(); return }
     render();
     { const b = host.querySelector('.scplay'); if (b && b.scrollIntoView) b.scrollIntoView({ block: 'nearest' }) }
-    /* 原版的节奏：每一步 0.2~0.3s，最后结算那一行稍长；数字是滚上去的，不是硬跳。 */
-    let stepDelay = 300;
-    SC_UI.shown = { chips: 0, mult: 0, score: 0 };
-    const tick = () => {
+    SC_UI.timer = setInterval(() => {
       const rr = scoreCompute();
       if (SC_UI.step >= rr.rows.length - 1) { scStopPlay(); render(); return }
-      const before = SC_UI.shown || { chips: 0, mult: 0, score: 0 };
       SC_UI.step += 1;
       render();
-      const shown = scShownAt(rr, SC_UI.step);
-      SC_UI.shown = shown;
-      scJuiceStep(host, before, shown, rr.rows[SC_UI.step]);
-      stepDelay = (SC_UI.step >= rr.rows.length - 2) ? 460 : 300;
-      SC_UI.timer = setTimeout(tick, stepDelay);
-    };
-    SC_UI.timer = setTimeout(tick, 260);
+    }, 520);
   };
   log.addEventListener('click', (e) => {
     const row = e.target.closest('[data-step]');
@@ -5822,7 +5767,8 @@ function buildTopbar () {
   document.getElementById('navToggle').onclick = () => toggleDrawer('nav-open');
 }
 /* ---------------------------------------------------------- mobile drawers */
-const isNarrow = () => window.matchMedia('(max-width: 820px)').matches;
+/* 与 app.css 的外壳断点保持一致：≤900px 时侧栏与详情面板都变成覆盖层（平板也算窄屏） */
+const isNarrow = () => window.matchMedia('(max-width: 900px)').matches;
 function toggleDrawer (cls, force) {
   const on = force === undefined ? !document.body.classList.contains(cls) : force;
   for (const c of ['nav-open', 'detail-open']) if (c !== cls) document.body.classList.remove(c);
