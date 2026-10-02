@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "da8592d1";
+window.__APP_BUILD__ = "553f3d0b";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -4077,7 +4077,7 @@ const EDITION_NUM = { e_foil: { chips: 50 }, e_holo: { mult: 10 }, e_polychrome:
 
 const SC = {
   hand: 'Pair', level: 1,
-  played: [], held: [], jokers: [],
+  played: [], held: [], jokers: [], blind: '',
   /* 局面：原版算分读到的所有外部状态（.work/gen-state.js 从源码里扫出来的字段）
      —— G.GAME.dollars / current_round.* / #G.deck.cards / consumeable_usage_total …
      以及每个牌型打过几次（G.GAME.hands[x].played，Obelisk、To Do List 这类要看它） */
@@ -4293,16 +4293,122 @@ function condMatchesHand (cond, j, playedCount) {
   } catch (e) { return null }
 }
 
+/* ================================================================ BOSS 盲注
+ * 原版里「影响这一手怎么算」的盲注效果分两类：
+ *  ① 声明式的削弱规则（blind.lua:625-645 与 debuff_hand）：`debuff = { suit=… }` /
+ *     `{ is_face='face' }` / `{ value=… }` / `{ nominal=… }`，以及 `{ hand=… }` / `{ h_size_ge=… }` /
+ *     `{ h_size_le=… }`。我们照源码写成通用判定 —— mod 的盲注只要按同一格式声明 debuff，
+ *     就自动生效，不需要为每个 mod 单独适配。
+ *  ② 写在代码里的那几个（The Arm 降等级 / The Flint 数值减半 / Verdant Leaf 全削弱 /
+ *     Crimson Heart 禁小丑）：按盲注 key 列一张小表；mod 想接自己的盲注，往
+ *     `B.score.blindRules['bl_xxx']` 塞一条即可（见 DEVELOPMENT.md）。
+ * 被削弱的牌整张跳过（state_events.lua:655）—— 不算筹码/倍率，强化·版本·蜡封也不触发。 */
+const SC_BLIND_RULES = {
+  bl_arm: { handLevel: -1, note: '打出的牌型等级 −1（本手按降级后的数值结算）' },
+  bl_flint: { halfBase: true, note: '本手的基础筹码与倍率减半' },
+  bl_final_leaf: { debuffAll: true, note: '所有牌都被削弱（卖掉一张小丑牌之前）' },
+  bl_final_heart: { note: '每手随机禁用一张小丑牌 —— 在小丑牌弹窗里勾「被禁用」' },
+  bl_final_acorn: { note: '会打乱小丑牌顺序（顺序可以直接拖）' },
+  bl_final_bell: { note: '总有一张牌处于选中状态（不影响算分）' },
+  bl_psychic: { needCards: 5, note: '必须打出 5 张牌' },
+  bl_eye: { note: '本回合不能重复打出同一种牌型' },
+  bl_mouth: { note: '本回合只能打出一种牌型' },
+  bl_needle: { env: { handsLeft: 1 }, note: '本回合只有 1 次出牌' },
+  bl_water: { env: { discardsLeft: 0 }, note: '本回合没有弃牌次数' },
+  bl_hook: { env: { discardsLeft: 2 }, note: '每打一手弃 2 张牌' },
+  bl_wall: { note: '只是盲注需求更大（不影响这一手的分）' },
+  bl_final_vessel: { note: '只是盲注需求更大' },
+  bl_ox: { note: '只影响金钱' }, bl_tooth: { note: '只影响金钱' },
+  bl_house: { note: '只影响起手发牌（面朝下）' }, bl_fish: { note: '只影响抽牌（面朝下）' },
+  bl_wheel: { note: '只影响抽牌（面朝下）' }, bl_serpent: { note: '只影响抽牌与弃牌' },
+  bl_manacle: { note: '只影响手牌上限' }, bl_mark: { note: '只影响起手发牌（面朝下）' },
+};
+/* 控制台 / mod 都能往这里加：B.score.blindRules['bl_myboss'] = { halfBase: true, note: '…' } */
+const SC_BLIND_RULES_EXTRA = {};
+function scBlindItem () {
+  if (!SC.blind) return null;
+  /* BY_ID 是加载时建好的索引；运行期新加的条目（比如刚导入的 mod）可能还没进去，回退搜一遍 */
+  return BY_ID[SC.blind] || ITEMS.find((i) => i.id === SC.blind) || null;
+}
+function scBlindRule (it) {
+  if (!it) return null;
+  const key = it.key || it.id || '';
+  return SC_BLIND_RULES_EXTRA[key] || SC_BLIND_RULES[key] || null;
+}
+function scSuitName (en) {
+  const m = D.loc && D.loc[S.lang] && D.loc[S.lang].misc;
+  return (m && m.suits_plural && m.suits_plural[en]) || en;
+}
+/** 声明式削弱：与 blind.lua:625-645 一一对应（mod 的盲注同样走这里） */
+function scSpecDebuffs (card, spec) {
+  if (!spec) return false;
+  if (spec.all) return true;
+  if (spec.suit && SUIT_EN[card.suit] === spec.suit) return true;
+  if (spec.is_face === 'face' && ['J', 'Q', 'K'].indexOf(card.rank) >= 0) return true;
+  if (spec.value && String(spec.value) === String(card.rank)) return true;
+  if (spec.nominal && String(spec.nominal) === String(RANK_ID[card.rank])) return true;
+  return false;
+}
+/** 这张牌现在算不算被削弱（手动勾的 + 盲注自动判定的） */
+function scCardDebuffed (card) {
+  if (card.debuff) return true;
+  const it = scBlindItem();
+  if (!it) return false;
+  const rule = scBlindRule(it);
+  if (rule && rule.debuffAll) return true;
+  return !!(it.raw && it.raw.debuff && scSpecDebuffs(card, it.raw.debuff));
+}
+/** 盲注下拉：列表直接来自图鉴条目，所以 mod 的盲注自动在里面 */
+function scBlindOptions () {
+  const list = ITEMS.filter((i) => i.cat === 'Blind' && i.raw && i.raw.boss);
+  return '<option value="">（不算盲注）</option>' + list.map((b) =>
+    '<option value="' + b.id + '"' + (SC.blind === b.id ? ' selected' : '') + '>' + esc(nm(b)) + (b.source ? ' · MOD' : '') + '</option>').join('');
+}
+/** 盲注说明：它自己的本地化描述 + 我们的注解 + 自动削弱了几张 + 认不出来时明说 */
+function scBlindNoteHtml () {
+  const it = scBlindItem();
+  if (!it) return '没选盲注：这一手按普通回合算。';
+  const rule = scBlindRule(it);
+  const spec = (it.raw && it.raw.debuff) || {};
+  const desc = ((it.text && (it.text[S.lang] || it.text['en-us'])) || []).join(' ');
+  const bits = [];
+  if (desc) bits.push(desc);
+  /* 游戏自己的描述已经写了就不重复（例如 The Club 的「所有梅花牌都被削弱」） */
+  if (!desc && spec.suit) bits.push('所有' + scSuitName(spec.suit) + '牌被削弱');
+  if (!desc && spec.is_face === 'face') bits.push('所有人头牌（J/Q/K）被削弱');
+  if (!desc && spec.value) bits.push('点数 ' + spec.value + ' 的牌被削弱');
+  if (!desc && spec.nominal) bits.push('点数 ' + spec.nominal + ' 的牌被削弱');
+  if (spec.h_size_ge) bits.push('必须打出至少 ' + spec.h_size_ge + ' 张牌');
+  if (spec.h_size_le) bits.push('最多打出 ' + spec.h_size_le + ' 张牌');
+  if (rule && rule.note) bits.push(rule.note);
+  const auto = SC.played.filter((c) => scCardDebuffed(c)).length;
+  if (auto) bits.push('<b>这手里有 ' + auto + ' 张牌被削弱、不参与算分</b>');
+  if (!rule && !Object.keys(spec).length) bits.push('这个盲注的效果本页不认识（多半来自 mod）—— 用卡牌弹窗里的「被削弱」和小丑牌弹窗里的「被禁用」手动补，也可以在控制台往 score.blindRules 里加一条');
+  return bits.join('　·　');
+}
+
 function scoreCompute () {
   const rows = [];
   const warns = [];
   const hand = D.hands.find((h) => h.name === SC.hand) || D.hands[0];
-  const lvl = Math.max(1, Math.min(99, SC.level | 0));
+  const lvl0 = Math.max(1, Math.min(99, SC.level | 0));
+  const blindIt = scBlindItem();
+  const bRule = blindIt ? scBlindRule(blindIt) : null;
+  /* The Arm：本手按降级后的等级结算 */
+  const lvl = (bRule && bRule.handLevel) ? Math.max(1, lvl0 + bRule.handLevel) : lvl0;
   /* 每级加多少：游戏数据里字段名是 l_chips / l_mult（hand.chipsPerLevel 根本不存在，
      所以以前不管把等级调到几，筹码和倍率都不变 —— 这就是用户报的"改等级没作用"）。 */
   let chips = hand.chips + (lvl - 1) * (hand.l_chips || 0);
   let mult = hand.mult + (lvl - 1) * (hand.l_mult || 0);
   rows.push({ label: `牌型「${hand.name}」Lv.${lvl}`, chips, mult, op: 'base', ref: { kind: 'hand' } });
+  if (blindIt) {
+    rows.push({ label: `BOSS 盲注「${blindIt.name}」` + (bRule && bRule.note ? '：' + bRule.note : ''), chips, mult, op: 'blind', ref: { kind: 'blind' } });
+    if (bRule && bRule.halfBase) {   /* The Flint：blind.lua:511-514，先减半再进逐牌 / 小丑 */
+      chips = Math.max(0, Math.floor(chips * 0.5 + 0.5));
+      mult = Math.max(1, Math.floor(mult * 0.5 + 0.5));
+      rows.push({ label: 'The Flint：基础筹码与倍率减半', chips, mult, op: 'x', ref: { kind: 'blind' } });
+    }
+  }
 
   const playedCount = SC.played.length;
   let isManual = false;
@@ -4313,10 +4419,16 @@ function scoreCompute () {
   for (let ci = 0; ci < SC.played.length; ci++) {
     const c = SC.played[ci];
     const cref = { kind: 'played', i: ci };
+    if (scCardDebuffed(c)) {
+      /* state_events.lua:655：被削弱的牌整张跳过 */
+      rows.push({ label: `${c.rank}${SUIT_SYM[c.suit]} 被削弱 → 不参与算分`, chips, mult, op: 'debuff', ref: cref });
+      continue;
+    }
     let reps = 1;
     if (c.seal === 'Red') reps += 1;
     for (let ji = 0; ji < SC.jokers.length; ji++) {
       const j = SC.jokers[ji];
+      if (j.debuff) continue;   /* 被禁用的小丑牌不参与（也不复制） */
       const rule = jokerRule(j);
       if (rule && rule.k === 'repeat' && condMatchesCard(rule.c || '', c)) {
         const n = evalExpr(rule.reps, j);
@@ -4340,7 +4452,7 @@ function scoreCompute () {
       for (let ji = 0; ji < SC.jokers.length; ji++) {
         const j = SC.jokers[ji];
         const cfg = j.cfg || {};
-        if (cfg.effect === 'Suit Mult' && cfg.extra && SUIT_EN[c.suit] === cfg.extra.suit) {
+        if (!j.debuff && cfg.effect === 'Suit Mult' && cfg.extra && SUIT_EN[c.suit] === cfg.extra.suit) {
           const add = Number(cfg.extra.s_mult) || 0;
           if (add) { mult += add; rows.push({ label: `${j.name} +${add} 倍率（${SUIT_SYM[c.suit]}）`, chips, mult, op: 'joker', ref: { kind: 'joker', i: ji } }) }
         }
@@ -4373,6 +4485,7 @@ function scoreCompute () {
   for (let ji = 0; ji < SC.jokers.length; ji++) {
     const j = SC.jokers[ji];
     const jref = { kind: 'joker', i: ji };
+    if (j.debuff) { rows.push({ label: `${scJokerName(j)} 被禁用 → 不参与算分`, chips, mult, op: 'debuff', ref: jref }); continue }
     /* Blueprint 复制它右边那张、Brainstorm 复制最左边那张（card.lua:4225-4239） */
     let src = j;
     if (j.name === 'Blueprint' && SC.jokers[ji + 1]) src = SC.jokers[ji + 1];
@@ -4422,6 +4535,35 @@ function scoreCompute () {
     rows.push({ label: '手填修正', chips, mult, op: 'manual', ref: { kind: 'manual' } });
   }
   return { chips, mult, score: Math.floor(chips * mult), rows, warns, hand, lvl };
+}
+
+/** 原版那种「数字跳一下」的手感：数字从旧值滚到新值，框再 pop 一下。
+ *  只写 textContent 与 class —— 不重画任何卡图，所以对性能没有影响。 */
+function scTweenNum (el, from, to, ms, fmt) {
+  if (!el || !isFinite(from) || !isFinite(to)) return;
+  const t0 = performance.now();
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / ms);
+    el.textContent = fmt(from + (to - from) * (1 - Math.pow(1 - k, 3)));
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+function scJuiceStep (host, prev, now) {
+  const pop = (el, from, to, ms, fmt) => {
+    if (!el) return;
+    if (from !== to) { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); scTweenNum(el, from, to, ms, fmt) }
+  };
+  pop(host.querySelector('.scchips b'), prev.chips, now.chips, 200, (v) => String(Math.round(v)));
+  pop(host.querySelector('.scmult b'), prev.mult, now.mult, 200, (v) => String(Math.round(v * 100) / 100));
+  pop(host.querySelector('.scscore b'), prev.score, now.score, 300, (v) => Math.floor(v).toLocaleString());
+  const on = host.querySelector('.sctile.on');
+  if (on) { on.classList.remove('pulse'); void on.offsetWidth; on.classList.add('pulse') }
+}
+/** 第 i 步时面板上该显示的数字（播放动画拿它当滚动起点 / 终点） */
+function scShownAt (r, i) {
+  const row = (i >= 0 && i < r.rows.length) ? r.rows[i] : null;
+  return row ? { chips: row.chips, mult: row.mult, score: Math.floor(row.chips * row.mult) } : { chips: 0, mult: 0, score: 0 };
 }
 
 /** 一条规则 → 应用到账目上（ref 让界面知道这一步是谁贡献的） */
@@ -5549,6 +5691,11 @@ function viewScore (host) {
         <div class="scrail" id="scHand"></div>
       </div>
       <div class="scrowbox scfull">
+        <div class="scblindbox">
+          <label class="scev scsel2" title="选一个 BOSS 盲注，它在这一手里的效果会自动算进去；列表里连 mod 的盲注一起有">
+            <span>BOSS 盲注</span><select id="scBlind">${scBlindOptions()}</select></label>
+          <div class="scblindnote" id="scBlindNote">${scBlindNoteHtml()}</div>
+        </div>
         <div class="scrowhead"><span>整体修改</span><em>牌型等级与次数、以及原版算分读到的那些数值：剩余次数、金钱、牌堆、已用塔罗牌…（改这里，依赖它们的牌才算得对）</em>
           <button class="btn" id="scPlaysToggle">牌型次数…</button></div>
         <div class="scenv">
@@ -5713,6 +5860,7 @@ function viewScore (host) {
   /* 注意：播放条挂在 host 上而不是 stage 里，所以这里从 host 找 */
   const q = (sel) => host.querySelector(sel);
   const stepTo = (v) => { SC_UI.step = Math.max(-1, Math.min(r.rows.length - 1, v)); render() };
+  q('#scBlind').onchange = (e) => { scStopPlay(); SC.blind = e.target.value; SC_UI.step = -1; render() };
   q('#scHandType').onchange = (e) => {
     scStopPlay();
     const v = e.target.value;
@@ -5752,12 +5900,22 @@ function viewScore (host) {
     SC_UI.step = -1;
     render();
     { const b = host.querySelector('.scplay'); if (b && b.scrollIntoView) b.scrollIntoView({ block: 'nearest' }) }
-    SC_UI.timer = setInterval(() => {
+    /* 原版的节奏：每一步 0.2~0.3s，最后结算那一行稍长；数字是滚上去的，不是硬跳。 */
+    let stepDelay = 300;
+    SC_UI.shown = { chips: 0, mult: 0, score: 0 };
+    const tick = () => {
       const rr = scoreCompute();
       if (SC_UI.step >= rr.rows.length - 1) { scStopPlay(); render(); return }
+      const before = SC_UI.shown || { chips: 0, mult: 0, score: 0 };
       SC_UI.step += 1;
       render();
-    }, 520);
+      const shown = scShownAt(rr, SC_UI.step);
+      SC_UI.shown = shown;
+      scJuiceStep(host, before, shown);
+      stepDelay = (SC_UI.step >= rr.rows.length - 2) ? 460 : 300;
+      SC_UI.timer = setTimeout(tick, stepDelay);
+    };
+    SC_UI.timer = setTimeout(tick, 260);
   };
   log.addEventListener('click', (e) => {
     const row = e.target.closest('[data-step]');
@@ -5970,6 +6128,7 @@ function scOpenCardEditor (c, keep) {
     body: '<div class="scmodalcard">' + (cv ? '<span class="scmodalart"></span>' : '') +
       '<div class="scpkrows">' +
       scPillGrid('点数', ranks, c.rank, 'rank') + scPillGrid('花色', suits, c.suit, 'suit') +
+      scPillGrid('削弱', [['', '正常'], ['1', '被削弱（不参与算分）']], c.debuff ? '1' : '', 'debuff') +
       scPillGrid('强化', enhs, c.enh, 'enh') + scPillGrid('版本', eds, c.ed, 'ed') +
       scPillGrid('蜡封', seals, c.seal, 'seal') +
       '</div></div>',
@@ -6038,6 +6197,9 @@ function scOpenJokerEditor (j, keep) {
     body: '<div class="scmodalcard">' + (cv ? '<span class="scmodalart"></span>' : '') +
       '<div class="scpkrows">' +
 
+      '<div class="scgrowbox"><div class="scgrowtitle">这张牌是否被禁用（被禁用的小丑牌完全不参与算分 —— BOSS 盲注点名禁用时用这个）</div>' +
+      scPillGrid('禁用', [['', '正常'], ['1', '被禁用']], j.debuff ? '1' : '', 'debuff') +
+      '</div>' +
       '<div class="scgrowbox"><div class="scgrowtitle">版本（影响这张牌的结算：闪箔 +50 筹码 / 镭射 +10 倍率 / 多彩 ×1.5 / 负片）</div>' +
       scPillGrid('版本', [['', '无']].concat(ITEMS.filter((x) => x.cat === 'Edition' && !x.shader).map((x) => [x.id, nm(x)])), j.ed, 'ed') +
       '</div>' +
@@ -6337,6 +6499,10 @@ function init () {
       condHand: (cond, j, n) => condMatchesHand(cond, j, n),
       substParams: (txt, j) => scSubstParams(txt, j),
       params: (j) => scJokerParams(j),
+      /* mod / 控制台登记自己盲注效果的入口：
+         B.score.blindRules['bl_myboss'] = { halfBase: true, note: '…' } */
+      blindRules: SC_BLIND_RULES_EXTRA, blindRulesBuiltin: SC_BLIND_RULES,
+      blind: () => scBlindItem(), blindNote: () => scBlindNoteHtml(), debuffed: (c) => scCardDebuffed(c),
       /* 调试/扫描用：某张牌的描述 HTML（含内联控件）与它的动态值清单 */
       descHtml: (j) => scJokerDescHtml(j),
       locVars: (j) => (JOKER_LOCVARS[j.name] || []),

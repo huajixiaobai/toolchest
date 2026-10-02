@@ -160,11 +160,21 @@
     const acts = el('div', 'bootcacheacts')
     const swap = el('button', 'btn', '换一个游戏文件')
     const drop2 = el('button', 'btn', '清除已存素材')
-    acts.appendChild(swap); acts.appendChild(drop2)
+    const close = el('button', 'bootcachex', '✕')
+    close.title = '收起这条提示（素材还留着，下次照旧）'
+    close.setAttribute('aria-label', '关闭')
+    close.style.cssText = 'background:none;border:0;color:#cfd8de;font-size:15px;line-height:1;padding:6px 8px;cursor:pointer;border-radius:6px'
+    acts.appendChild(swap); acts.appendChild(drop2); acts.appendChild(close)
     bar.appendChild(txt); bar.appendChild(acts)
     document.body.appendChild(bar)
     swap.onclick = async () => { await cacheDrop(); location.reload() }
     drop2.onclick = async () => { await cacheDrop(); bar.remove(); }
+    /* 自己也会收起：20 秒后淡出；鼠标停在上面就先不计时（正在看的时候别抢走） */
+    const hide = () => { bar.classList.add('gone'); setTimeout(() => bar.remove(), 260) }
+    let hideTimer = setTimeout(hide, 20000)
+    bar.addEventListener('mouseenter', () => clearTimeout(hideTimer))
+    bar.addEventListener('mouseleave', () => { clearTimeout(hideTimer); hideTimer = setTimeout(hide, 6000) })
+    close.onclick = () => { clearTimeout(hideTimer); hide() }
   }
 
   /* ------------------------------------------------------------------ 预览区的互动

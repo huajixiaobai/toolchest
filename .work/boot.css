@@ -43,8 +43,13 @@
   display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:center;
   max-width:min(680px,calc(100vw - 24px));
   background:#18222cf2;border:1px solid var(--line,#26313d);border-radius:12px;
-  padding:10px 14px;box-shadow:0 12px 34px #000a;color:var(--fg2,#9fb0c0);font-size:12.5px
+  padding:10px 14px;box-shadow:0 12px 34px #000a;color:var(--fg2,#9fb0c0);font-size:12.5px;
+  transition:opacity .24s ease,transform .24s ease
 }
+/* 收起：手动点 ✕ 或 20 秒后自动（见 boot.js showCacheBar） */
+.bootcache.gone{opacity:0;transform:translateX(-50%) translateY(10px);pointer-events:none}
+.bootcachex:hover{background:#ffffff1a}
+.bootcachex:focus-visible{outline:2px solid #f3b958;outline-offset:1px}
 .bootcachetext{display:flex;flex-direction:column;gap:2px;min-width:0}
 .bootcachetext b{color:var(--fg,#dfe7ee);font-size:13px}
 .bootcachetext span{color:var(--fg3,#6d7d8d)}

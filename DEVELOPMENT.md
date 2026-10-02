@@ -263,6 +263,16 @@ A.mods                                           // 已导入的 mod 列表
 A.sourceItems().length                           // 当前来源筛选下的条目数
 A.removeMod('testmod')                           // 卸载
 A.mods[0].stats                                  // 扫描了多少声明、跳过多少、命中多少图集
+
+// 得分计算器：BOSS 盲注与被削弱的牌
+A.score.state.blind = 'bl_club'                  // 选一个盲注（'' = 不算盲注）
+A.score.compute()                                // 当前这一手的账目（rows 里能看到谁被削弱/被禁用）
+A.score.debuffed(A.score.card('K','C'))          // 这张牌现在算不算被削弱
+A.score.blindNote()                              // 盲注说明（和界面上那行一样）
+/* mod 的盲注有两种接法：① 按原版格式声明削弱规则（suit / is_face / value / nominal /
+   hand / h_size_ge / h_size_le）就自动生效，不用写任何代码；
+   ② 代码式的效果自己登记一条，图鉴立刻按它算： */
+A.score.blindRules['bl_myboss'] = { halfBase: true, handLevel: -1, debuffAll: false, note: '我的盲注：基础数值减半' }
 ```
 
 ---
@@ -438,6 +448,36 @@ node bundle.js
 ---
 
 ## 九、更新记录
+
+**第三十一轮（BOSS 盲注与被削弱的牌、提示条能关掉、播放动画更接近原版）**
+- 用户三件事：① 把影响得分、现在还没有的东西补进来（点名 BOSS 盲注），**而且要能自动吃 mod，不能一个一个适配**；② 「已载入上次解析的素材」那条提示自己不会关，要加关闭按钮；③ 算分播放能不能更像原版（前提是别把优化搞坏，坏了就算了）。
+- **① BOSS 盲注 + 被削弱的牌（这轮的主要工作）**
+  - 原版里影响"这一手怎么算"的盲注效果分两类，两类都接上了：
+    | 类别 | 来源 | 我们的做法 |
+    |---|---|---|
+    | **声明式削弱** | `blind.lua:625-645` + `debuff_hand`：`debuff = { suit }` / `{ is_face='face' }` / `{ value }` / `{ nominal }`，以及 `{ hand }` / `{ h_size_ge }` / `{ h_size_le }` | 写成通用判定 `scSpecDebuffs()` —— **mod 的盲注只要按同一格式声明 debuff 就自动生效**（下面有实测） |
+    | **代码式效果** | The Arm 降等级 / The Flint 数值减半 / Verdant Leaf 全削弱 / Crimson Heart 禁小丑 | 按盲注 key 列一张小表（`SC_BLIND_RULES`，18 个盲注都有中文注解）；另外留了 **扩展钩子** `B.score.blindRules['bl_xxx'] = { halfBase: true, note: '…' }`，mod 自己登记即可 |
+  - 被削弱的牌**整张跳过**（`state_events.lua:655`）：不算筹码/倍率，强化·版本·蜡封也不触发；被禁用的小丑牌同样完全不参与（连 Blueprint 也不复制它）。
+  - 界面：整体修改里多了一块「BOSS 盲注」下拉（**列表直接来自图鉴条目，所以 mod 的盲注自动在里面**），下面一行说明 = 盲注自己的本地化描述 + 我们的注解 + 「这手里有 N 张牌被削弱」；卡牌弹窗里多一个「被削弱」胶囊、小丑牌弹窗里多一个「被禁用」胶囊（手动补盲注没覆盖到的情况）。
+  - 实测（`blindAudit`，全是数字）：
+    - 5 张梅花 / 无盲注 **120 筹码** → 选 **The Club** 后 5 张全被削弱、**100 筹码**（只剩牌型基础值）
+    - **The Plant**：J/Q/K 三张人头牌被削弱（debuff 行 3 条）
+    - **The Arm**：等级 3 → **2**（筹码 100 → 85）
+    - **The Flint**：基础筹码与倍率减半（账目里出现对应行）
+    - **Verdant Leaf**：5 张全被削弱
+    - 手动：卡牌「被削弱」胶囊 → 该牌退出算分；小丑「被禁用」胶囊 → 该牌不参与
+    - **mod 路径（关键）**：往图鉴里塞一个"只有数据声明"的盲注（`raw.debuff = { suit: 'Hearts' }`，零代码改动）→ 它自动出现在下拉里，选中后 2 张红桃被削弱、得分 74 → **69**
+    - **扩展钩子**：`B.score.blindRules['bl_test_x'] = { halfBase: true }` → 生效（筹码 39）
+- **② 提示条能关掉**：`.bootcachex` 关闭按钮 + 20 秒自动收起（鼠标停在上面就暂停计时），带淡出动画。**走真实访客路径验证**（`siteRemember`：第一次访问把它自己的 exe 交给页面 → 第二次重载直接从浏览器缓存起来）→ 提示条出现、三个按钮齐全（换一个游戏文件 / 清除已存素材 / ✕）、**点 ✕ 后提示条真的没了**，只清提示不清缓存。
+- **③ 播放更接近原版**：保留原来的逐步播放，但每一步改成"数字滚上去 + 框 pop 一下 + 正在结算的牌轻弹"（CSS `@keyframes` + rAF 滚动，只改 `textContent` 与 class，**不重画任何卡图**）；节奏按原版调成 300ms/步、最后两行 460ms；`prefers-reduced-motion` 下自动关掉动画。
+  - 实测（`playJuice`）：播放期间 **53.9 fps**、p95 帧间隔 42ms、最长 79ms（一次重排）、分数文本出现 **27 种中间值**、筹码文本 **13 种**（确实在滚）、高亮跟着走、0 报错 —— 没有为了动画牺牲优化。
+- 回归：`scoreCalc`（180/160/220/75，无盲注时与之前一致）、`sweep`（内联控件 20 / 遗漏 0）、`uiFix`、`uxAudit` ×3 视口、`mobile`、`forgeUx`、`blindAudit`、`playJuice` 全过；站点体检 28 项通过。
+- 给 mod 作者的两行说明（也写进「四、给进阶用户的控制台接口」）：
+  ```js
+  // ① 盲注只要按原版格式声明削弱规则，什么都不用做（suit / is_face / value / nominal / hand / h_size_ge / h_size_le）
+  // ② 代码式效果自己登记一条，图鉴就会算进去：
+  B.score.blindRules['bl_myboss'] = { halfBase: true, handLevel: -1, debuffAll: false, note: '我的盲注：…' }
+  ```
 
 **第三十轮（工具顺序、行距、缩略图补画、触屏长按、性能体检：合成台渲染 370ms → 14ms）**
 - 用户提了四件事，顺带要求"整体优化体检 + 机型适配要交代清楚"：
