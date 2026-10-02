@@ -2919,6 +2919,41 @@ const SCENARIOS = {
      r.plays.btnLabel=btn.textContent;
      r.errors=window.__V.errors.length;
      return r })()`,
+  p26: `(async()=>{
+     const B=window.__BALATRO__; const SC=B.score.state; const r={};
+     const q=(s)=>document.querySelector(s), qa=(s)=>[].slice.call(document.querySelectorAll(s));
+     B.state.tab='score'; B.render(); await __V.wait(700);
+     B.score.setHand([['K','S'],['5','D']]); await __V.wait(500);
+     /* 古老小丑：应给一个花色下拉 */
+     SC.jokers=[B.score.jokerFromItem(B.byId['j_ancient'])]; B.render(); await __V.wait(600);
+     q('#scJokers .sctile').click(); await __V.wait(600);
+     r.ancient={params:qa('#scPanel [data-jparam]').map(e=>({p:e.dataset.jparam, tag:e.tagName, v:e.value})),
+                labels:qa('#scPanel .scgrowf span').map(s=>s.textContent)};
+     const sel=q('#scPanel [data-jparam]');
+     if(sel){ sel.value='Diamonds'; sel.dispatchEvent(new Event('change',{bubbles:true})); sel.dispatchEvent(new Event('input',{bubbles:true})); await __V.wait(700) }
+     r.ancient.after={mult:q('.scmult b').textContent, params:JSON.stringify(SC.jokers[0].params)};
+     const d=q('#scPanelDone'); if(d) d.click(); await __V.wait(300);
+     /* 卡尼奥：记录值字段 caino_xmult + 规则 */
+     SC.jokers=[B.score.jokerFromItem(B.byId['j_caino'])]; B.render(); await __V.wait(600);
+     q('#scJokers .sctile').click(); await __V.wait(600);
+     r.canio={fields:qa('#scPanel [data-jstate]').map(i=>i.dataset.jstate),
+              hasRule:!!B.score.rules().rules.find(x=>x.n==='Canio')};
+     const ci=q('#scPanel [data-jstate]');
+     if(ci){ ci.value='3'; ci.dispatchEvent(new Event('input',{bubbles:true})); await __V.wait(600) }
+     r.canio.after={mult:q('.scmult b').textContent};
+     r.errors=window.__V.errors.length;
+     return r })()`,
+  p27: `(async()=>{
+     const B=window.__BALATRO__; const SC=B.score.state; const r={};
+     const q=(s)=>document.querySelector(s);
+     B.state.tab='score'; B.render(); await __V.wait(700);
+     B.score.setHand([['K','S'],['5','D']]); await __V.wait(400);
+     SC.jokers=[B.score.jokerFromItem(B.byId['j_ancient'])]; B.render(); await __V.wait(500);
+     q('#scJokers .sctile').click(); await __V.wait(500);
+     const sel=q('#scPanel [data-jparam]');
+     if(sel){ sel.value='Diamonds'; sel.dispatchEvent(new Event('change',{bubbles:true})); await __V.wait(600) }
+     r.ancient={mult:q('.scmult b').textContent, rows:[].slice.call(document.querySelectorAll('.scline')).map(e=>e.textContent.slice(0,26))};
+     r.errors=window.__V.errors.length; return r })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};

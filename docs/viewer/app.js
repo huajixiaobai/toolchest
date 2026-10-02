@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "982b98a6";
+window.__APP_BUILD__ = "8cfa491f";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -704,6 +704,8 @@ const JOKER_RULES = {"source":"card.lua Card:calculate_joker（由 .work/gen-rul
    由 .work/gen-state.js 从游戏源码里扫出来，界面据此生成输入框。 */
 const JOKER_STATE = {"source":"card.lua 等（.work/gen-state.js 生成，勿手改）","jokers":{"Gold Card":{"mutable":["perish_tally"],"external":["G.GAME.perishable_rounds","G.GAME.round_resets.discards","G.hand","G.jokers"],"files":{"card.lua":3}},"Invisible Joker":{"mutable":["invis_rounds"],"external":["G.jokers"],"files":{"card.lua":5}},"To Do List":{"mutable":["to_do_poker_hand"],"external":["G.GAME.hands"],"files":{"card.lua":4}},"Caino":{"mutable":["caino_xmult"],"external":[],"files":{"card.lua":5}},"Yorick":{"mutable":["x_mult","yorick_discards"],"external":[],"files":{"card.lua":3}},"Loyalty Card":{"mutable":["burnt_hand","hands_played_at_create","loyalty_remaining"],"external":["G.GAME.blind","G.GAME.hands_played","G.GAME.inflation","G.GAME.used_jokers[k]","G.consumeables","G.jokers"],"files":{"card.lua":3}},"Credit Card":{"mutable":[],"external":["G.GAME.bankrupt_at"],"files":{"card.lua":3}},"Chicot":{"mutable":[],"external":["G.GAME.blind","G.GAME.blind.boss","G.GAME.blind.disabled"],"files":{"card.lua":3}},"Chaos the Clown":{"mutable":[],"external":["G.GAME.current_round.free_rerolls"],"files":{"card.lua":3}},"Turtle Bean":{"mutable":["extra.h_size"],"external":["G.hand","G.jokers"],"files":{"card.lua":4}},"To the Moon":{"mutable":[],"external":["G.GAME.interest_amount"],"files":{"card.lua":3}},"Troubadour":{"mutable":[],"external":["G.GAME.round_resets.hands","G.hand"],"files":{"card.lua":3}},"Stuntman":{"mutable":[],"external":["G.GAME.blind","G.GAME.round_resets.discards","G.consumeables","G.hand","G.jokers"],"files":{"card.lua":4}},"Fortune Teller":{"mutable":[],"external":["G.GAME.consumeable_usage_total","G.GAME.consumeable_usage_total.tarot"],"files":{"card.lua":3}},"Steel Joker":{"mutable":["steel_tally"],"external":["G.playing_cards"],"files":{"card.lua":3}},"Stone Joker":{"mutable":["stone_tally"],"external":["G.playing_cards"],"files":{"card.lua":3}},"Green Joker":{"mutable":["mult"],"external":[],"files":{"card.lua":4}},"Blue Joker":{"mutable":[],"external":["G.deck"],"files":{"card.lua":2}},"Sixth Sense":{"mutable":[],"external":["G.GAME.current_round.hands_played","G.consumeables"],"files":{"card.lua":2}},"Hack":{"mutable":[],"external":["G.hand"],"files":{"card.lua":2}},"Faceless Joker":{"mutable":[],"external":["G.hand"],"files":{"card.lua":2}},"Joker Stencil":{"mutable":["x_mult"],"external":["G.jokers"],"files":{"card.lua":3}},"Ceremonial Dagger":{"mutable":["mult"],"external":["G.jokers"],"files":{"card.lua":3}},"Banner":{"mutable":[],"external":["G.GAME.current_round.discards_left"],"files":{"card.lua":2}},"Misprint":{"mutable":[],"external":["G.deck"],"files":{"card.lua":2}},"Mystic Summit":{"mutable":[],"external":["G.GAME.current_round.discards_left"],"files":{"card.lua":2}},"Marble Joker":{"mutable":[],"external":["G.deck","G.playing_cards"],"files":{"card.lua":2}},"8 Ball":{"mutable":[],"external":["G.consumeables"],"files":{"card.lua":2}},"Dusk":{"mutable":[],"external":["G.GAME.current_round.hands_left"],"files":{"card.lua":2}},"Raised Fist":{"mutable":[],"external":["G.hand"],"files":{"card.lua":2}},"Abstract Joker":{"mutable":[],"external":["G.jokers"],"files":{"card.lua":2}},"Delayed Gratification":{"mutable":[],"external":["G.GAME.current_round.discards_left","G.GAME.current_round.discards_used","G.GAME.pack_choices","G.GAME.pack_size"],"files":{"card.lua":2}},"Gros Michel":{"mutable":[],"external":["G.GAME.pool_flags.gros_michel_extinct"],"files":{"card.lua":4}},"Supernova":{"mutable":[],"external":["G.GAME.hands[context.scoring_name].played"],"files":{"card.lua":2}},"Spare Trousers":{"mutable":["mult"],"external":[],"files":{"card.lua":3}},"Superposition":{"mutable":[],"external":["G.consumeables"],"files":{"card.lua":2}},"Ride the Bus":{"mutable":["mult"],"external":[],"files":{"card.lua":3}},"Egg":{"mutable":["extra_value"],"external":[],"files":{"card.lua":2}},"Burglar":{"mutable":[],"external":["G.GAME.current_round.discards_left"],"files":{"card.lua":2}},"Blackboard":{"mutable":[],"external":["G.hand"],"files":{"card.lua":2}},"Runner":{"mutable":["extra.chips"],"external":[],"files":{"card.lua":3}},"Ice Cream":{"mutable":["extra.chips"],"external":["G.jokers"],"files":{"card.lua":3}},"DNA":{"mutable":[],"external":["G.GAME.current_round.hands_played","G.deck","G.hand","G.playing_cards"],"files":{"card.lua":3}},"Constellation":{"mutable":["x_mult"],"external":[],"files":{"card.lua":2}},"Blueprint":{"mutable":[],"external":["G.jokers"],"files":{"card.lua":4}},"Cartomancer":{"mutable":[],"external":["G.consumeables"],"files":{"card.lua":2}},"Mr. Bones":{"mutable":[],"external":["G.GAME.blind.chips","G.GAME.chips"],"files":{"card.lua":2}},"Acrobat":{"mutable":[],"external":["G.GAME.current_round.hands_left"],"files":{"card.lua":2}},"Swashbuckler":{"mutable":["mult"],"external":["G.jokers"],"files":{"card.lua":3}},"Certificate":{"mutable":[],"external":["G.GAME.blind","G.hand"],"files":{"card.lua":2}},"Throwback":{"mutable":["x_mult"],"external":["G.GAME.skips"],"files":{"card.lua":3}},"Glass Joker":{"mutable":["x_mult"],"external":["G.hand"],"files":{"card.lua":4}},"Wee Joker":{"mutable":["extra.chips"],"external":[],"files":{"card.lua":3}},"The Idol":{"mutable":[],"external":["G.GAME.current_round.idol_card.id","G.GAME.current_round.idol_card.rank","G.GAME.current_round.idol_card.suit"],"files":{"card.lua":2}},"Matador":{"mutable":[],"external":["G.GAME.blind.triggered"],"files":{"card.lua":3}},"Hit the Road":{"mutable":["x_mult"],"external":[],"files":{"card.lua":3}},"Cavendish":{"mutable":[],"external":["G.jokers"],"files":{"card.lua":3}},"Card Sharp":{"mutable":[],"external":["G.GAME.hands[context.scoring_name]","G.GAME.hands[context.scoring_name].played_this_round"],"files":{"card.lua":2}},"Red Card":{"mutable":["mult"],"external":[],"files":{"card.lua":3}},"Madness":{"mutable":["x_mult"],"external":["G.jokers"],"files":{"card.lua":2}},"Square Joker":{"mutable":["extra.chips"],"external":[],"files":{"card.lua":3}},"Seance":{"mutable":[],"external":["G.consumeables"],"files":{"card.lua":2}},"Riff-raff":{"mutable":[],"external":["G.jokers"],"files":{"card.lua":2}},"Vampire":{"mutable":["x_mult"],"external":[],"files":{"card.lua":2}},"Hologram":{"mutable":["x_mult"],"external":[],"files":{"card.lua":3}},"Vagabond":{"mutable":[],"external":["G.GAME.dollars","G.consumeables"],"files":{"card.lua":2}},"Cloud 9":{"mutable":["nine_tally"],"external":["G.playing_cards"],"files":{"card.lua":3}},"Rocket":{"mutable":["extra.dollars"],"external":["G.GAME.blind.boss"],"files":{"card.lua":3}},"Obelisk":{"mutable":["x_mult"],"external":["G.GAME.hands","G.GAME.hands[context.scoring_name].played"],"files":{"card.lua":2}},"Luchador":{"mutable":[],"external":["G.GAME.blind","G.GAME.blind.disabled","G.jokers"],"files":{"card.lua":2}},"Gift Card":{"mutable":[],"external":["G.consumeables","G.jokers"],"files":{"card.lua":2}},"Erosion":{"mutable":[],"external":["G.GAME.starting_deck_size","G.playing_cards"],"files":{"card.lua":2}},"Mail-In Rebate":{"mutable":[],"external":["G.GAME.current_round.mail_card.id","G.GAME.current_round.mail_card.rank"],"files":{"card.lua":2}},"Hallucination":{"mutable":[],"external":["G.GAME.round_resets.ante","G.consumeables"],"files":{"card.lua":2}},"Lucky Cat":{"mutable":["x_mult"],"external":[],"files":{"card.lua":2}},"Baseball Card":{"mutable":[],"external":["G.jokers"],"files":{"card.lua":2}},"Bull":{"mutable":[],"external":["G.GAME.dollars"],"files":{"card.lua":2}},"Trading Card":{"mutable":[],"external":["G.GAME.current_round.discards_used"],"files":{"card.lua":3}},"Flash Card":{"mutable":["mult"],"external":[],"files":{"card.lua":3}},"Popcorn":{"mutable":["mult"],"external":["G.jokers"],"files":{"card.lua":3}},"Ramen":{"mutable":["x_mult"],"external":["G.jokers"],"files":{"card.lua":2}},"Ancient Joker":{"mutable":[],"external":["G.GAME.current_round.ancient_card.suit"],"files":{"card.lua":2}},"Seltzer":{"mutable":["extra"],"external":["G.jokers"],"files":{"card.lua":3}},"Castle":{"mutable":["extra.chips"],"external":["G.GAME.current_round.castle_card.suit"],"files":{"card.lua":3}},"Campfire":{"mutable":["x_mult"],"external":["G.GAME.blind.boss"],"files":{"card.lua":3}},"Brainstorm":{"mutable":[],"external":["G.jokers"],"files":{"card.lua":3}},"Satellite":{"mutable":[],"external":["G.GAME.consumeable_usage"],"files":{"card.lua":2}},"Driver":{"mutable":["driver_tally"],"external":["G.playing_cards"],"files":{"card.lua":3}},"Burnt Joker":{"mutable":[],"external":["G.GAME.current_round.discards_used","G.GAME.hands[text].chips","G.GAME.hands[text].level","G.GAME.hands[text].mult","G.hand"],"files":{"card.lua":2}},"Bootstraps":{"mutable":[],"external":["G.GAME.dollars"],"files":{"card.lua":2}},"Triboulet":{"mutable":[],"external":["G.hand"],"files":{"card.lua":2}},"Perkeo":{"mutable":[],"external":["G.consumeables"],"files":{"card.lua":2}},"Death":{"mutable":[],"external":["G.hand"],"files":{"card.lua":1}},"Strength":{"mutable":[],"external":["G.hand"],"files":{"card.lua":1}},"Black Hole":{"mutable":[],"external":["G.GAME.hands"],"files":{"card.lua":1}},"Talisman":{"mutable":[],"external":["G.hand"],"files":{"card.lua":1}},"Aura":{"mutable":[],"external":["G.hand"],"files":{"card.lua":2}},"Cryptid":{"mutable":[],"external":["G.deck","G.hand","G.playing_cards"],"files":{"card.lua":1}},"Sigil":{"mutable":[],"external":["G.hand"],"files":{"card.lua":3}},"Ouija":{"mutable":[],"external":["G.GAME.hands[self.ability.consumeable.hand_type].chips","G.GAME.hands[self.ability.consumeable.hand_type].level","G.GAME.hands[self.ability.consumeable.hand_type].mult","G.hand"],"files":{"card.lua":1}},"The Hanged Man":{"mutable":[],"external":["G.hand"],"files":{"card.lua":1}},"Familiar":{"mutable":[],"external":["G.hand"],"files":{"card.lua":3}},"Incantation":{"mutable":[],"external":["G.hand"],"files":{"card.lua":2}},"Immolate":{"mutable":[],"external":["G.hand","G.jokers"],"files":{"card.lua":1}},"The Fool":{"mutable":[],"external":["G.GAME.last_tarot_planet","G.consumeables"],"files":{"card.lua":2}},"The Hermit":{"mutable":[],"external":["G.GAME.dollars"],"files":{"card.lua":2}},"Temperance":{"mutable":["money"],"external":["G.hand","G.jokers"],"files":{"card.lua":3}},"The Emperor":{"mutable":[],"external":["G.consumeables"],"files":{"card.lua":3}},"Judgement":{"mutable":[],"external":["G.hand","G.jokers"],"files":{"card.lua":2}},"The Soul":{"mutable":[],"external":["G.jokers"],"files":{"card.lua":4}},"Ankh":{"mutable":[],"external":["G.GAME.blind","G.GAME.blind.name","G.jokers"],"files":{"card.lua":3}},"Wraith":{"mutable":[],"external":["G.GAME.dollars","G.jokers"],"files":{"card.lua":1}},"The Wheel of Fortune":{"mutable":[],"external":["G.jokers"],"files":{"card.lua":7}},"Ectoplasm":{"mutable":[],"external":["G.GAME.STOP_USE","G.GAME.ecto_minus","G.hand","G.jokers"],"files":{"card.lua":7}},"Hex":{"mutable":[],"external":["G.jokers"],"files":{"card.lua":3}}},"mutable":["burnt_hand","caino_xmult","driver_tally","extra","extra.chips","extra.dollars","extra.h_size","extra_value","hands_played_at_create","invis_rounds","loyalty_remaining","money","mult","nine_tally","perish_tally","steel_tally","stone_tally","to_do_poker_hand","x_mult","yorick_discards"],"external":["G.GAME.STOP_USE","G.GAME.bankrupt_at","G.GAME.blind","G.GAME.blind.boss","G.GAME.blind.chips","G.GAME.blind.disabled","G.GAME.blind.name","G.GAME.blind.triggered","G.GAME.chips","G.GAME.consumeable_usage","G.GAME.consumeable_usage_total","G.GAME.consumeable_usage_total.tarot","G.GAME.current_round.ancient_card.suit","G.GAME.current_round.castle_card.suit","G.GAME.current_round.discards_left","G.GAME.current_round.discards_used","G.GAME.current_round.free_rerolls","G.GAME.current_round.hands_left","G.GAME.current_round.hands_played","G.GAME.current_round.idol_card.id","G.GAME.current_round.idol_card.rank","G.GAME.current_round.idol_card.suit","G.GAME.current_round.mail_card.id","G.GAME.current_round.mail_card.rank","G.GAME.dollars","G.GAME.ecto_minus","G.GAME.hands","G.GAME.hands[context.scoring_name]","G.GAME.hands[context.scoring_name].played","G.GAME.hands[context.scoring_name].played_this_round","G.GAME.hands[self.ability.consumeable.hand_type].chips","G.GAME.hands[self.ability.consumeable.hand_type].level","G.GAME.hands[self.ability.consumeable.hand_type].mult","G.GAME.hands[text].chips","G.GAME.hands[text].level","G.GAME.hands[text].mult","G.GAME.hands_played","G.GAME.inflation","G.GAME.interest_amount","G.GAME.last_tarot_planet","G.GAME.pack_choices","G.GAME.pack_size","G.GAME.perishable_rounds","G.GAME.pool_flags.gros_michel_extinct","G.GAME.round_resets.ante","G.GAME.round_resets.discards","G.GAME.round_resets.hands","G.GAME.skips","G.GAME.starting_deck_size","G.GAME.used_jokers[k]","G.consumeables","G.deck","G.hand","G.jokers","G.playing_cards"]};
 const MUTABLE_FIELDS = new Set(JOKER_STATE.mutable);
+/* 有些牌的累计字段名和通用名不同，这里一并登记，读不出静态配置时按 0 起算 */
+['caino_xmult', 'yorick_discards', 'perish_tally', 'nine_tally', 'driver_tally', 'steel_tally', 'stone_tally', 'invis_rounds', 'extra_value', 'loyalty_remaining'].forEach(function (f) { MUTABLE_FIELDS.add(f) });
 /* __JOKER_STATE_END__ */
 const D = window.__BALATRO_DATA__;
 const ATLAS = window.__BALATRO_ATLAS__;
@@ -4047,8 +4049,10 @@ function enhValues (id) {
 /* 这些在原版里是"表"，写在条件里就是判存在（G.GAME.consumeable_usage_total and …），
    所以替换成 true/false，而不是数字 */
 const SC_TABLE_PATHS = /^(G\.GAME\.consumeable_usage_total|G\.GAME\.hands|G\.GAME\.blind|G\.GAME\.current_round|G\.GAME\.round_resets|G\.jokers|G\.hand|G\.deck|G\.discard|G\.consumeables|G\.playing_cards|G\.GAME)$/;
-function scStateNum (path) {
+function scStateNum (path, j) {
   const e = SC.env;
+  /* 玩家在这张牌的弹窗里选的值优先（花色是字符串，用来判 is_suit） */
+  if (j && j.params && j.params[path] !== undefined && j.params[path] !== '') return j.params[path];
   const p = path.replace(/^#\s*/, '').trim();
   if (SC_TABLE_PATHS.test(p)) return true;
   if (/^G\.deck\.cards$/.test(p)) return e.deckCards;
@@ -4079,10 +4083,10 @@ function handPlayCount (name) {
 }
 
 /** 把表达式里的外部状态替换成数字；认不出来的返回 null（调用方会标"需要手填"） */
-function substState (expr) {
+function substState (expr, j) {
   let unknown = false;
   const s = String(expr).replace(/(#\s*)?(G\.GAME(?:\.[A-Za-z_][\w]*|\[[^\]]+\])*|G\.(?:deck|playing_cards|hand|jokers|consumeables)(?:\.[A-Za-z_][\w]*)*)/g, (all) => {
-    const v = scStateNum(all);
+    const v = scStateNum(all, j);
     if (v === true) return 'true';
     if (v === false) return 'false';
     if (v == null) { unknown = true; return '0' }
@@ -4097,7 +4101,7 @@ function substState (expr) {
 function evalExpr (expr, jOrCfg, growth) {
   if (expr === undefined || expr === null) return null;
   const j = (jOrCfg && jOrCfg.cfg) ? jOrCfg : { cfg: jOrCfg || {}, state: (growth ? { mult: growth } : {}) };
-  const st = substState(expr);
+  const st = substState(expr, j);
   if (st == null) return null;
   const s = st.replace(/self\.ability\./g, '').replace(/\btemp_Mult\b/g, '0');
   const get = (path) => {
@@ -4130,7 +4134,8 @@ function evalExpr (expr, jOrCfg, growth) {
 
 /** 逐牌规则的条件判定：支持 is_suit / get_id 的常见写法 */
 const RANK_NAMES = { 14: 'A', 13: 'K', 12: 'Q', 11: 'J' };
-function condMatchesCard (cond, card) {
+function condMatchesCard (cond, card, j) {
+  cond = scSubstParams(cond, j);   /* 先把它读的动态值换成玩家选的花色/点数 */
   const id = RANK_ID[card.rank];
   const face = id >= 11 && id <= 13;
   let c = cond.replace(/^\s*and\s*/, '');
@@ -4176,7 +4181,7 @@ function jokerStateNum (j, path) {
  *  剩下认不出来的（伪随机、context.other_joker、牌堆里还剩什么牌…）返回 null，
  *  界面会把它列进"没自动算"，而不是假装算过了。 */
 function condMatchesHand (cond, j, playedCount) {
-  let c = String(cond || '').replace(/^\s*and\s+/, '').trim();
+  let c = scSubstParams(cond, j).replace(/^\s*and\s+/, '').trim();
   if (!c) return true;
   if (/^not context\.blueprint$/.test(c)) return true;
   if (/pseudorandom|context\.other_joker|context\.other_card|context\.destroying_card|G\.GAME\.blind\b/.test(c)) return null;
@@ -4189,7 +4194,7 @@ function condMatchesHand (cond, j, playedCount) {
     .replace(/self\.ability\.[A-Za-z_][\w.]*/g, (m) => { const v = jokerStateNum(j, m); return v == null ? '__UNK__' : String(v) })
     .replace(/G\.GAME\.blind\.boss/g, SC.env.bossBlind ? 'true' : 'false')
     .replace(/G\.GAME\.blind\.disabled/g, SC.env.blindDisabled ? 'true' : 'false');
-  const st = substState(c);
+  const st = substState(c, j);
   if (st == null) return null;
   const js = st
     .replace(/\band\b/g, '&&').replace(/\bor\b/g, '||').replace(/\bnot\b/g, '!')
@@ -4217,6 +4222,7 @@ function scoreCompute () {
   let isManual = false;
   const pending = [];
   scUpdateJokers();   /* 原版 update 里先算好的值（Joker Stencil、Blackboard…） */
+  scApplyAutoParams();  /* 没手填的话，用局面里的值把这张牌读的动态值补上 */
   /* ② 每张打出的牌（每一行都带 ref，界面据此高亮对应的那张卡图） */
   for (let ci = 0; ci < SC.played.length; ci++) {
     const c = SC.played[ci];
@@ -4254,7 +4260,7 @@ function scoreCompute () {
         }
         const rule = jokerRule(j);
         if (!rule || !scPerCardRule(rule)) continue;
-        if (!condMatchesCard(rule.c, c)) continue;
+        if (!condMatchesCard(rule.c, c, j)) continue;
         applyRule(rule, j, rows, () => ({ chips, mult }), (v) => { chips = v.chips; mult = v.mult }, { kind: 'joker', i: ji })
       }
       const ed = EDITION_NUM[c.ed];
@@ -4439,8 +4445,33 @@ const SC_EXTRA_RULES = {
   Campfire: { k: 'yes', c: 'self.ability.x_mult > 1', e: ['Xmult_mod=self.ability.x_mult'] },
   Ramen: { k: 'yes', c: 'self.ability.x_mult > 1', e: ['Xmult_mod=self.ability.x_mult'] },
   Madness: { k: 'yes', c: '', e: ['Xmult_mod=self.ability.x_mult'] },
+  /* 靠 current_round 里那个动态值判分的几张（原版写在别处，抽不出来） */
+  'Ancient Joker': { k: 'by-card', c: 'context.other_card:is_suit(G.GAME.current_round.ancient_card.suit)', e: ['Xmult_mod=self.ability.extra'] },
+  'The Idol': { k: 'by-card', c: 'context.other_card:get_id() == G.GAME.current_round.idol_card.id and context.other_card:is_suit(G.GAME.current_round.idol_card.suit)', e: ['Xmult_mod=self.ability.extra'] },
+  Castle: { k: 'yes', c: 'self.ability.extra.chips > 0', e: ['chip_mod=self.ability.extra.chips'] },
+  Canio: { k: 'yes', c: 'self.ability.caino_xmult > 1', e: ['Xmult_mod=self.ability.caino_xmult'] },
+  'Lucky Cat': { k: 'yes', c: 'self.ability.x_mult > 1', e: ['Xmult_mod=self.ability.x_mult'] },
   /* Blackboard：手里和打出的牌全是黑桃/梅花时 ×3（值在 update 里算好） */
   Blackboard: { k: 'yes', c: 'self.ability.__black > 0', e: ['Xmult_mod=self.ability.__black'] },
+};
+
+/** 没在手填的参数，用局面里的同名值兜底（例如全局的"已用塔罗牌"） */
+function scApplyAutoParams () {
+  for (const j of SC.jokers) {
+    j.params = j.params || {};
+    for (const prm of scJokerParams(j)) {
+      if (j.params[prm.path] !== undefined && j.params[prm.path] !== '') continue;
+      const v = SC_ENV_ALIAS[prm.path];
+      if (v && SC.env[v] !== undefined) j.params[prm.path] = SC.env[v];
+    }
+  }
+}
+
+/* 这些路径和"整体修改"里的字段是同一个东西（没重复放两组输入，直接引用） */
+const SC_ENV_ALIAS = {
+  'G.GAME.consumeable_usage_total.tarot': 'tarotUsed',
+  'G.GAME.consumeable_usage_total.planet': 'planetUsed',
+  'G.GAME.consumeable_usage_total.spectral': 'spectralUsed',
 };
 
 /** 原版每帧 update 里会先算好的一些值（Joker Stencil 的 x_mult、Blackboard 条件…），
@@ -5009,6 +5040,53 @@ const SC_ENV_FIELDS = [
   ['consumeablesUsed', '已有消耗品', 0, 10],
 ];
 
+/* 这张牌读的"动态值"按类型分：花色 / 点数 / 数字。同名路径的取值由玩家在它自己的弹窗里给。 */
+const SC_PARAM_SUIT = /^G\.GAME\.current_round\.[\w]+\.suit$/;
+const SC_PARAM_RANK = /^G\.GAME\.current_round\.[\w]+\.(rank|id)$/;
+const SUIT_LABEL = { S: '黑桃', H: '红桃', D: '方片', C: '梅花' };
+
+/** 这张牌要改的动态值（路径 + 类型 + 说明），排除已经在"整体修改"里的全局字段 */
+function scJokerParams (j) {
+  const meta = JOKER_STATE.jokers[j.name] || {};
+  const out = [];
+  for (const raw of (meta.external || [])) {
+    const p = String(raw).replace(/^#\s*/, '').trim();
+    if (!/^G\.GAME\./.test(p)) continue;
+    if (/probabilities|buffer|STOP_USE|ecto_minus|used_jokers/.test(p)) continue;
+    if (/^G\.GAME\.(dollars|starting_deck_size|blind|hands\[|round_resets\.(hands|discards))$/.test(p)) continue;
+    let type = 'num', label = '';
+    if (SC_PARAM_SUIT.test(p)) { type = 'suit'; label = '指定花色（这张牌按它判）' }
+    else if (SC_PARAM_RANK.test(p)) { type = 'rank'; label = '指定点数（这张牌按它判）' }
+    else if (/consumeable_usage_total\.tarot$/.test(p)) label = '已用塔罗牌张数';
+    else if (/consumeable_usage_total\.planet$/.test(p)) label = '已用星球牌张数';
+    else if (/consumeable_usage_total\.spectral$/.test(p)) label = '已用幽灵牌张数';
+    else if (/free_rerolls$/.test(p)) label = '免费重掷次数';
+    else if (/played_this_round$/.test(p)) label = '本回合打过几次';
+    else if (/\.played$/.test(p)) label = '这个牌型打过几次';
+    else if (/\.level$/.test(p)) label = '指定牌型的等级';
+    else continue;
+    if (!out.some((o) => o.path === p)) out.push({ path: p, type: type, label: label || p });
+  }
+  return out;
+}
+
+/** 把条件/表达式里这些路径换成玩家选的值（花色加引号、点数转成 id、数字直接写） */
+function scSubstParams (txt, j) {
+  let s = String(txt == null ? '' : txt);
+  const p = (j && j.params) || {};
+  for (const path in p) {
+    const v = p[path];
+    if (v === undefined || v === null || v === '') continue;
+    const re = new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, '\\/* 局面字段 ←→ 源码里的写法：只被一张牌用到的，就放到那张牌的弹窗里改 */'), 'g');
+    let lit;
+    if (SC_PARAM_SUIT.test(path)) lit = '"' + v + '"';
+    else if (SC_PARAM_RANK.test(path)) lit = String(/\.id$/.test(path) ? (RANK_ID[v] || v) : v);
+    else lit = String(v);
+    s = s.replace(re, lit);
+  }
+  return s;
+}
+
 /* 局面字段 ←→ 源码里的写法：只被一张牌用到的，就放到那张牌的弹窗里改 */
 const SC_ENV_PATHS = [
   [/^G\.GAME\.consumeable_usage_total\.tarot$/, 'tarotUsed', '已用塔罗牌'],
@@ -5020,7 +5098,7 @@ const SC_ENV_PATHS = [
 ];
 
 /** 这张小丑牌单独用到的局面字段（原版里只有它会读的那些） */
-function scJokerEnvFields (j) {
+function scJokerEnvFieldsOld (j) {
   const ext = (JOKER_STATE.jokers[j.name] || {}).external || [];
   const out = [];
   for (const raw of ext) {
@@ -5032,8 +5110,28 @@ function scJokerEnvFields (j) {
   return out;
 }
 
-/** 小丑牌弹窗里那一段"它单独用到的局面数值" */
+/** 小丑牌弹窗里"这张牌要改的动态值"：花色 / 点数 / 数字，各用各的控件 */
 function jenvHtml (j) {
+  const prms = scJokerParams(j);
+  if (!prms.length) return '';
+  const ctl = (prm) => {
+    const cur = (j.params && j.params[prm.path]) || '';
+    if (prm.type === 'suit') {
+      return '<select data-jparam="' + esc(prm.path) + '"><option value="">（未指定）</option>' +
+        ['S', 'H', 'D', 'C'].map((s) => '<option value="' + SUIT_EN[s] + '"' + (cur === SUIT_EN[s] ? ' selected' : '') + '>' + SUIT_LABEL[s] + ' ' + SUIT_SYM[s] + '</option>').join('') + '</select>';
+    }
+    if (prm.type === 'rank') {
+      return '<select data-jparam="' + esc(prm.path) + '"><option value="">（未指定）</option>' +
+        ['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2'].map((r) => '<option value="' + r + '"' + (cur === r ? ' selected' : '') + '>' + r + '</option>').join('') + '</select>';
+    }
+    return '<input type="number" data-jparam="' + esc(prm.path) + '" value="' + (cur === '' ? 0 : cur) + '">';
+  };
+  return '<div class="scgrowbox"><div class="scgrowtitle">这张牌的动态值（原版按它判：改这里才算得对）</div><div class="scgrowfs">' +
+    prms.map((p) => '<label class="scgrowf"><span>' + p.label + '</span>' + ctl(p) + '</label>').join('') + '</div></div>';
+}
+
+/** 旧版：它单独用到的局面数值 */
+function jenvHtmlOld (j) {
   const list = scJokerEnvFields(j);
   if (!list.length) return '';
   return '<div class="scgrowbox"><div class="scgrowtitle">这张牌单独用到的局面数值（原版里只有它读这些）</div><div class="scgrowfs">' +
@@ -5773,10 +5871,18 @@ function scOpenJokerEditor (j, keep) {
       jj.state[f] = SC_FIELD_HAND.has(f) ? st.value : (Number(st.value) || 0);
       scStopPlay(); SC_UI.step = -1; scAfterEdit(); return;
     }
+    const pr = e.target.closest('[data-jparam]');
+    if (pr) {
+      const jj2 = SC_UI.joker;
+      if (jj2) { jj2.params = jj2.params || {}; jj2.params[pr.dataset.jparam] = pr.value; scStopPlay(); SC_UI.step = -1; render() }
+      return;
+    }
     const ev = e.target.closest('[data-jenv]');
     if (ev) { SC.env[ev.dataset.jenv] = Number(ev.value) || 0; scStopPlay(); SC_UI.step = -1; scRefreshNumbers(document.getElementById('content')); return }
   };
   scroll.onchange = (e) => {
+    const pr2 = e.target.closest('[data-jparam]');
+    if (pr2 && SC_UI.joker) { SC_UI.joker.params = SC_UI.joker.params || {}; SC_UI.joker.params[pr2.dataset.jparam] = pr2.value; scStopPlay(); SC_UI.step = -1; render(); return }
     const st = e.target.closest('[data-jstate]');
     if (st && SC_FIELD_HAND.has(st.dataset.jstate) && SC_UI.joker) { SC_UI.joker.state[st.dataset.jstate] = st.value; scAfterEdit() }
   };
