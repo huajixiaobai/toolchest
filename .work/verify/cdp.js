@@ -2783,6 +2783,66 @@ const SCENARIOS = {
      perf.errors=window.__V.errors.length;
      r.perf=perf;
      return r })()`,
+  /* 负片效果 + 手机导入路径 */
+  negativeFix: `(async()=>{
+     const B=window.__BALATRO__; const r={};
+     const mean=(cv)=>{ const c=cv.getContext('2d'); const d=c.getImageData(0,0,cv.width,cv.height).data;
+       let n=0,s=0,sr=0,sg=0,sb=0; for(let i=0;i<d.length;i+=4){ if(d[i+3]<16) continue; n++; sr+=d[i]; sg+=d[i+1]; sb+=d[i+2];
+         s += 0.2126*d[i]+0.7152*d[i+1]+0.0722*d[i+2]; }
+       return n? {n, lum:+(s/n).toFixed(1), r:Math.round(sr/n), g:Math.round(sg/n), b:Math.round(sb/n)} : null };
+     const spec=B.specForItem(B.byId['j_joker']);
+     const plain=B.compose(Object.assign({},spec), 1);
+     const neg=B.compose(Object.assign({},spec,{edition:'e_negative'}), 1);
+     r.plain=mean(plain); r.negative=mean(neg);
+     r.inverted=r.plain&&r.negative? (r.negative.lum < r.plain.lum ? '变暗（明度反相生效）' : '变亮') : null;
+     /* 采样几张小丑牌的负片，看是否都走向反相 */
+     const ids=['j_joker','j_greedy_joker','j_abstract','j_scholar','j_stencil'];
+     r.samples=ids.map(id=>{ const sp=B.specForItem(B.byId[id]); if(!sp) return null;
+       const a=mean(B.compose(Object.assign({},sp),1)), b=mean(B.compose(Object.assign({},sp,{edition:'e_negative'}),1));
+       return {id, plain:a&&a.lum, neg:b&&b.lum, dunk:(a&&b)?(b.lum<a.lum):null}; }).filter(Boolean);
+     r.errors=window.__V.errors.length;
+     return r })()`,
+  bootMobile: `(async()=>{
+     const r={};
+     const q=(s)=>document.querySelector(s);
+     const inExe=q('#bootFileExe'), inDir=q('#bootFileDir');
+     r.inputs={exe:!!inExe, dir:!!inDir};
+     if(inExe){ const cs=getComputedStyle(inExe);
+       r.exeInput={display:cs.display, visible:cs.display!=='none'&&cs.visibility!=='hidden',
+                   accept:inExe.getAttribute('accept'), offscreen:cs.left}; }
+     r.labels={exe:!!document.querySelector('label[for="bootFileExe"]'), dir:!!document.querySelector('label[for="bootFileDir"]')};
+     r.modInputs={zip:(()=>{const z=q('#modZipInput'); return z?{display:getComputedStyle(z).display, accept:z.getAttribute('accept')}:null})(),
+                  dir:(()=>{const z=q('#modDirInput'); return z?{display:getComputedStyle(z).display}:null})()};
+     r.canDecompress=(typeof DecompressionStream!=='undefined');
+     r.warn=(q('.bootwarn')||{}).textContent?true:false;
+     r.errors=window.__V.errors.length;
+     return r })()`,
+  negativeOracle: `(async()=>{
+     const B=window.__BALATRO__; const S=B.state; const r={};
+     const px=(cv,x,y)=>{ const d=cv.getContext('2d').getImageData(x,y,1,1).data; return [d[0],d[1],d[2],d[3]] };
+     const spec=B.specForItem(B.byId['j_joker']);
+     const at=(ph)=>{ const old=S.phase; S.phase=ph; const cv=B.compose(Object.assign({},spec,{edition:'e_negative'}),1); S.phase=old; return cv };
+     S.phase=0; const plain=B.compose(Object.assign({},spec),1);
+     const n0=at(0), n1=at(1), n5=at(5);
+     const samples=[[35,60],[35,30],[20,20]];
+     r.px={ plain:samples.map(s=>px(plain,s[0],s[1])), neg0:samples.map(s=>px(n0,s[0],s[1])),
+            neg1:samples.map(s=>px(n1,s[0],s[1])), neg5:samples.map(s=>px(n5,s[0],s[1])) };
+     const diff=(a,b)=>{ let s=0; for(let i=0;i<3;i++) s+=Math.abs(a[i]-b[i]); return s };
+     r.delta={ neg0_vs_neg1:diff(r.px.neg0[0],r.px.neg1[0]), neg0_vs_neg5:diff(r.px.neg0[0],r.px.neg5[0]), plain_vs_neg0:diff(r.px.plain[0],r.px.neg0[0]) };
+     /* 用 negative.fs 的数学算一遍"应有值"：y=0（旧代码）与 y=1（新代码） */
+     const hsl=(c)=>{ const mx=Math.max(c[0],c[1],c[2])/255, mn=Math.min(c[0],c[1],c[2])/255, d=mx-mn, sum=mx+mn;
+       const o=[0,0,0.5*sum]; if(d===0) return o; o[1]=o[2]<0.5?d/sum:d/(2-sum);
+       if(mx===c[0]/255) o[0]=(c[1]-c[2])/255/d; else if(mx===c[1]/255) o[0]=(c[2]-c[0])/255/d+2; else o[0]=(c[0]-c[1])/255/d+4;
+       o[0]=((o[0]/6)%1+1)%1; return o };
+     const hue=(s,t,h)=>{ const hs=((h%1)+1)%1*6; if(hs<1) return (t-s)*hs+s; if(hs<3) return t; if(hs<4) return (t-s)*(4-hs)+s; return s };
+     const rgb=(c)=>{ if(c[1]<0.0001) return [c[2],c[2],c[2]]; const t=c[2]<0.5?c[1]*c[2]+c[2]:-c[1]*c[2]+(c[1]+c[2]); const s=2*c[2]-t;
+       return [hue(s,t,c[0]+1/3), hue(s,t,c[0]), hue(s,t,c[0]-1/3)] };
+     const oracle=(src,y)=>{ const h=hsl(src.slice(0,3)); if(y!==0) h[2]=1-h[2]; h[0]=-h[0]+0.2;
+       const c=rgb(h).map(v=>Math.min(1,Math.max(0,v))*255+0.8*(y!==0?0:0));
+       const tint=[79,99,103].map(v=>v*0.8); return c.map((v,i)=>Math.round(Math.min(255,v+tint[i]))) };
+     r.oracle={ from:r.px.plain[0], y0:oracle(r.px.plain[0],0), y1:oracle(r.px.plain[0],1), rendered:r.px.neg0[0] };
+     r.errors=window.__V.errors.length;
+     return r })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};
@@ -3217,7 +3277,7 @@ async function main () {
       await c.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 560, deviceScaleFactor: 1, mobile: false })
       LongMode = true
     }
-    if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile' || name === 'scoreCalcMobile' || name === 'scoreNewPresetMobile' || name === 'scorePickOpenMobilePhone' || name === 'scorePickScrollMobile' || name === 'scoreUi2Phone') {
+    if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile' || name === 'scoreCalcMobile' || name === 'scoreNewPresetMobile' || name === 'scorePickOpenMobilePhone' || name === 'scorePickScrollMobile' || name === 'scoreUi2Phone' || name === 'bootMobile') {
       // emulate a phone viewport (bootPhone tests the start screen visitors land on)
       await c.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
       await c.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {})
@@ -3297,7 +3357,7 @@ async function main () {
         console.log('             handed ' + path.basename(exe) + ' to the live start screen')
       } else console.log('❌ no file input on the live start screen')
     }
-    if (name === 'siteViewer' || name === 'bootPhone' || name === 'demoDebug' || name === 'demoRect' || name === 'demoRectMobile' || name === 'demoLayout' || name === 'demoLayoutMobile' || name === 'bootShort') {
+    if (name === 'bootMobile' || name === 'siteViewer' || name === 'bootPhone' || name === 'demoDebug' || name === 'demoRect' || name === 'demoRectMobile' || name === 'demoLayout' || name === 'demoLayoutMobile' || name === 'bootShort') {
       // the viewer lives one level down; navigate from the driver so the eval isn't killed
       await c.send('Page.navigate', { url: viewerUrl(clean) }).catch(() => {})
       await sleep(1800)

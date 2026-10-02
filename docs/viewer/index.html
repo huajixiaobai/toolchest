@@ -849,6 +849,9 @@ body{background:
   .scplay{gap:5px;padding:6px 8px}
 }
 
+/* 文件输入框：屏幕外但保持可见（display:none 会让手机上点按钮没反应），也不限制类型 */
+.filein{position:absolute;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none}
+
 /* Start screen for the web build. Uses the same palette as the viewer.
    ── 布局要点（踩过坑，别改回去）─────────────────────────────────────────
    #boot 是 fixed 满屏的滚动容器。**不能用 align-items:center**：卡片比屏幕高时，
@@ -909,6 +912,11 @@ body{background:
 .bootdrop .big{font-size:22px;line-height:1;margin-bottom:8px;color:var(--accent,#4bc292);opacity:.9}
 /* 触屏上没有拖放这回事，所以手机显示 .boottap，桌面才显示 .bootdrop */
 .boottap{display:none}
+/* 文件输入框：放在屏幕外但**保持可见**（不能 display:none，否则手机上点按钮没反应） */
+.bootfile{position:absolute;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none}
+.btn.off,.btn:disabled{opacity:.45;pointer-events:none;box-shadow:none}
+label.btn{display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.bootwarn{margin-top:10px;padding:9px 11px;border-radius:8px;background:#2a2211;color:#e7c98a;font-size:12px;line-height:1.7;box-shadow:0 0 0 2px #7a6430}
 .bootnotes{margin:16px 0 0;padding-left:18px;font-size:12px;line-height:1.85;color:var(--fg3,#6d7d8d)}
 .bootstatus{margin-top:16px;font-size:12.5px;line-height:1.7;border-radius:8px;padding:10px 12px}
 .bootstatus.busy{background:#131c24;border:1px solid var(--line,#26313d);color:var(--fg2,#9fb0c0)}

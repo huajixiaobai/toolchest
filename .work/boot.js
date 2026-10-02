@@ -370,8 +370,11 @@
     card.appendChild(cols)
 
     const buttons = el('div', 'bootbtns')
-    const bExe = el('button', 'btn primary', '选择 Balatro.exe')
-    const bDir = el('button', 'btn', '选择游戏文件夹')
+    /* 用 <label for> 包成按钮：手机上是"原生"触发选择器，比 JS 调 .click() 稳得多 */
+    const bExe = el('label', 'btn primary', '选择 Balatro.exe')
+    bExe.setAttribute('for', 'bootFileExe')
+    const bDir = el('label', 'btn', '选择游戏文件夹')
+    bDir.setAttribute('for', 'bootFileDir')
     buttons.appendChild(bExe); buttons.appendChild(bDir)
     imp.appendChild(buttons)
 
@@ -381,9 +384,13 @@
       '页面只是把你自己那份游戏里的内容读出来给你看。全程在本地完成，不上传任何数据；' +
       '选过一次之后本站会记住它（存在你自己的浏览器里），下次打开直接就是图鉴。'))
 
-    const inExe = el('input'); inExe.type = 'file'; inExe.accept = '.exe,.zip,application/octet-stream'; inExe.style.display = 'none'
-    const inDir = el('input'); inDir.type = 'file'; inDir.multiple = true; inDir.style.display = 'none'
-    if ('webkitdirectory' in inDir) { inDir.webkitdirectory = true; inDir.setAttribute('webkitdirectory', '') } else { bDir.disabled = true; bDir.title = '这个浏览器不支持选文件夹，请用 exe 或直接拖进来' }
+    /* 关键：**不能** display:none —— iOS/Safari 和部分安卓浏览器对不可见的 file input
+       调 .click()（或点绑定的 label）时不会打开选择器，表现就是"点了没反应"。
+       放到屏幕外但保持可见即可。另外**不要**写 accept：安卓的文件选择器会把不认识的
+       .exe 变灰、点不动（这正是"点某个文件夹里的 exe 没反应"的另一个原因）。 */
+    const inExe = el('input', 'bootfile'); inExe.type = 'file'; inExe.id = 'bootFileExe'
+    const inDir = el('input', 'bootfile'); inDir.type = 'file'; inDir.id = 'bootFileDir'; inDir.multiple = true
+    if ('webkitdirectory' in inDir) { inDir.webkitdirectory = true; inDir.setAttribute('webkitdirectory', '') } else { bDir.classList.add('off'); bDir.title = '这个浏览器不支持选文件夹，请用 exe，或先把游戏目录压成 zip' }
     imp.appendChild(inExe); imp.appendChild(inDir)
 
     const drop = el('div', 'bootdrop')
@@ -395,12 +402,22 @@
     const tap = el('div', 'boottap')
     tap.appendChild(el('div', null, '点上面的按钮选择文件。'))
     tap.appendChild(el('div', null, '手机上「选择游戏文件夹」最省事；如果系统不让选文件夹，就把游戏目录压成一个 .zip 再选。'))
+    tap.appendChild(el('div', null, '如果点了按钮没反应：把系统文件列表右上角的类型切成「所有文件」—— 安卓默认会把 .exe 当成未知类型藏起来。'))
     imp.appendChild(tap)
 
     /* 进度/错误提示放在按钮下方，解析时一定看得见 */
     const status = el('div', 'bootstatus')
     status.style.display = 'none'
     imp.appendChild(status)
+
+    /* 先检查这台设备到底能不能解压：不支持就当场说清楚，别等选完文件才失败 */
+    if (typeof DecompressionStream === 'undefined' || typeof File === 'undefined' || !File.prototype.arrayBuffer) {
+      const warn = el('div', 'bootwarn',
+        '⚠️ 这个浏览器缺少解压能力（DecompressionStream），选了游戏文件也解不开。' +
+        '请换成较新的 Chrome / Edge / Safari（iOS 16.4+）打开本站，在电脑上则可以用自带的 local/ 版。')
+      imp.appendChild(warn)
+      bExe.classList.add('off'); bDir.classList.add('off')
+    }
 
     /* ------------------------------------------------------------------ 预览区（右栏）
      * 「它能做什么」属于这个工具自己：桌面分栏时它在导入右侧，窄屏时堆在导入下面。
@@ -509,10 +526,21 @@
       }
     }
 
-    bExe.onclick = () => inExe.click()
-    bDir.onclick = () => inDir.click()
-    inExe.onchange = () => { const f = inExe.files[0]; inExe.value = ''; if (f) run('exe', f) }
-    inDir.onchange = () => { const f = Array.from(inDir.files); inDir.value = ''; if (f.length) run('dir', f) }
+    /* label 已经会原生触发，这里只在"点了没反应"时兜底（有些内嵌浏览器不吃 label） */
+    bExe.onclick = (e) => { if (!inExe.files || !inExe.files.length) { /* 交给 label 的原生行为 */ } }
+    inExe.onchange = () => {
+      const f = inExe.files && inExe.files[0]
+      inExe.value = ''
+      if (!f) { setStatus('bad', '没有选到文件。如果系统的文件列表里 exe 是灰的，把文件类型切成「所有文件」再试，或者改用手机上的「文件」App 里的 Balatro.exe。'); return }
+      setStatus('', '已选：' + f.name + '（' + MB(f.size) + '），正在读取…')
+      run('exe', f)
+    }
+    inDir.onchange = () => {
+      const f = Array.from(inDir.files || [])
+      inDir.value = ''
+      if (!f.length) { setStatus('bad', '没有选到文件。有的手机不让选文件夹，可以先把游戏目录压成一个 .zip 再选。'); return }
+      run('dir', f)
+    }
 
     for (const ev of ['dragenter', 'dragover']) window.addEventListener(ev, (e) => {
       if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return

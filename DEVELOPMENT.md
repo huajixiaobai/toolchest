@@ -439,6 +439,21 @@ node bundle.js
 
 ## 九、更新记录
 
+**第二十七轮（修：负片效果完全不对 + 手机选不了 exe）**
+- 报告两件事：手机上点「选择 Balatro.exe」、去文件夹里点那个 exe 完全没反应；负片版本的显示效果完全不对。并要求排查同类问题。
+- **负片（两个叠加的 bug，都在同一个地方）**：
+  1. shader 自己的 vec2 uniform（`negative` / `hologram` 的 `.g`）被传成 0。游戏里 `send_to_shader[2] = G.TIMERS.REAL`（永远 > 0），而 `negative.fs` 拿它当开关：`if (negative.g > 0.0 || negative.g < 0.0) SAT.b = 1.-SAT.b;` —— 传 0 时"明度反相"整段被跳过。相位滑杆默认 0，所以必然踩中。改成 `Math.max(phase, 1)`。
+  2. **更严重**：负片画完之后又被**原图盖了回去** —— `drawShadedTile` 里那句 `if (negative && key !== 'negative') ctx.drawImage(base)` 本意是给非负片叠层用，结果让 negative_shine 这一步把原卡重画上去，负片看起来就是"原卡 + 一点蓝"。原版`card.lua:4414-4420`里负片是**替换**底图。改成 `if (!negative)` 才画。
+- 量出来的对比（同一像素，负片渲染 vs 用 negative.fs 数学写的 oracle）：
+  - 普通卡 (129,206,253) → 负片 **(84,148,222)**，oracle（y>0）预测 (65,103,208) ✓ 对上了
+  - 白色区域 (255,255,255) → 负片 **(71,86,91)**（白卡变深蓝灰 = 负片该有的样子）
+  - 与普通卡的像素差从 **16 → 134**
+- **手机选不了 exe（两个原因）**：
+  1. 文件输入框是 `display:none` —— iOS/Safari 和部分安卓浏览器对不可见的 file input 调 `.click()` 不会打开选择器（表现就是"点了没反应"）。改成屏幕外保持可见（`.bootfile` / `.filein`）。
+  2. `accept='.exe,.zip,application/octet-stream'` —— 安卓的文件选择器会把不认识的 `.exe` 变灰、点不动。**去掉 accept**，改为内容校验；按钮改成 `<label for>` 原生触发（比 JS 调 click 稳）；选完文件立刻显示"已选：xxx（56 MB），正在读取…"，选不到也有明确提示（提示把类型切成「所有文件」）；启动时先检测 `DecompressionStream`，不支持就当场警告而不是等选完再失败。
+  - **同类排查**：mod 导入的两个 input（`#modZipInput` 也是 `display:none` + accept 限制）同样中招，一并改成 `.filein` + 不限类型。
+  - 验证（390×844 手机视口，站点版）：`#bootFileExe`/`#bootFileDir` 均存在且 `display:block`、`visibility:visible`、`accept=null`、两个 `label[for]` 都在 ✓；真 `Balatro.exe` 走同一条路仍然 527 条目导入成功 ✓。
+
 **第二十六轮（修卡顿：监听器叠加 + 卡图缓存；顺手按反馈裁剪界面）**
 - 报告：改个牌的强化就把电脑吹起来了、网页卡住要等一会才能切、点快了直接报"页面未响应"，连改小丑牌数值点快了也卡。
 - **根因（量出来的）**：弹窗的 `.scpanelscroll` / `.scpanelfoot` 容器元素是复用的，只换内部 innerHTML，而我用了 `addEventListener` 挂 handler —— 于是**每编辑一次就多挂一个**，点得越快叠得越多，触发一次点击会重入 N 次、每次都整页重建，指数级爆掉。改成属性式 handler（`onclick` / `oninput` / `onchange`）天然幂等。

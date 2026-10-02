@@ -318,8 +318,8 @@ function viewMods (root) {
         <button class="btn" id="modPickZip">选择 Mod zip</button>
         ${MODS.length ? `<button class="btn" id="modClear">全部卸载（${MODS.length}）</button>` : ''}
       </div>
-      <input type="file" id="modDirInput" webkitdirectory directory multiple style="display:none">
-      <input type="file" id="modZipInput" accept=".zip,.balatro,.mod,application/zip" style="display:none">
+      <input type="file" id="modDirInput" class="filein" webkitdirectory directory multiple>
+      <input type="file" id="modZipInput" class="filein">
     </div>
     <div class="glabel">已导入（${MODS.length} 个 Mod · ${modItems} 个条目）</div>
     <div class="modlist" id="modList"></div>
@@ -569,8 +569,13 @@ const GL = (() => {
     if (u.love_ScreenSize) gl.uniform2f(u.love_ScreenSize, w, h);
     if (u.burn_colour_1) gl.uniform4f(u.burn_colour_1, 0, 0, 0, 0);
     if (u.burn_colour_2) gl.uniform4f(u.burn_colour_2, 0, 0, 0, 0);
-    // the effect's own vec2 = send_to_shader: {REAL/28, REAL}   (card.lua:4349)
-    if (pr.flavour && u[pr.flavour]) gl.uniform2f(u[pr.flavour], phase / 28, phase);
+    /* 效果自己的 vec2 = send_to_shader = {min(VT.r*3,1)+REAL/28, REAL}（card.lua:4349-4350）。
+       y 分量在游戏里是 G.TIMERS.REAL，**永远大于 0**；而 negative.fs 拿它当开关：
+         if (negative.g > 0.0 || negative.g < 0.0) SAT.b = 1.-SAT.b;
+       传 0 的话"明度反相"整段会被跳过 —— 负片就只剩红色通道反相 + 蓝灰叠色，和原版完全不是一回事。
+       相位滑杆默认 0，所以这里取 max(phase, 1)：既不会变成 0，也和游戏里的"某一帧"等价。
+       （hologram.fs 同样用自己的 .g 当时间量，一起修好。） */
+    if (pr.flavour && u[pr.flavour]) gl.uniform2f(u[pr.flavour], phase / 28, Math.max(phase, 1));
   }
   /** Copy the result off the GL canvas. */
   function finish (W, H) {
@@ -752,7 +757,11 @@ function compose (spec, scale, phase) {
   const drawShadedTile = (spec2, key, opts) => {
     if (!spec2) return;
     const base = tileLayer(spec2, W, H, spec.highContrast);
-    if (negative && key !== 'negative') ctx.drawImage(base, 0, 0);
+    /* 负片牌上**不能**再把原图垫回去：原版（card.lua:4414-4420）负片是"替换"底图，
+       之后只用 negative_shine 叠一层闪烁（那一层自己大部分是透明的）。
+       之前这里把原图重新画了上去，于是负片看起来几乎就是原卡 + 一点蓝 —— 也就是用户说的
+       "完全不对"。 */
+    if (!negative) ctx.drawImage(base, 0, 0);
     const over = shadeTile(spec2, W, H, key, phase, opts);
     if (over) ctx.drawImage(over, 0, 0);
   };

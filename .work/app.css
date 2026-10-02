@@ -836,3 +836,6 @@ body{background:
   .scplaymath b{font-size:16px}
   .scplay{gap:5px;padding:6px 8px}
 }
+
+/* 文件输入框：屏幕外但保持可见（display:none 会让手机上点按钮没反应），也不限制类型 */
+.filein{position:absolute;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none}
