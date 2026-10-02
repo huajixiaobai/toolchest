@@ -439,6 +439,34 @@ node bundle.js
 
 ## 九、更新记录
 
+**第二十四轮（按原版补全算分要素：局面数值、记录型小丑牌、拖拽、默认 8 张手牌）**
+- 报告一串问题：牌型没中文、**有些小丑牌看"剩余多少牌"这类局面值却没地方改**、选择器**没法上下滚动**、选了什么**没有反馈**、加错了**没有撤销按钮**、**记录型的牌**（比如「每用一张塔罗牌 +1 倍率」）没法填数值、**牌型的打出次数**也要能改、**小丑牌顺序**只能按按钮不能拖、手牌应该**默认就发 8 张**；最后一句是"**先看原版得分涉及了多少元素，然后老老实实按原版加入**"。
+- 先做那件"老实"的事：新增 `.work/gen-state.js`，把游戏源码里**每张小丑牌读到的状态**扫出来（32 个 lua、385 个 `self.ability.name ==` 块）：
+  - **记录值**（`self.ability.mult / x_mult / extra.chips / stone_tally …`）：命中 **115 张小丑牌 / 20 个字段**（Ride the Bus、Green Joker、Hologram、Constellation、Wee Joker、Ice Cream…）
+  - **外部局面**：**55 个字段** —— `G.GAME.dollars`、`current_round.hands_left / discards_left / hands_played`、`#G.deck.cards`、`starting_deck_size`、`consumeable_usage_total.tarot / planet / spectral`、`G.GAME.hands[x].played`（牌型打过几次）、`blind.boss`… 结果注入 `app.js` 的 `JOKER_STATE` 块（和 `JOKER_RULES` 一样带标记，构建时自动带上）。
+- 引擎跟着改：
+  - `evalExpr` 先把外部局面替换成数字，再取这张牌自己的**记录值**（玩家填的优先，其次才是配置里的静态值）
+  - 新条件判定 `condMatchesHand`：把原版条件逐项换成 JS（`and/or/not`、`next(context.poker_hands['X'])`、`#context.full_hand`、`G.GAME.*`、`self.ability.*`），判不了才返回"未知"；**以前 `manual` 的规则一律跳过，现在认得出条件的就真算**
+  - 逐牌/整手改按**区域**分（`individual`/`repetition` 逐牌、`main` 整手），修正了 Scary Face 这类被标成 manual 的逐牌规则
+  - `scUpdateJokers()`：原版在每帧 update 里先算好的值（Joker Stencil 的 `x_mult = 空栏位 + 自己`、Blackboard 的"全是黑桃/梅花"）在结算前按同一规则更新
+  - **Blueprint / Brainstorm**：复制右边那张 / 最左边那张（`card.lua:4225-4239`），账目里写成「Blueprint → Jolly Joker +8 倍率」
+  - 配置里的大写 `Xmult` 归一化成 `x_mult`（The Duo / Trio / Family / Order / Tribe 之前根本没算上）
+  - 13 条**手写补充规则**（`SC_EXTRA_RULES`）：原版这些牌的分不在 `calculate_joker` 里，而是在 update 里算好存进 `self.ability.x_mult`，抽不出来 —— Joker Stencil、Hologram、Constellation、Throwback、Glass Joker、Yorick、Hit the Road、Campfire、Ramen、Madness、Blackboard
+  - "没自动算"的提示改成**结算完再筛**：一行都没贡献的才列出来，且配置驱动的那几族（花色/牌型/倍数）不再误报
+- 界面（逐条对着用户点名的问题改）：
+  - 牌型下拉与 HUD 用**中文牌型名**（`i18n.zh_CN`），并按原版 `order` 从高牌排到同花五条
+  - 新增**「局面」面板**：18 个数值（金钱/剩余出牌/剩余弃牌/本回合已出/牌堆剩几张/起始牌组/手里几张/小丑栏位/消耗品牌位/已用塔罗·星球·幽灵/底注/回合）+ 两个开关（BOSS 盲注、盲注被禁用），外加可展开的 **12 个牌型已打次数**；改哪个都即时重算（只更新数字、不重建 DOM，否则打字时光标会跳）
+  - 点小丑牌 → **记录值面板**：按 `gen-state.js` 扫出来的字段生成输入框（带中文标签），另有「图鉴 / 移除 / 收起」与**手填修正**（+筹码 / +倍率 / ×倍率）；卡图上挂记录值角标
+  - **可以拖**：小丑牌行与手牌行都支持拖拽换位置，拖动时橙色插入条指示落点
+  - **默认发 8 张**：第一次进计分页按原版起手自动发一手（8 张），按钮改成「发 8 张」
+  - 选择器：**修好不能上下滚动**（flex 子项缺 `min-height:0`，网格把面板撑破了）、加**已选反馈**（格子右上角 ✓/×N 角标 + 绿色描边 + 顶部"本次加入"清单）、加**「↩ 撤销」与「清空本次」**（清单里每条也能单独撤）
+- 验证（新增 3 个场景，全是量出来的）：
+  - `scoreState`：首次进入 8 张 0 选中 ✓；牌型下拉 12 项且首项「高牌（High Card）」✓；**改牌堆张数 → Blue Joker 筹码 30 → 90** ✓；**已用塔罗牌 7 张 → Fortune Teller 倍率 2 → 9** ✓；Ride the Bus 记录值填 3 → 倍率 9 → 12 ✓；**拖拽**：`j_joker|j_greedy_joker|j_cavendish` → `j_greedy_joker|j_cavendish|j_joker` ✓；选择器 `scrollHeight 1857 > clientHeight 778`（真能滚）✓；加 2 张 → 清单 2 条、角标 3 个 → 撤销后 1 条 → 清空后 0 条 ✓
+  - `scoreDebug`：Jolly Joker +8 倍率、The Duo ×2（大写 `Xmult` 修好前是 0）、Sly Joker +50 筹码、**Joker Stencil ×5**（5 栏位 − 1 张 + 自己）、Hologram ×1、**Blueprint → Jolly Joker** 复制成功
+  - `scoreCoverage`：150 张小丑牌逐张跑三手牌（对子/同花/同花顺），**30 张真的算出了贡献**、53 张条件未满足（正常）、**67 张仍提示"没自动算"**（大多是金钱/手牌上限/生成消耗品/概率类，本来就不改这一手的分）
+  - 4 个手算样例仍然全过（180/160/220/75）；codex/mobile/bootErr/themeAudit 回归全绿 0 报错；站点体检 28 项通过
+- **仍然算不了的**（老实说）：① 概率类（幸运牌、8 球、骰子、血石、Oops!）；② 原版改的是别的东西的牌（金钱、手牌上限、重触发、生成消耗品）—— 它们在这张牌的「手填修正」里可以手动补。
+
 **第二十三轮（照原版重做界面：计分页换成游戏里的对局画面，加牌改成点一下就加）**
 - 报告两句：**布局还是一般**、**加入小丑牌还有别的都太麻烦**。
 - 先把原版的 UI 规范从游戏源码里逆出来（4 份，存在 `.work/specs/`，含 Lua 摘录所以不进仓库），确认了几件之前只能猜的事：

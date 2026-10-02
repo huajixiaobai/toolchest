@@ -2546,6 +2546,122 @@ const SCENARIOS = {
      r.stage=r.board;
      r.errors=window.__V.errors.length;
      return r })()`,
+  /* 原版算分涉及的状态：局面数值 + 小丑牌记录值 + 拖拽 + 选择器滚动/撤销 */
+  scoreState: `(async()=>{
+     const B=window.__BALATRO__; const r={view:'scoreState'};
+     const SC=B.score.state;
+     SC.played=[]; SC.held=[]; SC.jokers=[]; B.render();
+     B.state.tab='score'; B.render(); await __V.wait(1200);
+     const q=(s)=>document.querySelector(s), qa=(s)=>[].slice.call(document.querySelectorAll(s));
+     /* ① 首次进入应当自动发 8 张 */
+     r.deal={hand:qa('#scHand .sctile').length, sel:qa('#scHand .sctile.sel').length};
+     /* ② 牌型下拉是中文 */
+     const sel=q('#scHandType');
+     r.handOptions={count:sel.options.length, first:sel.options[0].textContent, flushFive:(sel.options[sel.options.length-1]||{}).textContent};
+     r.hudName=(q('.schandname b')||{}).textContent;
+     /* ③ 局面：牌堆张数 → Blue Joker 的筹码 */
+     SC.jokers.push(B.score.jokerFromItem(B.byId['j_blue_joker']));
+     B.render(); await __V.wait(600);
+     const envDeck=q('[data-env="deckCards"]');
+     r.envFields=qa('[data-env]').length;
+     envDeck.value='10'; envDeck.dispatchEvent(new Event('input',{bubbles:true})); await __V.wait(500);
+     const chips10=q('.scchips b').textContent;
+     envDeck.value='40'; envDeck.dispatchEvent(new Event('input',{bubbles:true})); await __V.wait(500);
+     r.blueJoker={deckCards:SC.env.deckCards, chipsAt10:chips10, chipsAt40:q('.scchips b').textContent};
+     /* ④ 记录值：Fortune Teller 看已用塔罗牌张数 */
+     SC.jokers=[]; SC.jokers.push(B.score.jokerFromItem(B.byId['j_fortune_teller']), B.score.jokerFromItem(B.byId['j_ride_the_bus']));
+     B.render(); await __V.wait(600);
+     const tq=q('[data-env="tarotUsed"]');
+     tq.value='7'; tq.dispatchEvent(new Event('input',{bubbles:true})); await __V.wait(500);
+     r.fortune={mult:q('.scmult b').textContent, rows:qa('.scline').length, warned:qa('.scwarn div').map(d=>d.textContent.slice(0,30))};
+     /* ⑤ 小丑牌面板：点开 → 改它自己的记录值 */
+     const jt=q('#scJokers .sctile:nth-child(2)')||q('#scJokers .sctile'); jt.click(); await __V.wait(500);
+     r.jokerPanel={open:!!q('.scfocus'), growthInputs:qa('[data-jstate]').length, manualInputs:qa('[data-jman]').length,
+                   title:(q('.scpkh .gtitle')||{}).textContent};
+     const gm=q('[data-jstate="mult"]');
+     if(gm){ gm.value='3'; gm.dispatchEvent(new Event('input',{bubbles:true})); await __V.wait(500) }
+     r.afterGrowth={mult:q('.scmult b').textContent, state:JSON.stringify(SC.jokers[1].state)};
+     /* ⑥ 拖拽换结算顺序 */
+     SC.jokers=[]; ['j_joker','j_greedy_joker','j_cavendish'].forEach(id=>SC.jokers.push(B.score.jokerFromItem(B.byId[id])));
+     B.render(); await __V.wait(700);
+     const before=SC.jokers.map(j=>j.id).join('|');
+     const tiles=qa('#scJokers .sctile');
+     const dt=new DataTransfer();
+     tiles[0].dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:dt}));
+     const rect=tiles[2].getBoundingClientRect();
+     tiles[2].dispatchEvent(new DragEvent('dragover',{bubbles:true,dataTransfer:dt,clientX:rect.right-2}));
+     tiles[2].dispatchEvent(new DragEvent('drop',{bubbles:true,dataTransfer:dt,clientX:rect.right-2}));
+     await __V.wait(600);
+     r.drag={before, after:SC.jokers.map(j=>j.id).join('|')};
+     /* ⑦ 选择器：能滚动 + 撤销 + 已选反馈 */
+     q('#scAddJoker').click(); await __V.wait(1200);
+     const grid=q('#scPickGrid');
+     r.picker={scrollable:grid.scrollHeight>grid.clientHeight+4, scrollH:grid.scrollHeight, clientH:grid.clientHeight,
+               panelH:Math.round(q('.scpickpanel').getBoundingClientRect().height), winH:window.innerHeight};
+     const cells=qa('#scPickGrid .scpkcell');
+     cells[0].click(); cells[1].click(); await __V.wait(700);
+     r.added={jokers:SC.jokers.length, logChips:qa('#scPickLog .scpicklogchip').length,
+              pickedBadges:qa('.scpkcell .scpkpick').length, undoDisabled:q('#scPickUndo').disabled};
+     q('#scPickUndo').click(); await __V.wait(600);
+     r.afterUndo={jokers:SC.jokers.length, logChips:qa('#scPickLog .scpicklogchip').length};
+     q('#scPickClear').click(); await __V.wait(600);
+     r.afterClear={jokers:SC.jokers.length, undoDisabled:q('#scPickUndo').disabled};
+     q('#scPickDone').click();
+     r.errors=window.__V.errors.length;
+     return r })()`,
+  /* 覆盖率：150 张小丑牌逐张单独上一次，看有多少能真算出来 */
+  scoreCoverage: `(async()=>{
+     const B=window.__BALATRO__; const SC=B.score.state;
+     const saved={played:SC.played, held:SC.held, jokers:SC.jokers, hand:SC.hand, env:JSON.stringify(SC.env)};
+     SC.hand='Pair'; SC.played=[B.score.card('K','S'),B.score.card('K','H')]; SC.held=[];
+     const items=B.items.filter(x=>x.cat==='Joker');
+     const out={computed:[], manual:[], nothing:[], error:[], hasRule:[], noRule:[]};
+     for(const it of items){
+       let j=null; try{ j=B.score.jokerFromItem(it) }catch(e){ out.error.push(it.name+' ('+e.message+')'); continue }
+       if(!j){ out.error.push(it.name+' (no cfg)'); continue }
+       SC.jokers=[j];
+       /* 三手牌都试一遍：对子 / 同花 / 顺子，尽量让按牌判定的规则有触发机会 */
+       const hands=[['Pair',[['K','S'],['K','H']],[]],['Flush',[['A','S'],['K','S'],['Q','S'],['J','S'],['9','S']],[]],
+                    ['Straight Flush',[['2','H'],['3','H'],['4','H'],['5','H'],['6','H']],[]]];
+       let r=null, anyRow=false, anyWarn=false;
+       for(const [hn,cs,hd] of hands){
+         SC.hand=hn; SC.played=cs.map(x=>B.score.card(x[0],x[1])); SC.held=hd.map(x=>B.score.card(x[0],x[1]));
+         let rr=null; try{ rr=B.score.compute() }catch(e){ out.error.push(it.name+' ('+e.message+')'); break }
+         if(rr.rows.some(x=>x.ref&&x.ref.kind==='joker'&&x.ref.i===0&&x.op!=='note')) anyRow=true;
+         if(rr.warns.some(w=>w.i===0)) anyWarn=true;
+         r=rr;
+       }
+       if(!r) continue;
+       const hasRule=!!B.score.rules().rules.find(x=>x.n===it.name);
+       (hasRule?out.hasRule:out.noRule).push(it.name);
+       const hasJokerRow=r.rows.some(x=>x.ref&&x.ref.kind==='joker'&&x.ref.i===0&&x.op!=='note');
+       const warned=r.warns.some(w=>w.i===0);
+       if(hasJokerRow) out.computed.push(it.name); else if(warned) out.manual.push(it.name); else out.nothing.push(it.name);
+     }
+     SC.played=saved.played; SC.held=saved.held; SC.jokers=saved.jokers; SC.hand=saved.hand; SC.env=JSON.parse(saved.env);
+     B.render();
+     return {total:items.length, computed:out.computed.length, manual:out.manual.length, nothing:out.nothing.length, hasRule:out.hasRule.length, noRule:out.noRule.length, noRuleList:out.noRule,
+             manualList:out.manual.slice(0,40), nothingList:out.nothing.slice(0,25), errorList:out.error.slice(0,10),
+             errors:window.__V.errors.length} })()`,
+  scoreDebug: `(async()=>{
+     const B=window.__BALATRO__; const SC=B.score.state;
+     const out={};
+     for(const id of ['j_jolly','j_duo','j_sly','j_greedy_joker','j_stencil','j_blackboard','j_hologram','j_blueprint']) {
+       SC.jokers=[B.score.jokerFromItem(B.byId[id])];
+       if(id==='j_blueprint') SC.jokers.push(B.score.jokerFromItem(B.byId['j_jolly']));
+       SC.hand='Pair'; SC.played=[B.score.card('K','S'),B.score.card('K','H')]; SC.held=[];
+       const r=B.score.compute();
+       out[id]={chips:r.chips, mult:+r.mult.toFixed(2),
+                rows:r.rows.filter(x=>x.op!=='base'&&x.op!=='card').map(x=>x.label).slice(0,4),
+                warns:r.warns.map(w=>w.n+'：'+w.why.slice(0,20)),
+                rule:(B.score.rules().rules.find(x=>x.n===B.byId[id].name)||{}).k||'（无）'};
+     }
+     return {out, errors:window.__V.errors.length} })()`,
+  scoreProbe: `(async()=>{
+     const B=window.__BALATRO__;
+     const keys=Object.keys(B.byId).filter(k=>/jolly|duo|stencil|sly|greedy|hologram|blueprint|blackboard/.test(k));
+     const ids=B.items.filter(x=>x.cat==='Joker').slice(0,8).map(x=>x.id);
+     return {keys, ids, hasJolly:!!B.byId['j_jolly'], n:Object.keys(B.byId).length} })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};
@@ -3164,7 +3280,7 @@ async function main () {
     if (thrown.length) console.log('             ❗页面异常:\n' + thrown.map((m) => '               · ' + String(m).slice(0, 300)).join('\n'))
     c.events.length = 0
     results[name] = { rep, errors: errs, consoleMsgs, clipShots }
-    if (['codex', 'jokers', 'forge', 'atlas', 'hands', 'tarot', 'shaders', 'blind', 'cards', 'data', 'showcase', 'mobile', 'soulCompare', 'boxCompare', 'modImport', 'modView', 'modCryptid', 'forgeUx', 'modForge', 'srcBack', 'forgePhone', 'siteHome', 'siteViewer', 'bootPhone', 'scoreCalc', 'siteFontLive', 'scorePickOpen', 'scorePickNew'].includes(name)) {
+    if (['codex', 'jokers', 'forge', 'atlas', 'hands', 'tarot', 'shaders', 'blind', 'cards', 'data', 'showcase', 'mobile', 'soulCompare', 'boxCompare', 'modImport', 'modView', 'modCryptid', 'forgeUx', 'modForge', 'srcBack', 'forgePhone', 'siteHome', 'siteViewer', 'bootPhone', 'scoreCalc', 'siteFontLive', 'scorePickOpen', 'scorePickNew', 'scoreState'].includes(name)) {
       try { await c.shot(name) } catch (e) { /* ignore */ }
     }
     /* 计分板：裁一张整块的图，用来肉眼看配色和排版（桌面/手机各一张；站点版再放大 2×） */
