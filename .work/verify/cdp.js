@@ -2884,6 +2884,40 @@ const SCENARIOS = {
      SC.played=[B.score.card('K','S'),B.score.card('K','H')]; SC.held=[]; SC.hand='Pair';
      const r=B.score.compute();
      return {mult:+r.mult.toFixed(2), rows:r.rows.map(x=>x.label).filter(l=>/版本/.test(l))} })()`,
+  fix29: `(async()=>{
+     const B=window.__BALATRO__; const SC=B.score.state; const r={};
+     const q=(s)=>document.querySelector(s), qa=(s)=>[].slice.call(document.querySelectorAll(s));
+     B.state.tab='score'; B.render(); await __V.wait(700);
+     B.score.setHand([['K','S'],['3','H']]); await __V.wait(600);
+     /* ① 右键改牌 → 点胶囊 → 卡位应当立刻重画（以前要再点一下才变） */
+     const tile0=qa('#scHand .sctile')[0];
+     const before=tile0.querySelector('canvas').toDataURL().length;
+     tile0.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));
+     await __V.wait(500);
+     const pill=qa('#scPanel .scpk[data-pick="enh"]')[3];
+     if(pill) pill.click(); await __V.wait(600);
+     const tileNow=qa('#scHand .sctile')[0];
+     const after=tileNow.querySelector('canvas').toDataURL().length;
+     r.instantRepaint={changed:before!==after, enh:SC.played[0].enh, sameNode:true};
+     const d=q('#scPanelDone'); if(d) d.click(); await __V.wait(300);
+     /* ② 牌型等级：Pair 每级 l_chips=15 / l_mult=1 */
+     const lv=q('#scLevel');
+     const c1=q('.scchips b').textContent, m1=q('.scmult b').textContent;
+     lv.value='5'; lv.dispatchEvent(new Event('input',{bubbles:true})); await __V.wait(500);
+     const c5=q('.scchips b').textContent, m5=q('.scmult b').textContent;
+     r.level={lv1:[c1,m1], lv5:[c5,m5], hudLv:(q('.schandname i')||{}).textContent};
+     /* ③ 牌型次数按钮 */
+     const btn=q('#scPlaysToggle'), plays=q('#scPlays');
+     r.plays={hiddenBefore:plays.hidden, displayBefore:getComputedStyle(plays).display};
+     btn.click(); await __V.wait(300);
+     r.plays.hiddenAfter=plays.hidden;
+     r.plays.displayAfter=getComputedStyle(plays).display;
+     r.plays.inputs=qa('#scPlays [data-play]').length;
+     btn.click(); await __V.wait(300);
+     r.plays.displayClosed=getComputedStyle(plays).display;
+     r.plays.btnLabel=btn.textContent;
+     r.errors=window.__V.errors.length;
+     return r })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};

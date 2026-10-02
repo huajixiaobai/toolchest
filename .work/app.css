@@ -765,6 +765,9 @@ body{background:
 /* ---- 局面面板：原版算分读到的那些数值 ---- */
 .scenv,.scplays{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:6px 8px;padding-top:2px}
 .scplays{margin-top:8px;border-top:1px solid #3d494c;padding-top:8px}
+/* hidden 属性会被上面的 display:grid 盖住（UA 的 [hidden]{display:none} 优先级不够），
+   所以「牌型次数…」点下去看不出变化 —— 显式写一条。 */
+.scplays[hidden]{display:none}
 .scev{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--c-jgrey)}
 .scev>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .scev input{

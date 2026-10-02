@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "cb868388";
+window.__APP_BUILD__ = "c7f6ab69";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -4207,8 +4207,10 @@ function scoreCompute () {
   const warns = [];
   const hand = D.hands.find((h) => h.name === SC.hand) || D.hands[0];
   const lvl = Math.max(1, Math.min(99, SC.level | 0));
-  let chips = hand.chips + (lvl - 1) * (hand.chipsPerLevel || 0);
-  let mult = hand.mult + (lvl - 1) * (hand.multPerLevel || 0);
+  /* 每级加多少：游戏数据里字段名是 l_chips / l_mult（hand.chipsPerLevel 根本不存在，
+     所以以前不管把等级调到几，筹码和倍率都不变 —— 这就是用户报的"改等级没作用"）。 */
+  let chips = hand.chips + (lvl - 1) * (hand.l_chips || 0);
+  let mult = hand.mult + (lvl - 1) * (hand.l_mult || 0);
   rows.push({ label: `牌型「${hand.name}」Lv.${lvl}`, chips, mult, op: 'base', ref: { kind: 'hand' } });
 
   const playedCount = SC.played.length;
@@ -5298,6 +5300,7 @@ function viewScore (host) {
   SC.played.forEach((c, i) => {
     const cls = 'scc' + (active && active.kind === 'played' && active.i === i ? ' on' : (step >= 0 && !reached('played', i) ? ' todo' : ''));
     const t = spriteTile(scoreCardCanvas(c, 1), cls, cardLabel(c) + '　·　点一下改回留手，右键改牌');
+    t.__card = c;                       /* 记住代表哪张牌：改完就地重画它，不用等整页 render */
     t.style.zIndex = String(100 - i);
     t.style.marginRight = (i === SC.played.length - 1 ? 0 : PLAY_PITCH - CARDW) + 'px';
     if (c.seal === 'Red') t.appendChild(Object.assign(document.createElement('i'), { className: 'scred', textContent: '红' }));
@@ -5315,6 +5318,7 @@ function viewScore (host) {
     const sel = scIsPlayed(c);
     const cls = 'scc' + (sel ? ' sel' : '') + (isActive(c) ? ' on' : (isTodo(c) ? ' todo' : ''));
     const t = spriteTile(scoreCardCanvas(c, 1), cls, cardLabel(c) + (sel ? '　·　打出去' : '　·　留在手里') + '（点一下切换，右键改牌，可以拖动）');
+    t.__card = c;
     t.style.zIndex = String(100 - i);
     t.style.marginRight = (i === order.length - 1 ? 0 : handPitch(order.length) - CARDW) + 'px';
     /* 原版手牌是弧形（CardArea:align_cards）：角度 ±0.2*(k-n/2-0.5)/n，
@@ -5406,7 +5410,17 @@ function viewScore (host) {
     SC.env.played[SC.hand] = Number(e.target.value) || 0;
     scStopPlay(); SC_UI.step = -1; scRefreshNumbers(host);
   };
-  q('#scLevel').onchange = (e) => { scStopPlay(); SC.level = Math.max(1, +e.target.value || 1); render() };
+  q('#scLevel').oninput = (e) => {
+    scStopPlay();
+    SC.level = Math.max(1, Math.min(99, Number(e.target.value) || 1));
+    SC_UI.step = -1;
+    scRefreshNumbers(host);
+    const lv = host.querySelector('.schandname i');
+    if (lv) lv.textContent = 'Lv.' + SC.level;
+    const bs = host.querySelector('.scbase');
+    if (bs) { const h2 = handByKey(SC.hand); bs.textContent = '每级 +' + (h2.l_chips || 0) + ' / +' + (h2.l_mult || 0) }
+    scRefreshTiles(host);
+  };
   q('#scDeal').onclick = () => { scDefaultHand(8); render() };
   q('#scClear').onclick = () => { scStopPlay(); SC.played = []; SC.held = []; SC.jokers = []; SC_UI.order = []; SC_UI.focus = null; SC_UI.joker = null; SC_UI.step = -1; render() };
   q('#scAddCard').onclick = () => openScPicker('PlayingCard');
@@ -5583,17 +5597,18 @@ function scAfterEditJoker () {
   if (host) { scRefreshNumbers(host); scRefreshTiles(host) }
 }
 
-/** 只重画变掉的那些卡位（不动整页） */
+/** 只重画变掉的那些卡位（不动整页）—— 按引用找，之前用 data-sig 找、而卡位根本没写过这个属性，
+ *  所以右键改完牌要点一下才刷新（这就是用户报的那个 bug）。 */
 function scRefreshTiles (host) {
   if (SC_UI.focus && (SC.played.indexOf(SC_UI.focus) >= 0 || SC.held.indexOf(SC_UI.focus) >= 0)) {
     const c = SC_UI.focus;
-    const tiles = host.querySelectorAll('#scHand .sctile, #scPlayed .sctile');
-    for (const t of tiles) {
-      if (t.dataset.sig !== scCardSig(c, 1)) continue;
+    for (const t of host.querySelectorAll('.sctile')) {
+      if (t.__card !== c) continue;
       const old = t.querySelector('canvas');
       const cv = scoreCardCanvas(c, 1);
       if (cv && old) t.replaceChild(cv, old);
-      break;
+      const b = t.querySelector('.scbadge');
+      if (b) b.textContent = scCardLabel(c);
     }
   }
   if (SC_UI.joker) {
@@ -5761,7 +5776,7 @@ function scRefreshNumbers (host) {
   const note = q('.schandname em');
   if (note) {
     const hand = handByKey(SC.hand);
-    note.textContent = '基础 ' + (hand.chips + (SC.level - 1) * (hand.chipsPerLevel || 0)) + ' × ' + (hand.mult + (SC.level - 1) * (hand.multPerLevel || 0)) + '　·　本局打过 ' + handPlayCount(SC.hand) + ' 次';
+    note.textContent = '基础 ' + (hand.chips + (SC.level - 1) * (hand.l_chips || 0)) + ' × ' + (hand.mult + (SC.level - 1) * (hand.l_mult || 0)) + '　·　本局打过 ' + handPlayCount(SC.hand) + ' 次';
   }
   const warn = q('.scwarn');
   if (warn) {
