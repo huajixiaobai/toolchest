@@ -253,6 +253,56 @@ table.data tbody tr{cursor:pointer}
 table.data td.num{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:11.5px}
 table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
 
+/* ---------- 得分计算器 ---------- */
+.scwrap{display:grid;grid-template-columns:minmax(340px,1fr) minmax(300px,420px);gap:14px;align-items:start}
+@media(max-width:900px){.scwrap{grid-template-columns:1fr}}
+.scin{display:flex;flex-direction:column;gap:12px;min-width:0}
+.scbox{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:12px}
+.scbox h4{margin:0 0 10px;font-size:13px;display:flex;align-items:center;gap:8px}
+.scn{font-size:11px;font-weight:400;color:var(--fg3)}
+.scrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.scrow.scgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
+.scbox select,.scbox input{font:inherit;font-size:12.5px;color:var(--fg);background:#131c24;border:1px solid var(--line);border-radius:6px;padding:5px 7px;min-height:30px}
+.scbox label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg2)}
+.scbox label input{width:76px}
+.scnote{font-size:11.5px;color:var(--fg3);margin-top:8px;line-height:1.7}
+.scnote code{font-family:var(--mono);font-size:11px;background:#0a1016;padding:1px 4px;border-radius:4px}
+.sclist{display:flex;flex-direction:column;gap:6px}
+.sccard{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+.sccard select{padding:4px 6px;min-height:28px}
+.scx{padding:4px 8px !important;min-height:28px !important;font-size:12px !important}
+.scj{display:flex;gap:7px;align-items:center;flex-wrap:wrap;background:#131c24;border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+.scjname{font-size:12.5px;color:var(--fg);min-width:96px}
+.scj em{font-size:10.5px;font-style:normal;border-radius:99px;padding:1px 7px;border:1px solid var(--line2);color:var(--fg3)}
+.scj em.ok{color:var(--accent);border-color:#4bc29273;background:#12352b}
+.scj em.warn{color:var(--money);border-color:#f3b95873}
+.scjm{display:flex;gap:4px;margin-left:auto}
+.scjm input{width:56px;padding:3px 5px;min-height:26px;font-size:11.5px}
+.scgrow{font-size:11px;color:var(--fg3)}
+.scres{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.scres .btn{font-size:11.5px;padding:4px 9px;min-height:28px}
+.scout{position:sticky;top:8px;display:flex;flex-direction:column;gap:10px}
+.scorefinal{background:linear-gradient(180deg,#152a25,#111a20);border:1px solid #2c5c4a;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:2px}
+.scorefinal span{font-size:11.5px;color:var(--fg3);letter-spacing:2px}
+.scorefinal b{font-size:30px;color:var(--accent);font-family:var(--mono);line-height:1.15}
+.scorefinal em{font-size:12px;color:var(--fg2);font-style:normal}
+.sclog{max-height:52vh;overflow:auto;border:1px solid var(--line);border-radius:10px;background:#0d1319}
+.scline{display:flex;justify-content:space-between;gap:10px;padding:5px 10px;font-size:12px;border-bottom:1px solid #1a242e}
+.scline:last-child{border-bottom:none}
+.scline span{color:var(--fg2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scline i{font-family:var(--mono);font-size:11.5px;color:var(--fg3);font-style:normal;white-space:nowrap}
+.scline.base{background:#131c24}
+.scline.base span{color:var(--fg)}
+.scline.x i{color:var(--accent2)}
+.scline.joker i{color:var(--accent)}
+.scline.ed i{color:var(--purple)}
+.scline.manual i{color:var(--money)}
+.scline.note i{display:none}
+.scwarn{border:1px solid #5b4a2b;background:#221c11;border-radius:10px;padding:10px 12px;font-size:12px;color:#e7c98a}
+.scwarn b{display:block;margin-bottom:5px;color:var(--money)}
+.scwarn em{font-style:normal;color:#a99372}
+.scwarn div{margin-top:3px}
+
 /* ---------- status ---------- */
 #status{
   flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:5px 14px;background:#0d1319;

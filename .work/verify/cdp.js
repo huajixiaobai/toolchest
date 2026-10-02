@@ -2264,6 +2264,68 @@ const SCENARIOS = {
      sc.scrollTop=0;
      r.errors=window.__V.errors.length;
      return r })()`,
+  /* 得分计算器：先验算能手算的例子，再打开界面看渲染。 */
+  scoreCalc: `(async()=>{
+     const B = window.__BALATRO__;
+     const r = { view: 'scoreCalc' };
+     if (!B || !B.score) return { fatal: '没有 score 接口' };
+     const S = B.score.state, C = B.score.card;
+     const reset = () => { S.hand = 'Pair'; S.level = 1; S.played = []; S.held = []; S.jokers = []; S.manual = { chips: 0, mult: 0, xmult: 1 } };
+     const J = (id, growth) => { const o = B.score.jokerFromItem(B.byId[id]); if (growth !== undefined) o.growth = growth; return o };
+
+     // ① 一对 J：牌型 10×2 + 两张 J 各 10 筹码 + 小丑 +4 倍率 → 30 × 6 = 180
+     reset();
+     S.played = [C('J','S'), C('J','H')];
+     S.jokers = [J('j_joker')];
+     let res = B.score.compute();
+     r.case1 = { chips: res.chips, mult: +res.mult.toFixed(2), score: res.score, expect: 180 };
+
+     // ② 一对 A + 贪吃鬼（每张方块 +3 倍率）→ (10+11+11) × 5 = 160
+     reset();
+     S.played = [C('A','D'), C('A','C')];
+     S.jokers = [J('j_greedy_joker')];
+     res = B.score.compute();
+     r.case2 = { chips: res.chips, mult: +res.mult.toFixed(2), score: res.score, expect: 160 };
+
+     // ③ 强化 + 版本：奖励牌(+30 筹码) 且闪箔(+50 筹码) → (10+10+30+50+10) × 2 = 220
+     reset();
+     S.played = [C('10','S','m_bonus','e_foil'), C('10','H')];
+     res = B.score.compute();
+     r.case3 = { chips: res.chips, mult: +res.mult.toFixed(2), score: res.score, expect: 220 };
+
+     // ④ 红蜡封重复 + 留手钢铁 ×1.5 → (10+5+5+5) × 3 = 75
+     reset();
+     S.played = [C('5','S','','','Red'), C('5','H')];
+     S.held = [C('K','D','m_steel')];
+     res = B.score.compute();
+     r.case4 = { chips: res.chips, mult: +res.mult.toFixed(2), score: res.score, expect: 75 };
+
+     const rules = B.score.rules();
+     r.rules = rules ? { total: rules.rules.length, generic: rules.generic.length,
+       byKind: rules.rules.reduce((a, x) => { a[x.k] = (a[x.k] || 0) + 1; return a }, {}) } : null;
+     /* 诊断：贪吃鬼这条为什么没生效 */
+     const git = B.byId['j_greedy_joker'];
+     const gj = J('j_greedy_joker');
+     r.debug = { itemEffect: git && git.effect, cfgEffect: gj.cfg.effect, cfgExtra: gj.cfg.extra,
+       suitOfD: 'Diamonds', ruleFound: !!jokerRuleSafe(B, gj), hasScore: !!B.score };
+     function jokerRuleSafe (BB, j) { return BB.score.rules().rules.find((x) => x.n === j.name) || null }
+
+     reset();
+     S.played = [C('K','S'), C('K','H')];
+     S.jokers = [J('j_joker'), J('j_cavendish')];
+     B.state.tab = 'score'; B.render();
+     await __V.wait(1200);
+     r.ui = {
+       boxes: document.querySelectorAll('.scbox').length,
+       cards: document.querySelectorAll('.sccard').length,
+       jokers: document.querySelectorAll('.scj').length,
+       lines: document.querySelectorAll('.scline').length,
+       final: (document.querySelector('.scorefinal b') || {}).textContent,
+       hasWarn: !!document.querySelector('.scwarn'),
+       blank: __V.blank(),
+     };
+     r.errors = window.__V.errors.length;
+     return r })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};
@@ -2606,6 +2668,7 @@ async function main () {
   /* demoRect 的同一个场景需要一个"手机尺寸"的别名，好让 runner 按名字切换视口 */
   if (SCENARIOS.demoRect && !SCENARIOS.demoRectMobile) SCENARIOS.demoRectMobile = SCENARIOS.demoRect
   if (SCENARIOS.demoLayout && !SCENARIOS.demoLayoutMobile) SCENARIOS.demoLayoutMobile = SCENARIOS.demoLayout
+  if (SCENARIOS.scoreCalc && !SCENARIOS.scoreCalcMobile) SCENARIOS.scoreCalcMobile = SCENARIOS.scoreCalc
   const want = process.argv.slice(2)
   const list = want.length ? want : Object.keys(SCENARIOS)
   const profile = path.join(__dirname, '..', 'chromeprofile-cdp')
@@ -2694,7 +2757,7 @@ async function main () {
       await c.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 560, deviceScaleFactor: 1, mobile: false })
       LongMode = true
     }
-    if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile') {
+    if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile' || name === 'scoreCalcMobile') {
       // emulate a phone viewport (bootPhone tests the start screen visitors land on)
       await c.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
       await c.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {})
@@ -2873,7 +2936,7 @@ async function main () {
       .filter(Boolean)
     c.events.length = 0
     results[name] = { rep, errors: errs, consoleMsgs, clipShots }
-    if (['codex', 'jokers', 'forge', 'atlas', 'hands', 'tarot', 'shaders', 'blind', 'cards', 'data', 'showcase', 'mobile', 'soulCompare', 'boxCompare', 'modImport', 'modView', 'modCryptid', 'forgeUx', 'modForge', 'srcBack', 'forgePhone', 'siteHome', 'siteViewer', 'bootPhone'].includes(name)) {
+    if (['codex', 'jokers', 'forge', 'atlas', 'hands', 'tarot', 'shaders', 'blind', 'cards', 'data', 'showcase', 'mobile', 'soulCompare', 'boxCompare', 'modImport', 'modView', 'modCryptid', 'forgeUx', 'modForge', 'srcBack', 'forgePhone', 'siteHome', 'siteViewer', 'bootPhone', 'scoreCalc'].includes(name)) {
       try { await c.shot(name) } catch (e) { /* ignore */ }
     }
     /* demoRect：把预览区整块裁下来存成图片，用来肉眼看排版（数值看不出丑不丑） */

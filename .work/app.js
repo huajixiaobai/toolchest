@@ -4,6 +4,13 @@
  * ==========================================================================*/
 'use strict';
 (function () {
+
+/* __JOKER_RULES_BEGIN__ */
+/* 小丑牌在计分时的规则，从游戏自己的 card.lua 抽出来（.work/gen-rules.js）。
+   k：yes=条件简单可自动 / by-card=按打出的每张牌判定 / repeat=增加重复次数 / manual=依赖运行时状态，需手填
+   e：效果字段，chip_mod/mult_mod/Xmult_mod 是主结算，chips/mult/x_mult 是逐牌结算 */
+const JOKER_RULES = {"source":"card.lua Card:calculate_joker（由 .work/gen-rules.js 生成，勿手改）","regions":{"individual":[3065,3341],"repetition":[3342,3395],"other_joker":[3396,4061],"main":[3631,4059]},"generic":[{"id":"type_x_mult","when":"x_mult>1","effect":"x_mult"},{"id":"type_add_mult","when":"t_mult>0","effect":"t_mult"},{"id":"type_add_chips","when":"t_chips>0","effect":"t_chips"},{"id":"suit_add_mult","when":"effect=='Suit Mult'","effect":"suit.s_mult","suit":"suit.suit"}],"rules":[{"n":"Lucky Cat","k":"by-card","r":"individual","c":"context.other_card.lucky_trigger and not context.blueprint","e":["x_mult=self.ability.x_mult + self.ability.extra"]},{"n":"Wee Joker","k":"yes","r":"main","c":"","e":["chip_mod=self.ability.extra.chips"]},{"n":"Photograph","k":"manual","r":"individual","c":"","e":["x_mult=self.ability.extra"]},{"n":"The Idol","k":"manual","r":"individual","c":"context.other_card:get_id() == G.GAME.current_round.idol_card.id and context.other_card:is_suit(G.GAME.current_round.idol_card.suit)","e":["x_mult=self.ability.extra","chips=self.ability.extra","mult=self.ability.extra","chips=self.ability.extra.chips"]},{"n":"Scary Face","k":"manual","r":"individual","c":"( context.other_card:is_face())","e":["chips=self.ability.extra","mult=self.ability.extra","chips=self.ability.extra.chips","mult=self.ability.extra.mult"]},{"n":"Smiley Face","k":"manual","r":"individual","c":"( context.other_card:is_face())","e":["mult=self.ability.extra","chips=self.ability.extra.chips","mult=self.ability.extra.mult","chips=self.ability.extra.chips"]},{"n":"Golden Ticket","k":"manual","r":"individual","c":"context.other_card.ability.name == 'Gold Card'","e":["chips=self.ability.extra.chips","mult=self.ability.extra.mult","chips=self.ability.extra.chips","mult=self.ability.extra.mult"]},{"n":"Scholar","k":"by-card","r":"individual","c":"context.other_card:get_id() == 14","e":["chips=self.ability.extra.chips","mult=self.ability.extra.mult","chips=self.ability.extra.chips","mult=self.ability.extra.mult"]},{"n":"Walkie Talkie","k":"by-card","r":"individual","c":"(context.other_card:get_id() == 10 or context.other_card:get_id() == 4)","e":["chips=self.ability.extra.chips","mult=self.ability.extra.mult"]},{"n":"Business Card","k":"manual","r":"individual","c":"context.other_card:is_face() and pseudorandom('business') < G.GAME.probabilities.normal/self.ability.extra","e":["mult=self.ability.extra"]},{"n":"Fibonacci","k":"by-card","r":"individual","c":"( context.other_card:get_id() == 2 or context.other_card:get_id() == 3 or context.other_card:get_id() == 5 or context.other_card:get_id() == 8 or context.other_card:get_id() == 14)","e":["mult=self.ability.extra"]},{"n":"Even Steven","k":"by-card","r":"individual","c":"context.other_card:get_id() <= 10 and context.other_card:get_id() >= 0 and context.other_card:get_id()%2 == 0","e":["mult=self.ability.extra"]},{"n":"Odd Todd","k":"by-card","r":"individual","c":"((context.other_card:get_id() <= 10 and context.other_card:get_id() >= 0 and context.other_card:get_id()%2 == 1) or (context.other_card:get_id() == 14))","e":["chips=self.ability.extra"]},{"n":"Onyx Agate","k":"by-card","r":"individual","c":"context.other_card:is_suit(\"Clubs\")","e":["mult=self.ability.extra"]},{"n":"Arrowhead","k":"by-card","r":"individual","c":"context.other_card:is_suit(\"Spades\")","e":["chips=self.ability.extra"]},{"n":"Ancient Joker","k":"by-card","r":"individual","c":"context.other_card:is_suit(G.GAME.current_round.ancient_card.suit)","e":["x_mult=self.ability.extra"]},{"n":"Triboulet","k":"manual","r":"individual","c":"(context.other_card:get_id() == 12 or context.other_card:get_id() == 13)","e":["x_mult=self.ability.extra","mult=13","x_mult=self.ability.extra"]},{"n":"Shoot the Moon","k":"by-card","r":"individual","c":"context.other_card:get_id() == 12","e":["mult=13"]},{"n":"Baron","k":"by-card","r":"individual","c":"context.other_card:get_id() == 13","e":["x_mult=self.ability.extra"]},{"n":"Raised Fist","k":"manual","r":"individual","c":"","e":["mult=2*temp_Mult"]},{"n":"Baseball Card","k":"yes","r":"other_joker","c":"context.other_joker.config.center.rarity == 2 and self ~= context.other_joker","e":["Xmult_mod=self.ability.extra"]},{"n":"Spare Trousers","k":"yes","r":"main","c":"self.ability.mult > 0","e":["mult_mod=self.ability.mult"]},{"n":"Square Joker","k":"yes","r":"main","c":"","e":["chip_mod=self.ability.extra.chips"]},{"n":"Runner","k":"yes","r":"main","c":"","e":["chip_mod=self.ability.extra.chips"]},{"n":"Vampire","k":"manual","r":"other_joker","c":"not context.blueprint","e":["x_mult=self.ability.x_mult + self.ability.extra*#enhanced"]},{"n":"Ride the Bus","k":"yes","r":"main","c":"self.ability.mult > 0","e":["mult_mod=self.ability.mult"]},{"n":"Obelisk","k":"manual","r":"other_joker","c":"not context.blueprint","e":["x_mult=1","x_mult=self.ability.x_mult + self.ability.extra"]},{"n":"Green Joker","k":"yes","r":"main","c":"self.ability.mult > 0","e":["mult_mod=self.ability.mult"]},{"n":"Ice Cream","k":"yes","r":"main","c":"","e":["chip_mod=self.ability.extra.chips"]},{"n":"Loyalty Card","k":"manual","r":"main","c":"","e":["Xmult_mod=self.ability.extra.Xmult","Xmult_mod=self.ability.extra.Xmult"]},{"n":"Half Joker","k":"yes","r":"main","c":"#context.full_hand <= self.ability.extra.size","e":["mult_mod=self.ability.extra.mult"]},{"n":"Abstract Joker","k":"manual","r":"main","c":"","e":["mult_mod=x*self.ability.extra"]},{"n":"Acrobat","k":"yes","r":"main","c":"G.GAME.current_round.hands_left == 0","e":["Xmult_mod=self.ability.extra"]},{"n":"Mystic Summit","k":"yes","r":"main","c":"G.GAME.current_round.discards_left == self.ability.extra.d_remaining","e":["mult_mod=self.ability.extra.mult"]},{"n":"Misprint","k":"yes","r":"main","c":"","e":["mult_mod=temp_Mult"]},{"n":"Banner","k":"manual","r":"main","c":"G.GAME.current_round.discards_left > 0","e":["chip_mod=G.GAME.current_round.discards_left*self.ability.extra"]},{"n":"Stuntman","k":"yes","r":"main","c":"","e":["chip_mod=self.ability.extra.chip_mod"]},{"n":"Supernova","k":"manual","r":"main","c":"","e":["mult_mod=G.GAME.hands[context.scoring_name].played"]},{"n":"Ceremonial Dagger","k":"yes","r":"main","c":"self.ability.mult > 0","e":["mult_mod=self.ability.mult"]},{"n":"Flower Pot","k":"manual","r":"main","c":"","e":["Xmult_mod=self.ability.extra"]},{"n":"Seeing Double","k":"manual","r":"main","c":"","e":["Xmult_mod=self.ability.extra"]},{"n":"Castle","k":"yes","r":"main","c":"(self.ability.extra.chips > 0)","e":["chip_mod=self.ability.extra.chips"]},{"n":"Blue Joker","k":"yes","r":"main","c":"#G.deck.cards > 0","e":["chip_mod=self.ability.extra*#G.deck.cards"]},{"n":"Erosion","k":"manual","r":"main","c":"(G.GAME.starting_deck_size - #G.playing_cards) > 0","e":["mult_mod=self.ability.extra*(G.GAME.starting_deck_size - #G.playing_cards)"]},{"n":"Stone Joker","k":"yes","r":"main","c":"self.ability.stone_tally > 0","e":["chip_mod=self.ability.extra*self.ability.stone_tally"]},{"n":"Steel Joker","k":"yes","r":"main","c":"self.ability.steel_tally > 0","e":["Xmult_mod=1 + self.ability.extra*self.ability.steel_tally"]},{"n":"Bull","k":"manual","r":"main","c":"(G.GAME.dollars + (G.GAME.dollar_buffer or 0)) > 0","e":["chip_mod=self.ability.extra*math.max(0"]},{"n":"Swashbuckler","k":"yes","r":"main","c":"self.ability.mult > 0","e":["mult_mod=self.ability.mult"]},{"n":"Joker","k":"yes","r":"main","c":"","e":["mult_mod=self.ability.mult"]},{"n":"Flash Card","k":"yes","r":"main","c":"self.ability.mult > 0","e":["mult_mod=self.ability.mult"]},{"n":"Popcorn","k":"yes","r":"main","c":"self.ability.mult > 0","e":["mult_mod=self.ability.mult"]},{"n":"Fortune Teller","k":"manual","r":"main","c":"G.GAME.consumeable_usage_total and G.GAME.consumeable_usage_total.tarot > 0","e":["mult_mod=G.GAME.consumeable_usage_total.tarot"]},{"n":"Gros Michel","k":"yes","r":"main","c":"","e":["mult_mod=self.ability.extra.mult"]},{"n":"Cavendish","k":"yes","r":"main","c":"","e":["Xmult_mod=self.ability.extra.Xmult"]},{"n":"Red Card","k":"yes","r":"main","c":"self.ability.mult > 0","e":["mult_mod=self.ability.mult"]},{"n":"Card Sharp","k":"yes","r":"main","c":"G.GAME.hands[context.scoring_name] and G.GAME.hands[context.scoring_name].played_this_round > 1","e":["Xmult_mod=self.ability.extra.Xmult"]},{"n":"Bootstraps","k":"manual","r":"main","c":"math.floor((G.GAME.dollars + (G.GAME.dollar_buffer or 0))/self.ability.extra.dollars) >= 1","e":["mult_mod=self.ability.extra.mult*math.floor((G.GAME.dollars + (G.GAME.dollar_buffer or 0))/self.ability.extra.dollars)"]},{"n":"Caino","k":"yes","r":"main","c":"self.ability.caino_xmult > 1","e":["Xmult_mod=self.ability.caino_xmult"]}]};
+/* __JOKER_RULES_END__ */
 const D = window.__BALATRO_DATA__;
 const ATLAS = window.__BALATRO_ATLAS__;
 const CARD_W = 71, CARD_H = 95;                 // logical tile size (matches game.lua px/py)
@@ -1889,7 +1896,7 @@ function renderSidebar () {
     for (const m of MODS) row(m.name, '⊕', ITEMS.filter((i) => i.source === m.id).length, S.source === m.id, pickSource(m.id), m.id);
   }
   group('工具');
-  for (const [k, label, icon] of [['forge', '卡牌合成台', '⚒'], ['atlas', '图集浏览', '▦'], ['hands', '牌型数据', '♠'], ['shaders', '着色器', '✦'], ['data', '数据总表', '▤'], ['mods', '导入 Mod', '⊕']]) {
+  for (const [k, label, icon] of [['forge', '卡牌合成台', '⚒'], ['atlas', '图集浏览', '▦'], ['hands', '牌型数据', '♠'], ['score', '得分计算器', '🧮'], ['shaders', '着色器', '✦'], ['data', '数据总表', '▤'], ['mods', '导入 Mod', '⊕']]) {
     row(label, icon, k === 'mods' && MODS.length ? MODS.length : null, S.tab === k, pickTool(k));
   }
 }
@@ -3266,6 +3273,410 @@ function renderDetail () {
   s5.appendChild(rawBtn);
 }
 
+/* ================================================================ 得分计算器
+ * 顺序严格照 state_events.lua 的 evaluate_play：
+ *   ① 牌型基础（含等级）→ ② 每张打出的牌（点数 + 强化 + 版本 + 蜡封重复 + 逐牌小丑）
+ *   → ③ 留在手里的牌（钢铁等）→ ④ 每个小丑（版本 → 主效果）→ ⑤ 手填修正
+ *   最终 = floor(chips × mult)
+ * 小丑规则来自 Card:calculate_joker，由 .work/gen-rules.js 从游戏自己的 card.lua 抽出。 */
+const RANK_CHIPS = { 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, J: 10, Q: 10, K: 10, A: 11 };
+const RANK_ID = { 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, J: 11, Q: 12, K: 13, A: 14 };
+const SUIT_EN = { S: 'Spades', H: 'Hearts', D: 'Diamonds', C: 'Clubs' };
+const SUIT_SYM = { S: '♠', H: '♥', D: '♦', C: '♣' };
+const EDITION_NUM = { e_foil: { chips: 50 }, e_holo: { mult: 10 }, e_polychrome: { xmult: 1.5 } };
+
+const SC = {
+  hand: 'Pair', level: 1,
+  played: [], held: [], jokers: [],
+  env: { dollars: 0, handsLeft: 1, discardsLeft: 0, deckCards: 52, playedTimes: 0 },
+  manual: { chips: 0, mult: 0, xmult: 1 },
+};
+const scCard = (rank, suit, enh, ed, seal) => ({ rank: rank || '10', suit: suit || 'S', enh: enh || '', ed: ed || '', seal: seal || '' });
+
+/** 强化牌提供的数值，直接读图鉴里的 config（bonus/mult/glass/steel/stone） */
+function enhValues (id) {
+  const it = BY_ID[id];
+  const c = (it && it.config) || {};
+  const ex = (it && it.extra) || c.extra || {};
+  const n = (v) => (typeof v === 'number' ? v : (v && typeof v === 'object' ? 0 : Number(v) || 0));
+  return {
+    chips: n(c.chips) + (id === 'm_bonus' ? 30 : id === 'm_stone' ? 50 : 0),
+    mult: n(c.mult) + (id === 'm_mult' ? 4 : 0),
+    xmult: id === 'm_glass' ? 2 : 0,
+    h_xmult: id === 'm_steel' ? 1.5 : 0,
+    name: (it && it.name) || id,
+    extra: ex,
+  };
+}
+
+/** 把规则里的表达式求值：只支持 self.ability.X 的加减乘与数字 */
+function evalExpr (expr, cfg, growth) {
+  if (expr === undefined || expr === null) return null;
+  const s = String(expr).replace(/self\.ability\./g, '').replace(/\btemp_Mult\b/g, '0');
+  const get = (path) => {
+    const p = path.split('.');
+    let v = cfg;
+    for (const k of p) { if (v == null || typeof v !== 'object') return undefined; v = v[k] }
+    if (typeof v === 'number') return v;
+    if (v === undefined && p[0] === 'mult') return growth || 0;   // 成长值（Ride the Bus 等）
+    return v;
+  };
+  const tokens = s.match(/[A-Za-z_][A-Za-z0-9_.]*|\d+(?:\.\d+)?|[-+*/()]/g);
+  if (!tokens) return null;
+  let ok = true;
+  const js = tokens.map((t) => {
+    if (/^[-+*/()]$/.test(t) || /^\d/.test(t)) return t;
+    const v = get(t);
+    if (typeof v !== 'number') { ok = false; return '0' }
+    return String(v);
+  }).join('');
+  if (!ok) return null;
+  try {
+    const v = Function('"use strict";return (' + js + ')')();   // 只由数字与运算符拼成
+    return typeof v === 'number' && isFinite(v) ? v : null;
+  } catch (e) { return null; }
+}
+
+/** 逐牌规则的条件判定：支持 is_suit / get_id 的常见写法 */
+const RANK_NAMES = { 14: 'A', 13: 'K', 12: 'Q', 11: 'J' };
+function condMatchesCard (cond, card) {
+  const id = RANK_ID[card.rank];
+  const face = id >= 11 && id <= 13;
+  let c = cond.replace(/^\s*and\s*/, '');
+  if (!c) return true;
+  /* 全是 or/and 的组合，逐项判断 */
+  const parts = c.split(/\s+or\s+/);
+  for (const part of parts) {
+    const ands = part.split(/\s+and\s+/);
+    let all = true;
+    for (const a of ands) {
+      const t = a.trim().replace(/^\(+|\)+$/g, '').trim();
+      if (!t) continue;
+      if (/not context\./.test(t) || /pseudorandom|blueprint|lucky_trigger|G\.GAME/.test(t)) { all = false; break }
+      let m;
+      if ((m = /is_suit\(\s*"(\w+)"\s*\)/.exec(t))) { if (SUIT_EN[card.suit] !== m[1]) { all = false; break } continue }
+      if (/is_face\(\)/.test(t)) { if (!face) { all = false; break } continue }
+      if ((m = /get_id\(\)\s*==\s*(\d+)/.exec(t))) { if (id !== +m[1]) { all = false; break } continue }
+      if ((m = /get_id\(\)\s*<=\s*(\d+)/.exec(t))) { if (id > +m[1]) { all = false; break } continue }
+      if ((m = /get_id\(\)\s*>=\s*(\d+)/.exec(t))) { if (id < +m[1]) { all = false; break } continue }
+      if (/get_id\(\)\s*%\s*2\s*==\s*0/.test(t)) { if (id % 2 !== 0) { all = false; break } continue }
+      if (/get_id\(\)\s*%\s*2\s*==\s*1/.test(t)) { if (id % 2 !== 1) { all = false; break } continue }
+      all = false; break          // 有看不懂的条件 → 这条按不匹配处理，并在账目里标注
+    }
+    if (all) return true;
+  }
+  return false;
+}
+
+/** 主结算（joker_main）条件的判定：只用得上"打了几张牌 / 剩余次数 / 手型" */
+function condMatchesHand (cond, handName, playedCount) {
+  const c = String(cond || '').replace(/^\s*and\s*/, '').trim();
+  if (!c) return true;
+  if (/not context\.blueprint/.test(c) && c.replace(/not context\.blueprint/, '').trim() === '') return true;
+  const hands = { 'Two Pair': 'Two Pair', Straight: 'Straight', Flush: 'Flush', Pair: 'Pair', 'Three of a Kind': 'Three of a Kind', 'Four of a Kind': 'Four of a Kind', 'Full House': 'Full House', 'Straight Flush': 'Straight Flush', 'Royal Flush': 'Royal Flush', 'Five of a Kind': 'Five of a Kind', 'Flush House': 'Flush House', 'Flush Five': 'Flush Five' };
+  const ph = /poker_hands\['([^']+)'\]/.exec(c);
+  if (ph) return handName === ph[1];
+  const fh = /#context\.full_hand\s*<=\s*self\.ability\.extra\.size/.exec(c);
+  if (fh) return playedCount <= 5;
+  if (/#context\.full_hand\s*==\s*(\d+)/.test(c)) return playedCount === +RegExp.$1;
+  if (/hands_left\s*==\s*0/.test(c)) return SC.env.handsLeft === 0;
+  if (/discards_left\s*>\s*0/.test(c)) return SC.env.discardsLeft > 0;
+  if (/discards_left\s*==/.test(c)) return SC.env.discardsLeft > 0;
+  if (/#G\.deck\.cards\s*>\s*0/.test(c)) return SC.env.deckCards > 0;
+  if (/self\.ability\.mult\s*>\s*0/.test(c)) return true;      // 成长值由用户填
+  if (/self\.ability\.extra\.chips\s*>\s*0/.test(c)) return true;
+  if (/self\.ability\.stone_tally|steel_tally/.test(c)) return false;  // 需要手填
+  if (/G\.GAME|consumeable|dollar|starting_deck|context\.other_joker/.test(c)) return null;  // 无法判定
+  return null;
+}
+
+function scoreCompute () {
+  const rows = [];
+  const warns = [];
+  const hand = D.hands.find((h) => h.name === SC.hand) || D.hands[0];
+  const lvl = Math.max(1, Math.min(99, SC.level | 0));
+  let chips = hand.chips + (lvl - 1) * (hand.chipsPerLevel || 0);
+  let mult = hand.mult + (lvl - 1) * (hand.multPerLevel || 0);
+  rows.push({ label: `牌型「${hand.name}」Lv.${lvl}`, chips, mult, op: 'base' });
+
+  const playedCount = SC.played.length;
+  /* ② 每张打出的牌 */
+  for (const c of SC.played) {
+    let reps = 1;
+    if (c.seal === 'Red') reps += 1;
+    for (const j of SC.jokers) {
+      const rule = jokerRule(j);
+      if (rule && rule.k === 'repeat') {
+        const ok = condMatchesCard(rule.c || '', c);
+        if (ok) reps += evalExpr(rule.reps, j.cfg, 0) || 1;
+      }
+    }
+    for (let r = 0; r < reps; r++) {
+      const base = RANK_CHIPS[c.rank] || 0;
+      const ev = c.enh ? enhValues(c.enh) : null;
+      const addChips = base + (ev ? ev.chips : 0);
+      const addMult = ev ? ev.mult : 0;
+      const xm = ev ? ev.xmult : 0;
+      chips += addChips;
+      if (addChips || addMult || xm) rows.push({ label: `${c.rank}${SUIT_SYM[c.suit]}${ev && c.enh ? ' · ' + ev.name : ''}${reps > 1 ? '（第 ' + (r + 1) + ' 次）' : ''}`, chips, mult, op: 'card', delta: addChips, addMult });
+      if (addMult) { mult += addMult }
+      if (xm) { mult *= xm; rows.push({ label: `  ${ev.name} ×${xm}`, chips, mult, op: 'x' }) }
+      /* 逐牌小丑（individual 区） */
+      for (const j of SC.jokers) {
+        /* 花色小丑（贪吃鬼 / 好色鬼 / 愤怒 / 暴食）走的是通用配置：
+           effect == 'Suit Mult' → 每张对应花色的牌 +extra.s_mult 倍率 */
+        const cfg = j.cfg || {};
+        if (cfg.effect === 'Suit Mult' && cfg.extra && SUIT_EN[c.suit] === cfg.extra.suit) {
+          const add = Number(cfg.extra.s_mult) || 0;
+          if (add) { mult += add; rows.push({ label: `  ${j.name} +${add} 倍率（${SUIT_SYM[c.suit]}）`, chips, mult, op: 'joker' }) }
+        }
+        const rule = jokerRule(j);
+        if (!rule || rule.k !== 'by-card') continue;
+        if (!condMatchesCard(rule.c, c)) continue;
+        applyRule(rule, j, rows, () => ({ chips, mult }), (v) => { chips = v.chips; mult = v.mult });
+      }
+      /* 版本 */
+      const ed = EDITION_NUM[c.ed];
+      if (ed) {
+        if (ed.chips) chips += ed.chips;
+        if (ed.mult) mult += ed.mult;
+        if (ed.xmult) mult *= ed.xmult;
+        rows.push({ label: `  版本 ${ed.chips ? '+' + ed.chips + ' 筹码' : ed.mult ? '+' + ed.mult + ' 倍率' : '×' + ed.xmult + ' 倍率'}`, chips, mult, op: 'ed' });
+      }
+    }
+  }
+
+  /* ③ 留在手里的牌（钢铁 ×1.5） */
+  for (const c of SC.held) {
+    const ev = c.enh ? enhValues(c.enh) : null;
+    if (ev && ev.h_xmult) { mult *= ev.h_xmult; rows.push({ label: `手中 ${c.rank}${SUIT_SYM[c.suit]}（${ev.name}）×${ev.h_xmult}`, chips, mult, op: 'x' }) }
+  }
+
+  /* ④ 小丑主结算 */
+  for (const j of SC.jokers) {
+    const rule = jokerRule(j);
+    const ed = EDITION_NUM[j.ed];
+    if (ed && ed.chips) { chips += ed.chips; rows.push({ label: `${j.name} 版本 +${ed.chips} 筹码`, chips, mult, op: 'ed' }) }
+    if (ed && ed.mult) { mult += ed.mult; rows.push({ label: `${j.name} 版本 +${ed.mult} 倍率`, chips, mult, op: 'ed' }) }
+    /* 通用配置规则：t_chips / t_mult / x_mult（需要 ability.type 与手型相同） */
+    const type = j.cfg.type, cfg = j.cfg;
+    const typeOk = !type || SC.hand === type;
+    if (cfg.x_mult > 1 && typeOk) { mult *= cfg.x_mult; rows.push({ label: `${j.name} ×${cfg.x_mult} 倍率`, chips, mult, op: 'x' }) }
+    if (cfg.t_mult > 0 && typeOk) { mult += cfg.t_mult; rows.push({ label: `${j.name} +${cfg.t_mult} 倍率`, chips, mult, op: '+' }) }
+    if (cfg.t_chips > 0 && typeOk) { chips += cfg.t_chips; rows.push({ label: `${j.name} +${cfg.t_chips} 筹码`, chips, mult, op: '+' }) }
+    if (rule && (rule.k === 'yes' || rule.k === 'manual')) {
+      const ok = rule.k === 'yes' ? condMatchesHand(rule.c, SC.hand, playedCount) : false;
+      if (ok === false && rule.k === 'yes') continue;
+      if (ok === null || rule.k === 'manual') { warns.push({ n: j.name, why: rule.k === 'manual' ? '依赖运行时状态' : '条件无法自动判定', m: j.manual }); continue }
+      applyRule(rule, j, rows, () => ({ chips, mult }), (v) => { chips = v.chips; mult = v.mult });
+    } else if (rule && rule.k === 'repeat') {
+      rows.push({ label: `${j.name}：重复触发（已按打出的牌计算）`, chips, mult, op: 'note' });
+    } else if (!rule) {
+      warns.push({ n: j.name, why: '没有自动规则', m: j.manual });
+    }
+    if (j.manual && (j.manual.chips || j.manual.mult || j.manual.xmult !== 1)) {
+      chips += j.manual.chips || 0; mult += j.manual.mult || 0; mult *= j.manual.xmult || 1;
+      rows.push({ label: `${j.name}（手填）+${j.manual.chips || 0} 筹码 +${j.manual.mult || 0} 倍率 ×${j.manual.xmult || 1}`, chips, mult, op: 'manual' });
+    }
+  }
+
+  /* ⑤ 手填修正 */
+  if (SC.manual.chips || SC.manual.mult || SC.manual.xmult !== 1) {
+    chips += SC.manual.chips || 0; mult += SC.manual.mult || 0; mult *= SC.manual.xmult || 1;
+    rows.push({ label: '手填修正', chips, mult, op: 'manual' });
+  }
+  return { chips, mult, score: Math.floor(chips * mult), rows, warns, hand, lvl };
+}
+
+/** 一条规则 → 应用到账目上 */
+function applyRule (rule, j, rows, get, set) {
+  for (const e of rule.e) {
+    const [field, expr] = e.split('=');
+    const v = evalExpr(expr, j.cfg, j.growth || 0);
+    if (v == null) { rows.push({ label: `${j.name}：${field} 需要手填`, chips: get().chips, mult: get().mult, op: 'note' }); continue }
+    const st = get();
+    if (field === 'chip_mod' || field === 'chips') st.chips += v;
+    else if (field === 'mult_mod' || field === 'mult') st.mult += v;
+    else if (field === 'Xmult_mod' || field === 'x_mult') st.mult *= v;
+    set(st);
+    rows.push({
+      label: `${j.name} ${field.indexOf('chip') === 0 || field === 'chips' ? '+' + v + ' 筹码' : field.indexOf('Xmult') === 0 || field === 'x_mult' ? '×' + v + ' 倍率' : '+' + v + ' 倍率'}`,
+      chips: st.chips, mult: st.mult, op: 'joker',
+    });
+  }
+}
+
+/** 找到某张小丑牌的规则（按名字，含别名） */
+function jokerRule (j) {
+  if (!j || !j.name) return null;
+  if (j.__rule === undefined) {
+    const R = (typeof JOKER_RULES !== 'undefined' && JOKER_RULES.rules) || [];
+    j.__rule = R.find((r) => r.n === j.name || (r.alias || []).includes(j.name)) || null;
+  }
+  return j.__rule;
+}
+
+/** 把图鉴里的一张小丑牌变成计算器条目 */
+function jokerFromItem (it) {
+  const c = it.config || {};
+  return {
+    id: it.id, name: it.name || it.id,
+    /* effect 是「中心」上的字段（例如 'Suit Mult'），不在 config 里，但规则要用它 */
+    cfg: Object.assign({}, c, { effect: it.effect, extra: c.extra }),
+    growth: 0,
+    manual: { chips: 0, mult: 0, xmult: 1 },
+  };
+}
+
+function viewScore (host) {
+  const r = scoreCompute();
+  const head = document.createElement('div');
+  head.className = 'listhead';
+  head.innerHTML = `<h2>得分计算器</h2><span class="sub">按游戏自己的结算顺序算：牌型 → 打出的牌 → 留手 → 小丑 → 得分 = ⌊筹码 × 倍率⌋</span>`;
+  host.appendChild(head);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'scwrap';
+  wrap.innerHTML = `
+    <div class="scin">
+      <div class="scbox">
+        <h4>① 牌型与等级</h4>
+        <div class="scrow">
+          <select id="scHand">${D.hands.map((h) => `<option value="${h.name}"${h.name === SC.hand ? ' selected' : ''}>${h.name}</option>`).join('')}</select>
+          <label>等级 <input id="scLevel" type="number" min="1" max="99" value="${SC.level}"></label>
+        </div>
+        <div class="scnote">基础 ${r.hand.chips} 筹码 × ${r.hand.mult} 倍率（每级 +${r.hand.chipsPerLevel || 0} / +${r.hand.multPerLevel || 0}）</div>
+      </div>
+      <div class="scbox">
+        <h4>② 打出的牌 <span class="scn">${SC.played.length} 张</span></h4>
+        <div class="sclist" id="scPlayed">${SC.played.map((c, i) => scCardRow(c, i, 'played')).join('') || '<div class="scnote">还没有牌</div>'}</div>
+        <div class="scrow"><button class="btn" data-sc="addPlayed">＋ 加一张牌</button><button class="btn" data-sc="clearPlayed">清空</button></div>
+      </div>
+      <div class="scbox">
+        <h4>③ 留在手里 <span class="scn">${SC.held.length} 张（钢铁牌等）</span></h4>
+        <div class="sclist" id="scHeld">${SC.held.map((c, i) => scCardRow(c, i, 'held')).join('') || '<div class="scnote">还没有牌</div>'}</div>
+        <div class="scrow"><button class="btn" data-sc="addHeld">＋ 加一张牌</button><button class="btn" data-sc="clearHeld">清空</button></div>
+      </div>
+      <div class="scbox">
+        <h4>④ 小丑牌 <span class="scn">${SC.jokers.length} 张（按顺序生效）</span></h4>
+        <div class="scrow"><input id="scJokerSearch" placeholder="搜索小丑牌…" autocomplete="off"><button class="btn" data-sc="addTop">＋ 最常用的</button></div>
+        <div class="sclist" id="scJokerList">${SC.jokers.map((j, i) => scJokerRow(j, i)).join('') || '<div class="scnote">还没有小丑牌</div>'}</div>
+        <div class="scres" id="scJokerHits"></div>
+      </div>
+      <div class="scbox">
+        <h4>⑤ 环境（部分小丑牌要用）</h4>
+        <div class="scrow scgrid">
+          <label>＄ <input type="number" data-env="dollars" value="${SC.env.dollars}"></label>
+          <label>剩余出牌 <input type="number" data-env="handsLeft" value="${SC.env.handsLeft}"></label>
+          <label>剩余弃牌 <input type="number" data-env="discardsLeft" value="${SC.env.discardsLeft}"></label>
+          <label>牌堆张数 <input type="number" data-env="deckCards" value="${SC.env.deckCards}"></label>
+        </div>
+        <div class="scrow scgrid">
+          <label>手填 +筹码 <input type="number" data-man="chips" value="${SC.manual.chips}"></label>
+          <label>手填 +倍率 <input type="number" data-man="mult" value="${SC.manual.mult}"></label>
+          <label>手填 ×倍率 <input type="number" step="0.1" data-man="xmult" value="${SC.manual.xmult}"></label>
+        </div>
+      </div>
+    </div>
+    <div class="scout">
+      <div class="scorefinal"><span>得分</span><b>${r.score.toLocaleString()}</b><em>${r.chips} 筹码 × ${+r.mult.toFixed(2)} 倍率</em></div>
+      <div class="sclog">${r.rows.map((x) => `<div class="scline ${x.op}"><span>${x.label}</span><i>${Math.round(x.chips)} × ${+x.mult.toFixed(2)}</i></div>`).join('')}</div>
+      ${r.warns.length ? `<div class="scwarn"><b>这些没自动算</b>（可以在上面填数值，或用手填修正）：
+        ${r.warns.map((w) => `<div>· ${w.n} <em>${w.why}</em></div>`).join('')}</div>` : ''}
+      <div class="scnote">规则取自游戏自己的 <code>card.lua</code>（Card:calculate_joker）；概率类（幸运牌、8 球…）不参与计算。</div>
+    </div>`;
+  host.appendChild(wrap);
+
+  /* ---- 事件 ---- */
+  const on = (sel, ev, fn) => { const e = wrap.querySelector(sel); if (e) e.addEventListener(ev, fn) }
+  on('#scHand', 'change', (e) => { SC.hand = e.target.value; render() });
+  on('#scLevel', 'change', (e) => { SC.level = Math.max(1, +e.target.value || 1); render() });
+  wrap.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sc]');
+    if (b) {
+      const act = b.dataset.sc;
+      if (act === 'addPlayed') SC.played.push(scCard('10', 'S'));
+      else if (act === 'clearPlayed') SC.played = [];
+      else if (act === 'addHeld') SC.held.push(scCard('10', 'S'));
+      else if (act === 'clearHeld') SC.held = [];
+      else if (act === 'addTop') SC.jokers.push(jokerFromItem(BY_ID['j_joker'] || ITEMS.find((i) => i.cat === 'Joker')));
+      else if (act === 'jokerAdd') SC.jokers.push(jokerFromItem(BY_ID[b.dataset.id]));
+      else if (act === 'jokerDel') SC.jokers.splice(+b.dataset.i, 1);
+      else if (act === 'jokerUp') { const i = +b.dataset.i; if (i > 0) { const t = SC.jokers[i - 1]; SC.jokers[i - 1] = SC.jokers[i]; SC.jokers[i] = t } }
+      else if (act === 'cardDel') {
+        const arr = b.dataset.which === 'held' ? SC.held : SC.played;
+        arr.splice(+b.dataset.i, 1);
+      }
+      render(); return;
+    }
+  });
+  wrap.addEventListener('change', (e) => {
+    const c = e.target.closest('[data-card]');
+    if (c) {
+      const which = c.dataset.which === 'held' ? SC.held : SC.played;
+      const card = which[+c.dataset.i];
+      if (card) { card[c.dataset.field] = e.target.value; render() }
+      return;
+    }
+    const g = e.target.closest('[data-growth]');
+    if (g) { const j = SC.jokers[+g.dataset.growth]; if (j) { j.growth = Number(e.target.value) || 0; render() } return }
+    const m = e.target.closest('[data-jman]');
+    if (m) {
+      const j = SC.jokers[+m.dataset.jman];
+      if (j) { j.manual[m.dataset.field] = Number(m.dataset.mfield === 'xmult' ? e.target.value : e.target.value) || (m.dataset.mfield === 'xmult' ? 1 : 0); render() }
+      return;
+    }
+    const env = e.target.closest('[data-env]');
+    if (env) { SC.env[env.dataset.env] = Number(env.value) || 0; render(); return }
+    const man = e.target.closest('[data-man]');
+    if (man) { SC.manual[man.dataset.man] = Number(man.value) || (man.dataset.man === 'xmult' ? 1 : 0); render(); return }
+  });
+  on('#scJokerSearch', 'input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    const hits = wrap.querySelector('#scJokerHits');
+    if (!q) { hits.innerHTML = ''; return }
+    const list = ITEMS.filter((i) => i.cat === 'Joker' && (i.id + ' ' + (i.name || '') + ' ' + (i.source || '')).toLowerCase().includes(q)).slice(0, 12);
+    hits.innerHTML = list.map((i) => `<button class="btn" data-sc="jokerAdd" data-id="${i.id}">${i.name || i.id}${i.source ? ' ★' : ''}</button>`).join('') || '<div class="scnote">没找到</div>';
+  });
+}
+
+/** 计算器里的一行牌 */
+function scCardRow (c, i, which) {
+  const opt = (list, cur, fmt) => list.map((v) => `<option value="${v[0]}"${v[0] === cur ? ' selected' : ''}>${fmt ? fmt(v) : v[1]}</option>`).join('');
+  const ranks = Object.keys(RANK_CHIPS).map((k) => [k, k]);
+  const suits = Object.keys(SUIT_SYM).map((k) => [k, SUIT_SYM[k]]);
+  const enhs = [['', '无强化']].concat(ITEMS.filter((x) => x.cat === 'Enhancement').map((x) => [x.id, x.name || x.id]));
+  const eds = [['', '无版本']].concat(ITEMS.filter((x) => x.cat === 'Edition' && !x.shader).map((x) => [x.id, x.name || x.id]));
+  const seals = [['', '无蜡封'], ['Red', '红蜡封'], ['Gold', '金蜡封'], ['Blue', '蓝蜡封'], ['Purple', '紫蜡封']];
+  return `<div class="sccard">
+    <select data-card data-which="${which}" data-i="${i}" data-field="rank">${opt(ranks, c.rank)}</select>
+    <select data-card data-which="${which}" data-i="${i}" data-field="suit">${opt(suits, c.suit)}</select>
+    <select data-card data-which="${which}" data-i="${i}" data-field="enh" title="强化">${opt(enhs, c.enh)}</select>
+    <select data-card data-which="${which}" data-i="${i}" data-field="ed" title="版本">${opt(eds, c.ed)}</select>
+    <select data-card data-which="${which}" data-i="${i}" data-field="seal" title="蜡封">${opt(seals, c.seal)}</select>
+    <button class="btn scx" data-sc="cardDel" data-which="${which}" data-i="${i}" title="删掉">✕</button>
+  </div>`;
+}
+
+/** 计算器里的一张（已选）小丑牌 */
+function scJokerRow (j, i) {
+  const rule = jokerRule(j);
+  const k = rule ? rule.k : null;
+  const tag = k === 'yes' ? '<em class="ok">自动</em>' : k === 'by-card' ? '<em class="ok">按牌</em>' : k === 'repeat' ? '<em class="ok">重复</em>' : k === 'repeat' ? '' : k === 'manual' ? '<em class="warn">需手填</em>' : '<em class="warn">无规则</em>';
+  const needsGrowth = rule && /ability\.mult|extra\.mult|extra\.chips|extra\b/.test(rule.e.join(' ')) && /mult|chips/.test(rule.e.join(' '));
+  return `<div class="scj">
+    <span class="scjname">${j.name}</span>${tag}
+    ${needsGrowth ? `<label class="scgrow" title="这张牌当前的成长值（游戏里会随回合变化）">成长 <input type="number" data-growth="${i}" value="${j.growth || 0}" style="width:64px"></label>` : ''}
+    <span class="scjm">
+      <input type="number" data-jman="${i}" data-field="chips" data-mfield="chips" value="${j.manual.chips}" title="手填 +筹码" style="width:60px">
+      <input type="number" data-jman="${i}" data-field="mult" data-mfield="mult" value="${j.manual.mult}" title="手填 +倍率" style="width:60px">
+      <input type="number" step="0.1" data-jman="${i}" data-field="xmult" data-mfield="xmult" value="${j.manual.xmult}" title="手填 ×倍率" style="width:60px">
+    </span>
+    <button class="btn scx" data-sc="jokerUp" data-i="${i}" title="往前挪（结算顺序）">↑</button>
+    <button class="btn scx" data-sc="jokerDel" data-i="${i}" title="移除">✕</button>
+  </div>`;
+}
+
 /* ---------------------------------------------------------------- shell */
 let detailTimer = null;
 function render () {
@@ -3279,6 +3690,7 @@ function render () {
   else if (S.tab === 'forge') { forgeRedraw = null; viewForge(content); }
   else if (S.tab === 'atlas') viewAtlas(content);
   else if (S.tab === 'hands') viewHands(content);
+  else if (S.tab === 'score') viewScore(content);
   else if (S.tab === 'shaders') viewShaders(content);
   else if (S.tab === 'data') viewData(content);
   else if (S.tab === 'mods') viewMods(content);
@@ -3446,6 +3858,8 @@ function init () {
     // --- mod import ---
     mods: MODS, importModZip, importModFiles, importBatch, importZipBuffer, filesFromDrop, removeMod, sourceItems,
     modImport: window.__MODIMPORT__, categoryLabel,
+    // --- 得分计算器（脚本化测试与自用都方便）---
+    score: { state: SC, compute: scoreCompute, card: scCard, jokerFromItem, rules: () => (typeof JOKER_RULES !== 'undefined' ? JOKER_RULES : null) },
   };
   ALL_READY.then(() => {
     // the handle exists before the first paint (which waits for every sheet to decode)
