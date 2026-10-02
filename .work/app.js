@@ -3671,6 +3671,91 @@ function scCardDebuffed (card) {
   if (rule && rule.debuffAll) return true;
   return !!(it.raw && it.raw.debuff && scSpecDebuffs(card, it.raw.debuff));
 }
+/** 两句话是不是一个意思（够用的近似：汉字集合重合度 ≥ 0.7 就算） */
+function scSameMeaning (a, b) {
+  const set = (t) => new Set(String(t || '').replace(/[^\u4e00-\u9fa5]/g, '').split(''));
+  const A = set(a), B = set(b);
+  if (!A.size || !B.size) return false;
+  let hit = 0;
+  for (const ch of B) if (A.has(ch)) hit++;
+  return hit / B.size >= 0.7;
+}
+/** 盲注的效果文本（不依赖当前选择：列表里每一行也要用它） */
+function scBlindEffectText (it) {
+  if (!it) return '';
+  const rule = scBlindRule(it);
+  const spec = (it.raw && it.raw.debuff) || {};
+  const desc = ((it.text && (it.text[S.lang] || it.text['en-us'])) || []).join(' ');
+  const bits = [];
+  if (desc) bits.push(desc);
+  if (!desc && spec.suit) bits.push('所有' + scSuitName(spec.suit) + '牌被削弱');
+  if (!desc && spec.is_face === 'face') bits.push('所有人头牌（J/Q/K）被削弱');
+  if (!desc && spec.value) bits.push('点数 ' + spec.value + ' 的牌被削弱');
+  if (!desc && spec.nominal) bits.push('点数 ' + spec.nominal + ' 的牌被削弱');
+  if (spec.h_size_ge) bits.push('必须打出至少 ' + spec.h_size_ge + ' 张牌');
+  if (spec.h_size_le) bits.push('最多打出 ' + spec.h_size_le + ' 张牌');
+  /* 注解与游戏描述常常是同一句话：汉字重合度高的就不重复说了 */
+  if (rule && rule.note && !scSameMeaning(desc, rule.note)) bits.push(rule.note);
+  if (!rule && !Object.keys(spec).length) bits.push('本页不认识它的效果（多半来自 mod）—— 用卡牌的「被削弱」和小丑牌的「被禁用」手动补');
+  return bits.join('　·　');
+}
+/** 当前盲注那一块：名字大、效果直接写出来（不用先选了才知道） */
+function scBlindBoxHtml () {
+  const it = scBlindItem();
+  const auto = SC.played.filter((c) => scCardDebuffed(c)).length;
+  if (!it) {
+    return '<div class="scblindcur none"><div class="scblindrowmain"><div class="scblindname">不算盲注</div>' +
+      '<div class="scblindfx">这一手按普通回合算。点「选择盲注」挑一个 BOSS，它的效果（谁被削弱、等级变化…）会自动算进去。</div></div>' +
+      '<button class="btn primary scblindpick" type="button">选择盲注</button></div>';
+  }
+  return '<div class="scblindcur"><div class="scblindrowmain"><div class="scblindname">' + esc(nm(it)) + (it.source ? ' <i class="mod">MOD</i>' : '') + '</div>' +
+    '<div class="scblindfx">' + scBlindEffectText(it) + (auto ? '<span class="scblinda">这手里 ' + auto + ' 张牌被削弱</span>' : '') + '</div></div>' +
+    '<button class="btn scblindpick" type="button">换一个</button>' +
+    '<button class="btn scblindclear" type="button">取消</button></div>';
+}
+/** 选择弹窗：一行一个盲注，名字与效果都写出来（列表来自图鉴条目，mod 的盲注自动在里面） */
+function scBlindPicker () {
+  const old = document.getElementById('scBlindPick');
+  if (old) old.remove();
+  const root = document.createElement('div');
+  root.id = 'scBlindPick'; root.className = 'scpick scmodal';
+  const list = ITEMS.filter((i) => i.cat === 'Blind' && i.raw && i.raw.boss);
+  root.innerHTML = '<div class="scpickpanel"><div class="scpicktop"><b>选择 BOSS 盲注</b>' +
+    '<span class="dim">' + list.length + ' 个（含 mod）</span>' +
+    '<input id="scBlindQ" placeholder="搜索名字或效果…" autocomplete="off">' +
+    '<button class="btn" id="scBlindDone" type="button">关闭</button></div>' +
+    '<div class="scpanelscroll scblindlist" id="scBlindList"></div></div>';
+  document.body.appendChild(root);
+  const q = (s) => root.querySelector(s);
+  const rowHtml = (it) => {
+    if (!it) return '<button class="scblindrow none" data-blind=""><b>不算盲注</b><span>这一手按普通回合算</span></button>';
+    const cur = SC.blind === it.id ? ' on' : '';
+    return '<button class="scblindrow' + cur + '" data-blind="' + it.id + '"><b>' + esc(nm(it)) +
+      (it.source ? ' <i class="mod">MOD</i>' : '') + (cur ? ' <i class="cur">当前</i>' : '') + '</b>' +
+      '<span>' + scBlindEffectText(it) + '</span></button>';
+  };
+  const paint = (query) => {
+    const s = (query || '').toLowerCase();
+    const hit = list.filter((i) => !s || (nm(i) + ' ' + scBlindEffectText(i) + ' ' + i.id).toLowerCase().includes(s));
+    q('#scBlindList').innerHTML = rowHtml(null) + (hit.length ? hit.map(rowHtml).join('')
+      : '<div class="hint" style="padding:14px">没有匹配的盲注</div>');
+  };
+  paint('');
+  q('#scBlindQ').oninput = (e) => paint(e.target.value);
+  q('#scBlindDone').onclick = () => root.remove();
+  root.onclick = (e) => {
+    if (e.target === root) { root.remove(); return }
+    const row = e.target.closest('[data-blind]');
+    if (!row) return;
+    root.remove();
+    scStopPlay(); SC.blind = row.dataset.blind || ''; SC_UI.step = -1; render();
+  };
+  document.addEventListener('keydown', function esc (e) {
+    if (e.key !== 'Escape') return;
+    document.removeEventListener('keydown', esc);
+    root.remove();
+  });
+}
 /** 盲注下拉：列表直接来自图鉴条目，所以 mod 的盲注自动在里面 */
 function scBlindOptions () {
   const list = ITEMS.filter((i) => i.cat === 'Blind' && i.raw && i.raw.boss);
@@ -3707,6 +3792,9 @@ function scoreCompute () {
   const lvl0 = Math.max(1, Math.min(99, SC.level | 0));
   const blindIt = scBlindItem();
   const bRule = blindIt ? scBlindRule(blindIt) : null;
+  /* 「BOSS 盲注」这个局面开关以前要手勾，现在由盲注选择推导：
+     选了盲注 = 这一手就是 BOSS 盲注（依赖 G.GAME.blind.boss 的牌才判得对） */
+  SC.env.bossBlind = !!(blindIt && blindIt.raw && blindIt.raw.boss);
   /* The Arm：本手按降级后的等级结算 */
   const lvl = (bRule && bRule.handLevel) ? Math.max(1, lvl0 + bRule.handLevel) : lvl0;
   /* 每级加多少：游戏数据里字段名是 l_chips / l_mult（hand.chipsPerLevel 根本不存在，
@@ -3850,8 +3938,7 @@ function scoreCompute () {
   return { chips, mult, score: Math.floor(chips * mult), rows, warns, hand, lvl };
 }
 
-/** 原版那种「数字跳一下」的手感：数字从旧值滚到新值，框再 pop 一下。
- *  只写 textContent 与 class —— 不重画任何卡图，所以对性能没有影响。 */
+/** 缓动滚动（「简洁」模式用）：只写 textContent，不重画卡图。 */
 function scTweenNum (el, from, to, ms, fmt) {
   if (!el || !isFinite(from) || !isFinite(to)) return;
   const t0 = performance.now();
@@ -3862,16 +3949,80 @@ function scTweenNum (el, from, to, ms, fmt) {
   };
   requestAnimationFrame(step);
 }
-function scJuiceStep (host, prev, now) {
-  const pop = (el, from, to, ms, fmt) => {
-    if (!el) return;
-    if (from !== to) { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); scTweenNum(el, from, to, ms, fmt) }
+/* ================================================================ 结算动画
+ * 全部照原版源码：
+ *  · 数字框抖动：engine/moveable.lua:juice_up —— 0.4s 阻尼正弦，
+ *      scale = (1-0.6*amt) + amt*sin(50.8*t)*max(0,(1-t/0.4)^3)
+ *      rot   = r_amt*sin(40.8*t)*max(0,(1-t/0.4)^2)      （amt 默认 0.4，HUD 上用 0.3）
+ *  · 飘字：common_events.lua:779 card_eval_status_text —— 筹码 a_chips「+#1#」配筹码蓝、
+ *      倍率 a_mult「+#1#倍率」配倍率红、倍数 a_xmult「X#1#倍率」，被削弱就是「被削弱」；
+ *      文字带同色底框，从牌上方浮起淡出（默认 0.65s×1.25）。
+ *  · 结算到某张牌时原版会 card:juice_up(0.6, 0.1) 并把 G.ROOM.jiggle 加 0.7（整屏轻抖）。
+ * 模式由「结算动画」按键切换：原版 / 简洁（只有数字变，就是这一轮之前的样子）/ 关闭（不逐步播放）。 */
+function scJuice (el, amt, rot, ms) {
+  if (!el || SC_UI.anim === 'plain' || SC_UI.anim === 'off') return;
+  const a = amt == null ? 0.4 : amt;
+  const r0 = rot || 0;
+  const dur = (ms == null ? 400 : ms) / 1000;
+  const t0 = performance.now();
+  const loop = (now) => {
+    const t = (now - t0) / 1000;
+    if (t >= dur) { el.style.transform = ''; return }
+    const dec = Math.max(0, 1 - t / dur);
+    const s = (1 - 0.6 * a) + a * Math.sin(50.8 * t) * Math.pow(dec, 3);
+    const r = r0 * Math.sin(40.8 * t) * Math.pow(dec, 2) * 57.2958;
+    el.style.transform = 'scale(' + s.toFixed(4) + ') rotate(' + r.toFixed(2) + 'deg)';
+    requestAnimationFrame(loop);
   };
-  pop(host.querySelector('.scchips b'), prev.chips, now.chips, 200, (v) => String(Math.round(v)));
-  pop(host.querySelector('.scmult b'), prev.mult, now.mult, 200, (v) => String(Math.round(v * 100) / 100));
-  pop(host.querySelector('.scscore b'), prev.score, now.score, 300, (v) => Math.floor(v).toLocaleString());
-  const on = host.querySelector('.sctile.on');
-  if (on) { on.classList.remove('pulse'); void on.offsetWidth; on.classList.add('pulse') }
+  requestAnimationFrame(loop);
+}
+/** 飘字（原版 attention_text）：带同色底框，从锚点上方浮起并淡出 */
+function scFloatText (anchor, text, colour, scale) {
+  if (!anchor || !text || SC_UI.anim !== 'game') return;
+  const r = anchor.getBoundingClientRect();
+  const el = document.createElement('span');
+  el.className = 'scfloat';
+  el.textContent = text;
+  el.style.background = colour;
+  el.style.fontSize = ((scale || 0.7) * 15).toFixed(1) + 'px';
+  el.style.left = Math.round(r.left + r.width / 2) + 'px';
+  el.style.top = Math.round(r.top - 4) + 'px';
+  document.body.appendChild(el);
+  requestAnimationFrame(() => { el.classList.add('rise') });
+  setTimeout(() => el.remove(), 900);
+}
+/** 结算到某张牌：牌自己抖一下（原版 0.6 / 0.1）+ 牌桌轻抖（G.ROOM.jiggle） */
+function scJuiceCard (tile, host) {
+  if (!tile || SC_UI.anim !== 'game') return;
+  scJuice(tile, 0.6, 0.1);
+  /* 原版抖的是整个房间（G.ROOM.jiggle），但那在浏览器里等于让所有卡图重绘
+     （实测 54fps → 38fps）。这里改成抖 HUD 那一块：看得见的抖动照旧，代价小得多。 */
+  const stage = host.querySelector('.schud');
+  if (stage) { stage.classList.remove('jiggle'); void stage.offsetWidth; stage.classList.add('jiggle') }
+}
+/** 每一步的动画：数字直接变（原版如此），抖的是框；飘字按这一步的效果类型选文案与颜色。
+ *  简洁模式走回旧的缓动滚动，关闭模式什么都不做。 */
+function scJuiceStep (host, prev, now, row) {
+  const chipsEl = host.querySelector('.scchips b'), multEl = host.querySelector('.scmult b');
+  const scoreEl = host.querySelector('.scscore b');
+  if (SC_UI.anim === 'plain') {
+    scTweenNum(chipsEl, prev.chips, now.chips, 200, (v) => String(Math.round(v)));
+    scTweenNum(multEl, prev.mult, now.mult, 200, (v) => String(Math.round(v * 100) / 100));
+    scTweenNum(scoreEl, prev.score, now.score, 300, (v) => Math.floor(v).toLocaleString());
+    return;
+  }
+  if (SC_UI.anim === 'off') return;
+  const dChips = now.chips - prev.chips, dMult = now.mult - prev.mult;
+  if (dChips) scJuice(host.querySelector('.scchips'), 0.3, 0);
+  if (dMult) scJuice(host.querySelector('.scmult'), 0.3, 0);
+  scJuice(scoreEl, 0.25, 0);
+  const tile = host.querySelector('.sctile.on');
+  const op = row && row.op;
+  if (op === 'debuff') scFloatText(tile, '被削弱', '#fe5f55', 0.6);
+  else if (op === 'x' && prev.mult) scFloatText(tile, 'X' + (Math.round((now.mult / prev.mult) * 100) / 100) + '倍率', '#fe5f55', 0.7);
+  else if (dMult) scFloatText(tile, '+' + (Math.round(dMult * 100) / 100) + '倍率', '#fe5f55', 0.7);
+  else if (dChips) scFloatText(tile, '+' + Math.round(dChips), '#009dff', 0.7);
+  scJuiceCard(tile, host);
 }
 /** 第 i 步时面板上该显示的数字（播放动画拿它当滚动起点 / 终点） */
 function scShownAt (r, i) {
@@ -4192,7 +4343,9 @@ function spriteTile (cv, cls, title) {
   return d;
 }
 
-const SC_UI = { edit: null, step: -1, playing: false, timer: null, order: [], focus: null, joker: null };
+const SC_UI = { edit: null, step: -1, playing: false, timer: null, order: [], focus: null, joker: null,
+  /* 结算动画模式：game = 照原版（juice + 飘字 + 轻抖）/ plain = 只有数字变化 / off = 直接出结果 */
+  anim: 'game' };
 
 /* ================================================================ 卡牌选择器
  * 照游戏的「收藏」页做：分类在左边、搜索在上面、中间是真实卡图网格。
@@ -5004,11 +5157,7 @@ function viewScore (host) {
         <div class="scrail" id="scHand"></div>
       </div>
       <div class="scrowbox scfull">
-        <div class="scblindbox">
-          <label class="scev scsel2" title="选一个 BOSS 盲注，它在这一手里的效果会自动算进去；列表里连 mod 的盲注一起有">
-            <span>BOSS 盲注</span><select id="scBlind">${scBlindOptions()}</select></label>
-          <div class="scblindnote" id="scBlindNote">${scBlindNoteHtml()}</div>
-        </div>
+        <div class="scblindbox">${scBlindBoxHtml()}</div>
         <div class="scrowhead"><span>整体修改</span><em>牌型等级与次数、以及原版算分读到的那些数值：剩余次数、金钱、牌堆、已用塔罗牌…（改这里，依赖它们的牌才算得对）</em>
           <button class="btn" id="scPlaysToggle">牌型次数…</button></div>
         <div class="scenv">
@@ -5018,7 +5167,6 @@ function viewScore (host) {
             <select id="scHandType"><option value="">自动：${handCN(r.hand)}</option>${D.hands.slice().sort((a, b) => (b.order || 0) - (a.order || 0)).map((h) => `<option value="${h.name}"${SC.handMode === 'manual' && h.name === SC.hand ? ' selected' : ''}>${handLabel(h)}</option>`).join('')}</select>
           </label>
           ${SC_ENV_FIELDS.map(([k, label, min, max]) => `<label class="scev" title="${label}"><span>${label}</span><input type="number" data-env="${k}" min="${min}" max="${max}" value="${SC.env[k]}"></label>`).join('')}
-          <label class="scevc"><input type="checkbox" data-envflag="bossBlind"${SC.env.bossBlind ? ' checked' : ''}><span>BOSS 盲注</span></label>
           <label class="scevc"><input type="checkbox" data-envflag="blindDisabled"${SC.env.blindDisabled ? ' checked' : ''}><span>盲注被禁用</span></label>
         </div>
         <div class="scplays" id="scPlays" hidden>
@@ -5139,6 +5287,7 @@ function viewScore (host) {
     <button class="btn primary" id="scToggle">${SC_UI.playing ? '⏸ 暂停' : '▶ 逐步播放'}</button>
     <button class="btn" id="scNext" title="下一步">▶</button>
     <button class="btn" id="scLast" title="直接看结果">⏭</button>
+    <button class="btn" id="scAnim" title="结算动画：原版 = 照引擎的 juice 与飘字；简洁 = 只有数字变化；关闭 = 直接出结果">结算动画：${({ game: '原版', plain: '简洁', off: '关闭' })[SC_UI.anim || 'game']}</button>
     <input type="range" id="scStep" min="-1" max="${r.rows.length - 1}" value="${step}" title="结算进度">
     <span class="scstepn">${step < 0 ? '结果' : (step + 1) + ' / ' + r.rows.length}</span>
     <span class="scnow">${step < 0 ? '最终得分' : r.rows[step].label}</span>`;
@@ -5173,7 +5322,8 @@ function viewScore (host) {
   /* 注意：播放条挂在 host 上而不是 stage 里，所以这里从 host 找 */
   const q = (sel) => host.querySelector(sel);
   const stepTo = (v) => { SC_UI.step = Math.max(-1, Math.min(r.rows.length - 1, v)); render() };
-  q('#scBlind').onchange = (e) => { scStopPlay(); SC.blind = e.target.value; SC_UI.step = -1; render() };
+  q('.scblindpick').onclick = () => scBlindPicker();
+  { const cx = q('.scblindclear'); if (cx) cx.onclick = () => { scStopPlay(); SC.blind = ''; SC_UI.step = -1; render() } }
   q('#scHandType').onchange = (e) => {
     scStopPlay();
     const v = e.target.value;
@@ -5202,6 +5352,11 @@ function viewScore (host) {
   q('#scAddCard').onclick = () => openScPicker('PlayingCard');
   q('#scAddJoker').onclick = () => openScPicker('Joker');
   q('#scPreset').onchange = (e) => { const v = e.target.value; if (v) scApplyPreset(v) };
+  q('#scAnim').onclick = () => {
+    const order = ['game', 'plain', 'off'];
+    SC_UI.anim = order[(order.indexOf(SC_UI.anim || 'game') + 1) % order.length];
+    scStopPlay(); SC_UI.step = -1; render();
+  };
   q('#scFirst').onclick = () => { scStopPlay(); stepTo(-1) };
   q('#scPrev').onclick = () => { scStopPlay(); stepTo(SC_UI.step < 0 ? r.rows.length - 2 : SC_UI.step - 1) };
   q('#scNext').onclick = () => { scStopPlay(); stepTo(SC_UI.step < 0 ? 0 : SC_UI.step + 1) };
@@ -5211,6 +5366,7 @@ function viewScore (host) {
     if (SC_UI.playing) { scStopPlay(); render(); return }
     SC_UI.playing = true;
     SC_UI.step = -1;
+    if (SC_UI.anim === 'off') { SC_UI.step = scoreCompute().rows.length - 1; SC_UI.playing = false; render(); return }
     render();
     { const b = host.querySelector('.scplay'); if (b && b.scrollIntoView) b.scrollIntoView({ block: 'nearest' }) }
     /* 原版的节奏：每一步 0.2~0.3s，最后结算那一行稍长；数字是滚上去的，不是硬跳。 */
@@ -5224,7 +5380,7 @@ function viewScore (host) {
       render();
       const shown = scShownAt(rr, SC_UI.step);
       SC_UI.shown = shown;
-      scJuiceStep(host, before, shown);
+      scJuiceStep(host, before, shown, rr.rows[SC_UI.step]);
       stepDelay = (SC_UI.step >= rr.rows.length - 2) ? 460 : 300;
       SC_UI.timer = setTimeout(tick, stepDelay);
     };
