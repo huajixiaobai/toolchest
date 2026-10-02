@@ -647,14 +647,23 @@ const GC = (() => {
   const t = lua.resolve(lua.extractAndParse(globalsSrc, 'self.C = {'))
   return t
 })()
+/* game.lua:42-46 一启动就把 G.C.SUITS 换成 SO_1（高对比 colourblind_option 打开时换 SO_2），
+   button_callbacks.lua:1757-1761 切开关时也做同样的事。所以「按花色上色」的文字（{C:spades} 这类）
+   用的是 SO_1，而不是 globals 里 SUITS 的字面值 —— 我们以前取的是字面值，和游戏里的颜色对不上。 */
+const SO_1 = GC.SO_1 || {}, SO_2 = GC.SO_2 || {}
+const suitAt = (tbl, k) => rgbaToHex((tbl && tbl[k]) || GC.SUITS?.[k])
+const SUIT_STD = {}, SUIT_HC = {}
+for (const [tag, key] of [['spades', 'Spades'], ['hearts', 'Hearts'], ['clubs', 'Clubs'], ['diamonds', 'Diamonds']]) {
+  SUIT_STD[tag] = suitAt(SO_1, key)
+  SUIT_HC[tag] = suitAt(SO_2, key)
+}
 const LOC_COLOURS = {
   red: rgbaToHex(GC.RED), mult: rgbaToHex(GC.MULT), blue: rgbaToHex(GC.BLUE), chips: rgbaToHex(GC.CHIPS),
   green: rgbaToHex(GC.GREEN), money: rgbaToHex(GC.MONEY), gold: rgbaToHex(GC.GOLD),
   attention: rgbaToHex(GC.FILTER), purple: rgbaToHex(GC.PURPLE), white: rgbaToHex(GC.WHITE),
   inactive: rgbaToHex(GC.UI?.TEXT_INACTIVE) || '#8b9298', black: rgbaToHex(GC.BLACK),
   light_black: rgbaToHex(GC.L_BLACK), grey: rgbaToHex(GC.GREY),
-  spades: rgbaToHex(GC.SUITS?.Spades), hearts: rgbaToHex(GC.SUITS?.Hearts),
-  clubs: rgbaToHex(GC.SUITS?.Clubs), diamonds: rgbaToHex(GC.SUITS?.Diamonds),
+  ...SUIT_STD,
   tarot: rgbaToHex(GC.SECONDARY_SET?.Tarot), planet: rgbaToHex(GC.SECONDARY_SET?.Planet),
   spectral: rgbaToHex(GC.SECONDARY_SET?.Spectral), enhanced: rgbaToHex(GC.SECONDARY_SET?.Enhanced),
   edition: rgbaToHex(GC.EDITION), dark_edition: rgbaToHex(GC.DARK_EDITION),
@@ -670,7 +679,7 @@ const PALETTE = {
   rarity: (GC.RARITY || []).map(rgbaToHex),
   set: Object.fromEntries(Object.entries(GC.SET || {}).map(([k, v]) => [k, rgbaToHex(v)])),
   secondarySet: Object.fromEntries(Object.entries(GC.SECONDARY_SET || {}).map(([k, v]) => [k, rgbaToHex(v)])),
-  suits: Object.fromEntries(Object.entries(GC.SUITS || {}).map(([k, v]) => [k, rgbaToHex(v)])),
+  suits: SUIT_STD, suitsHC: SUIT_HC,
   duel: { Hearts: rgbaToHex(GC.SUITS?.Hearts), Diamonds: rgbaToHex(GC.SUITS?.Diamonds), Spades: rgbaToHex(GC.SUITS?.Spades), Clubs: rgbaToHex(GC.SUITS?.Clubs) },
 }
 
@@ -749,7 +758,7 @@ const data = {
     locales: LOCALES.map(([code, label]) => ({ code, label })),
   },
   atlases, atlasIndex, items, hands: handItems, composition, loc: locData, shaders,
-  colors: { tags: LOC_COLOURS, palette: PALETTE },
+  colors: { tags: LOC_COLOURS, tagsHC: Object.assign({}, LOC_COLOURS, SUIT_HC), palette: PALETTE },
   counts: items.reduce((acc, i) => { acc[i.cat] = (acc[i.cat] || 0) + 1; return acc }, {}),
 }
 

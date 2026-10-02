@@ -171,7 +171,9 @@ table.kv td:last-child{font-family:var(--mono);font-size:11.5px;word-break:break
 .forge{display:grid;grid-template-columns:320px 1fr;gap:18px;align-items:start}
 .forge .preview{position:sticky;top:0;text-align:center;background:#131c24;border:1px solid var(--line);border-radius:10px;padding:14px 12px}
 .forge .preview canvas{image-rendering:pixelated;filter:drop-shadow(0 12px 26px #000b)}
-.forge .opts{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:14px;align-content:start}
+/* align-items:start 很关键：网格默认把同一行的卡片拉到一样高，于是「牌型」栏收起了内容
+   却还留着一个 400px 高的空框（实测收起后 box 仍是 416px）—— 看起来就像没收起。 */
+.forge .opts{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:14px;align-content:start;align-items:start}
 .opt{background:#141d26;border:1px solid var(--line);border-radius:8px;padding:0;overflow:hidden}
 .opt h4{
   display:flex;align-items:center;gap:8px;margin:0;padding:9px 11px;cursor:pointer;user-select:none;
@@ -188,6 +190,16 @@ table.kv td:last-child{font-family:var(--mono);font-size:11.5px;word-break:break
 .opt.collapsed .obody{display:none}
 /* the subject picker is the only group with hundreds of entries: scroll it in place */
 #content .opt[data-gkey="base"] .chips{max-height:min(48vh,360px);overflow:auto;overscroll-behavior:contain;padding-right:2px}
+/* 主体格子：固定格宽 + 名字两行定高。以前是 flex 自适应宽度，名字长短不同（红桃2 vs 红桃Queen）
+   就把格子撑成 72~94px 各种宽度，行与行、列与列全对不齐。 */
+#content .opt[data-gkey="base"] .chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:6px}
+#content .opt[data-gkey="base"] .pick{width:100%;min-width:0;height:56px;overflow:hidden;align-items:center}
+#content .opt[data-gkey="base"] .pick canvas{flex:0 0 auto}
+#content .opt[data-gkey="base"] .pick>span{
+  flex:1 1 auto;min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;line-height:1.3;word-break:break-word}
+#content .opt[data-gkey="base"] .pick .pickmod{
+  position:absolute;top:-6px;right:-4px;margin:0;box-shadow:0 0 0 1px #131c24}
 .pick .pickmod{
   font-size:8.5px;font-style:normal;letter-spacing:.4px;padding:0 4px;border-radius:7px;margin-left:2px;
   background:#2b2140;border:1px solid var(--purple);color:#cbb8ee
@@ -350,12 +362,31 @@ table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
 .sctile .scbadge{position:absolute;left:0;right:0;bottom:-1px;font-size:9.5px;line-height:1.5;text-align:center;color:#dfe7ee;
   background:#1b2225e6;border-radius:0 0 var(--g-r) var(--g-r);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 2px}
 .sctile .scred{position:absolute;top:2px;right:2px;background:var(--c-red);color:#2b0b0b;font-size:9.5px;border-radius:4px;padding:0 3px;font-style:normal}
-/* 小按钮：抬到牌上方 30px，下面用 padding 撑出一条透明桥接到牌顶。
-   从牌面往上一路移过去都在命中区里，不会再出现"鼠标看着像能点、其实还差一截"。 */
-.sctile .scmv{position:absolute;top:-30px;left:50%;transform:translateX(-50%);display:none;gap:3px;z-index:210;
-  padding:2px 3px 24px;background:#1b2225cc;border-radius:8px 8px 0 0}
-.sctile:hover .scmv{display:flex}
-.sctile .scmv button{font-size:10px;line-height:1;padding:3px 6px;border:0;border-radius:4px;background:var(--c-lblack);color:#fff;cursor:pointer;box-shadow:var(--g-emboss)}
+/* 卡图上的小按钮（重做）：
+   以前是 top:-30px 再加 24px 的 padding 当"透明桥"，那条深色桥看着像按钮其实点不到、
+   还盖住牌顶 14px —— 指针判定就是这么被误导的。现在：条只有按钮那么高、不吃指针（只有按钮吃），
+   按钮自己做悬停 / 按下 / 聚焦反馈。 */
+/* 用 opacity 而不是 display 控制显隐：display:none 里的按钮按 Tab 也聚焦不到，
+   于是 :focus-within 永远触发不了（键盘用户根本叫不出这排按钮）。opacity:0 的元素照样能聚焦。 */
+.sctile .scmv{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);margin-bottom:5px;display:flex;gap:4px;z-index:260;
+  opacity:0;pointer-events:none;transition:opacity .12s}
+.sctile:hover .scmv,.sctile:focus-within .scmv,.sctile.sel .scmv,.sctile.on .scmv{opacity:1}
+.sctile:hover .scmv button,.sctile:focus-within .scmv button,.sctile.sel .scmv button,.sctile.on .scmv button{pointer-events:auto}
+.sctile .scmv.atstart{left:0;transform:none}
+.sctile .scmv.atend{left:auto;right:0;transform:none}
+/* 隐形"过桥"：条在牌上方 27px 处，鼠标从牌面往上移的途中会经过一段空白（条本身不吃指针）。
+   没有这块透明命中区的话，指针一离开牌面 :hover 就断了，条会在你够到按钮之前淡掉 —— 点不到。
+   它只是一块透明的命中区，没有任何视觉，所以不会像以前那条深色"桥"那样误导人。 */
+.sctile::after{content:'';position:absolute;left:0;right:0;bottom:100%;height:30px}
+.sctile .scmv button{
+  min-width:24px;min-height:22px;padding:0 5px;font-size:12px;line-height:1;
+  border:1px solid #6d8188;border-radius:5px;background:#232c2f;color:#fff;cursor:pointer;
+  box-shadow:0 2px 0 rgba(0,0,0,.35);transition:background .1s,transform .1s,border-color .1s,color .1s}
+.sctile .scmv button:hover{background:var(--c-red);border-color:#ffffff66;transform:translateY(-1px)}
+.sctile .scmv button:active{background:#c94a42;transform:translateY(1px)}
+.sctile .scmv button:focus-visible{outline:2px solid var(--c-money);outline-offset:1px}
+/* 角标不吃指针：命中判定永远落在牌本身，不会再出现"看着在牌上、其实点在角标上" */
+.sctile .scbadge,.sctile .scred{pointer-events:none}
 /* 选中标记：原版的红色小三角（get_chosen_triangle_from_rect），会轻轻弹 */
 .sctile.sel::before{
   content:'';position:absolute;left:50%;top:-9px;margin-left:-4px;width:0;height:0;
@@ -803,6 +834,10 @@ body{background:
   font:inherit;font-size:12.5px;font-weight:700;color:#fff;background:#2b3437;border:0;border-radius:6px;
   padding:4px 6px;min-height:28px;width:74px;box-shadow:inset 0 2px 0 rgba(0,0,0,.25)
 }
+/* 原生下拉在 Windows 上是白底：深色主题里必须显式给 option 上色，
+   否则选项列表白底白字，鼠标没指上去之前根本看不清。 */
+select{color-scheme:dark}
+select option{background:#374244;color:#f2f6f8}
 .scgrowf select{width:110px}
 .scgrowf input:focus,.scgrowf select:focus{outline:2px solid var(--c-orange)}
 /* 记录值角标 + 拖拽指示 */

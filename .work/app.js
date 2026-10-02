@@ -937,6 +937,11 @@ function specForItem (it) {
 
 /* --------------------------------------------------------------- text markup */
 const TAGCOL = D.colors.tags;
+/* 花色文字的颜色：游戏里 G.C.SUITS 有两套（SO_1 标准 / SO_2 高对比），
+   合成台的「高对比牌面」开关决定用哪一套。 */
+const TAGCOL_HC = D.colors.tagsHC || TAGCOL;
+let SUIT_HC = false;
+const tagCol = (k) => ((SUIT_HC ? TAGCOL_HC[k] : null) || TAGCOL[k] || null);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /** Render one Balatro localisation string ("{C:attention}...{}") into HTML. */
@@ -952,8 +957,8 @@ function markup (line) {
       const parts = ctrl.split(',');
       for (const p of parts) {
         const [k, v] = p.split(':');
-        if (k === 'C') { color = TAGCOL[v] || null; }
-        else if (k === 'X') { color = TAGCOL[v] || color; xStyle = true; }
+        if (k === 'C') { color = tagCol(v); }
+        else if (k === 'X') { color = tagCol(v) || color; xStyle = true; }
         else if (k === 's' || k === 'S') { scale = parseFloat(v) || 1; }
         // V: variant colour (runtime), T: tooltip, E: emphasis — no visual change needed here
       }
@@ -4601,13 +4606,14 @@ function scJokerStateText (j) {
 /** 一排小按钮：◀ ▶ 挪位置、⧉ 复制一张、✕ 移除（小丑牌与扑克牌共用） */
 function scTileActions (kind, arr, i, dup) {
   const mv = document.createElement('span');
-  mv.className = 'scmv';
+  /* 第一张 / 最后一张的按钮条贴边，免得伸出栏外看不见 */
+  mv.className = 'scmv' + (i === 0 ? ' atstart' : '') + (i === arr.length - 1 ? ' atend' : '');
   const btn = (dir, label, title) => '<button data-mv="' + i + '" data-mvkind="' + kind + '" data-dir="' + dir + '" title="' + title + '">' + label + '</button>';
   mv.innerHTML =
-    (i > 0 ? btn('-1', '◀', '往前挪') : '') +
-    (i < arr.length - 1 ? btn('1', '▶', '往后挪') : '') +
+    (i > 0 ? btn('-1', '◀', '往前挪（左）') : '') +
+    (i < arr.length - 1 ? btn('1', '▶', '往后挪（右）') : '') +
     btn('dup', '⧉', '复制一张') +
-    btn('del', '✕', '移除');
+    btn('del', '✕', '移除这张');
   return mv;
 }
 
@@ -5213,13 +5219,24 @@ function scOpenCardEditor (c, keep) {
   };
 }
 
+/** 「记录值」只列游戏源码里真的会累加 / 递减的字段。
+ *  从规则表达式猜出来的那些（古老小丑的 extra 之类）其实是配置参数：描述里已经给了就地控件，
+ *  再在弹窗里列一行「剩余次数」只会让人看不懂。 */
+function scIsRecordField (j, f) {
+  const scanned = ((JOKER_STATE.jokers || {})[j.name] || {}).mutable || [];
+  if (scanned.indexOf(f) >= 0) return true;
+  if (scanned.length) return false;                       /* 源码扫到过这张牌：只信扫出来的 */
+  const top = String(f).split('.')[0];
+  return typeof (j.cfg || {})[top] !== 'number';           /* mod 的牌：配置里写死的参数不算记录值 */
+}
+
 /** 改一张小丑牌：记录值（原版里它自己累计的数）+ 手填修正 */
 function scOpenJokerEditor (j, keep) {
   if (!keep) scStopPlay();
   SC_UI.joker = j; SC_UI.focus = null;
   const idx = SC.jokers.indexOf(j);
   const rule = jokerRule(j);
-  const fields = j.fields || [];
+  const fields = (j.fields || []).filter((f) => scIsRecordField(j, f));
   const meta = JOKER_STATE.jokers[j.name] || {};
   const fieldInput = (f) => {
     if (SC_FIELD_HAND.has(f)) {
@@ -5247,8 +5264,9 @@ function scOpenJokerEditor (j, keep) {
       scPillGrid('版本', [['', '无']].concat(ITEMS.filter((x) => x.cat === 'Edition' && !x.shader).map((x) => [x.id, nm(x)])), j.ed, 'ed') +
       '</div>' +
       (fields.length
-        ? '<div class="scgrowbox"><div class="scgrowtitle">记录值（原版里这张牌自己累计的数，填了它才算得对）</div>' + scJokerDescHtml(j) + '<div class="scgrowfs">' + fields.map(fieldInput).join('') + '</div></div>'
-        : '<div class="scgrowbox"><div class="scgrowtitle">这张牌没有累计值 —— 它只看牌型和你选的牌</div></div>') +
+        ? '<div class="scgrowbox"><div class="scgrowtitle">记录值（原版里这张牌自己累计的数，填了它才算得对）</div><div class="scgrowfs">' + fields.map(fieldInput).join('') + '</div></div>'
+        : '<div class="scgrowbox"><div class="scgrowtitle">这张牌没有累计值 —— 它只看牌型、你选的牌和上面那些数</div></div>') +
+      '<div class="scgrowbox"><div class="scgrowtitle">描述（里面的动态值可以直接改）</div>' + scJokerDescHtml(j) + '</div>' +
       jenvHtml(j) + '</div></div>',
     foot: '<button class="btn" id="scJokerCodex" title="在图鉴里看它的完整数据">在图鉴里看</button>' +
       '<button class="btn warn" id="scJokerDel">移除这张小丑牌</button>',
@@ -5338,6 +5356,7 @@ function scRefreshNumbers (host) {
 /* ---------------------------------------------------------------- shell */
 let detailTimer = null;
 function render () {
+  SUIT_HC = !!(S.forge && S.forge.variants);   /* 高对比开关同时决定花色文字用 SO_1 还是 SO_2 */
   if (detailTimer) { clearInterval(detailTimer); detailTimer = null; }
   stopAnim();
   S.anim.t = S.phase;

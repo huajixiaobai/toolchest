@@ -66,6 +66,16 @@ class CDP {
     if (r.exceptionDetails) throw new Error('page exception: ' + JSON.stringify(r.exceptionDetails.exception && r.exceptionDetails.exception.description || r.exceptionDetails))
     return r.result.value
   }
+  /* 真鼠标：只有 CDP 的 Input.dispatchMouseEvent 会触发 CSS :hover，
+     页面里 new MouseEvent('mouseover') 是不会的 —— 所以悬停反馈必须这么量。 */
+  async mouse (type, x, y) {
+    await this.send('Input.dispatchMouseEvent', {
+      type, x: Math.round(x), y: Math.round(y),
+      button: type === 'mouseMoved' ? 'none' : 'left',
+      buttons: type === 'mousePressed' ? 1 : 0,
+      clickCount: type === 'mousePressed' || type === 'mouseReleased' ? 1 : 0,
+    })
+  }
   async shot (name) {
     const r = await this.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
     fs.writeFileSync(path.join(SHOTS, name + '.png'), Buffer.from(r.data, 'base64'))
@@ -3075,6 +3085,93 @@ const SCENARIOS = {
      r.inline=r.inline.slice(0,40); r.noInline=r.noInline.slice(0,25);
      r.errors=window.__V.errors.length;
      return r })()`,
+  /* 本轮五个问题的量测：合成台折叠、主体格子排版、弹窗下拉配色、小丑弹窗字段、卡图按钮命中 */
+  uiFix: `(async()=>{
+    const B=window.__BALATRO__; const S=B.state; const q=(s)=>document.querySelector(s); const qa=(s)=>[].slice.call(document.querySelectorAll(s));
+    const r={}; await __V.wait(1200);
+    const cs=(e,p)=>e?getComputedStyle(e)[p]:null;
+    const box=(e)=>{ if(!e) return null; const b=e.getBoundingClientRect(); return {x:Math.round(b.left),y:Math.round(b.top),w:Math.round(b.width),h:Math.round(b.height)} };
+    const uni=(a)=>a.filter((v,i,s)=>s.indexOf(v)===i).sort((x,y)=>x-y);
+
+    /* ① 合成台「牌型」栏：点标题头到底收掉了什么 */
+    S.tab='forge'; S.forge.open=null; S.forge.baseType='PlayingCard'; B.render(); await __V.wait(2600);
+    const tbox=q('#content .opt[data-gkey="basetype"]') || q('.opt[data-gkey="basetype"]');
+    const thead=tbox?tbox.querySelector('h4'):null;
+    const bodyH=()=>{ const b=tbox.querySelector('.obody'); return { disp:cs(b,'display'), h:box(b)?box(b).h:0 } };
+    const rows=()=>({ sel:box(tbox.querySelector('select')), search:box(tbox.querySelector('input')), chips:box(tbox.querySelector('.chips')),
+                      box:box(tbox), height:box(tbox)?box(tbox).h:0 });
+    r.typeFirst={ found:!!tbox, collapsed:tbox.classList.contains('collapsed'), body:bodyH(), rows:rows() };
+    thead.click(); await __V.wait(500);
+    r.typeAfterClick={ collapsed:tbox.classList.contains('collapsed'), body:bodyH(), rows:rows() };
+    thead.click(); await __V.wait(400);
+
+    /* ② 主体格子：尺寸/文字是否齐 */
+    const picks=qa('#content .opt[data-gkey="base"] .chips .pick');
+    const cells=picks.map((b)=>{ const bb=b.getBoundingClientRect(); const sp=b.querySelector('span'); const cv=b.querySelector('canvas');
+      return { w:Math.round(bb.width), h:Math.round(bb.height),
+               txt: sp?sp.textContent:'', txtH: sp?Math.round(sp.getBoundingClientRect().height):0,
+               fs: sp?cs(sp,'fontSize'):null, cv: cv?box(cv):null }; });
+    r.grid={ n:cells.length, widths:uni(cells.map(c=>c.w)), heights:uni(cells.map(c=>c.h)),
+             textHeights:uni(cells.map(c=>c.txtH)), fontSizes:uni(cells.map(c=>c.fs)),
+             sample:cells.slice(0,6), longest:cells.slice().sort((a,b)=>b.txt.length-a.txt.length)[0] };
+
+    /* ③ 小丑牌弹窗：下拉配色 + 「记录值」字段名 */
+    S.tab='score'; B.render(); await __V.wait(1500);
+    const aj=B.byId['j_ancient'] || B.items.filter((x)=>x.cat==='Joker')[0];
+    B.score.setHand([], [B.score.jokerFromItem(aj)]); B.render(); await __V.wait(1000);
+    q('#scJokers .sctile').click(); await __V.wait(1000);
+    const sel=q('#scPanel .scjdesc select') || q('#scPanel select');
+    const opt=sel?sel.querySelector('option'):null;
+    const lum=(c)=>{ const m=/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/.exec(c||''); return m? +(0.2126*m[1]+0.7152*m[2]+0.0722*m[3]).toFixed(0) : null };
+    r.dropdown={ found:!!sel, selColor:cs(sel,'color'), selBg:cs(sel,'backgroundColor'),
+                 optColor: opt?cs(opt,'color'):null, optBg: opt?cs(opt,'backgroundColor'):null,
+                 scheme: cs(sel,'colorScheme'),
+                 contrast: (opt? Math.abs((lum(cs(opt,'color'))||0)-(lum(cs(opt,'backgroundColor'))||0)) : null) };
+    r.jokerFields={ inputs:qa('#scPanel [data-jstate]').map((e)=>e.dataset.jstate),
+                    labels:qa('#scPanel .scgrowf span').map((e)=>e.textContent),
+                    joker:aj.name };
+
+    /* ④ 卡图上的小按钮：条的位置、命中判定、悬停反馈（用真鼠标）
+       先把弹窗关掉 —— 它盖在牌区上方，不关的话量到的是"被弹窗挡住"，不是按钮本身的问题。 */
+    const doneBtn=q('#scPanelDone'); if (doneBtn) doneBtn.click();
+    await __V.wait(500);
+    const ST=B.score.state; ST.played=[]; ST.held=[B.score.card('5','D')]; B.render(); await __V.wait(900);
+    const tile=q('#scJokers .sctile');
+    const mv=tile.querySelector('.scmv');
+    const anyBtn=mv.querySelector('button'); if (anyBtn) anyBtn.focus();
+    await __V.wait(250);
+    const btns=mv?qa('#scJokers .sctile:first-child .scmv button'):[];
+    r.actions={ barDisp:cs(mv,'display'), barPE:cs(mv,'pointerEvents'), barPadB:cs(mv,'paddingBottom'),
+                barH:box(mv)?box(mv).h:0, n:btns.length, focused:document.activeElement===anyBtn };
+    const probe=(e)=>{ const b=e.getBoundingClientRect(); const hx=b.left+b.width/2, hy=b.top+b.height/2;
+      const t=document.elementFromPoint(hx,hy);
+      return { tag:t?t.tagName:null, cls:t?(typeof t.className==='string'?t.className:''):null, same:t===e,
+               txt:t?String(t.textContent||'').slice(0,4):null }; };
+    r.actions.btnBoxes=btns.map((b)=>Object.assign(box(b),{ cursor:cs(b,'cursor'), probe:probe(b), bg:cs(b,'backgroundColor'), color:cs(b,'color') }));
+    const mvBox=box(mv);
+    r.actions.bar=mvBox;
+    if (mvBox) { const sx=mvBox.x+Math.round(mvBox.w/2), sy=mvBox.y+mvBox.h-4; const t=document.elementFromPoint(sx,sy);
+      r.actions.stripHit={ tag:t?t.tagName:null, cls:t?(typeof t.className==='string'?t.className:''):null };
+      r.actions.hoverRule=(function(){ let found=null;
+        for (const ss of document.styleSheets) { let rules; try { rules=ss.cssRules } catch(e){ continue }
+          for (const ru of rules||[]) if (ru.selectorText && ru.selectorText.indexOf('.scmv button:hover')>=0) found=ru.cssText.slice(0,120) }
+        return found })();
+    }
+    /* 真鼠标悬停：① 指到牌上 → 按钮条出现  ② 指到按钮上 → 按钮变色  ③ 真点一下「复制」/「移除」 */
+    const readBar="(()=>{const t=document.querySelector('#scJokers .sctile');const m=t.querySelector('.scmv');const b=m.querySelector('button');const r=b.getBoundingClientRect();const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return {barOpacity:getComputedStyle(m).opacity,barH:Math.round(m.getBoundingClientRect().height),btnPE:getComputedStyle(b).pointerEvents,btnBg:getComputedStyle(b).backgroundColor,btnCursor:getComputedStyle(b).cursor,hitSelf:hit===b,hitCls:hit?(typeof hit.className==='string'?hit.className:hit.tagName):null,tiles:document.querySelectorAll('#scJokers .sctile').length}})()";
+    const SUF = innerWidth < 600 ? '-ph' : '';
+    r.__hover=[
+      { at:'#scJokers .sctile', name:'hoverCard', read:readBar, shot:'ui-btn-1-hover-card'+SUF },
+      { pre:'#scJokers .sctile', at:'#scJokers .sctile .scmv button', name:'hoverButton', read:readBar, shot:'ui-btn-2-hover-button'+SUF, clip:'#scJokers .sctile' },
+      { pre:'#scJokers .sctile', at:'#scJokers .sctile .scmv button[data-dir="dup"]', name:'clickDup', click:true, read:readBar },
+      { at:'#scJokers .sctile .scmv button', name:'afterDupHover', read:readBar, shot:'ui-btn-4-after-dup'+SUF },
+      { at:'#scHand .sctile', name:'hoverHandCard', read:"(()=>{const t=document.querySelector('#scHand .sctile');const m=t.querySelector('.scmv');const b=m?m.querySelector('button'):null;const r=b?b.getBoundingClientRect():null;const hit=r?document.elementFromPoint(r.left+r.width/2,r.top+r.height/2):null;return {barOpacity:getComputedStyle(m).opacity,barH:Math.round(m.getBoundingClientRect().height),btnCursor:b?getComputedStyle(b).cursor:null,hitSelf:hit===b,hitCls:hit?(typeof hit.className==='string'?hit.className:hit.tagName):null}})()", shot:'ui-btn-3-hand'+SUF, clip:'#scHand .sctile' },
+      /* 回到合成台，把「主体格子」和「牌型收起」也各拍一张（数字看不出好不好看） */
+      { name:'backToForge', ms:1200, read:"(()=>{const B=window.__BALATRO__; B.state.tab='forge'; B.state.forge.open={basetype:true,base:true,summary:true}; B.render(); return 'forge'})()" },
+      { at:'#content .opt[data-gkey=\"base\"] .pick', name:'gridHover', ms:600, shot:'ui-grid-base'+SUF, clip:'#content .opt[data-gkey=\"base\"]' },
+      { at:'#content .opt[data-gkey=\"basetype\"] h4', name:'typeHover', ms:600, click:true, shot:'ui-type-collapsed'+SUF, clip:'#content .opt[data-gkey=\"basetype\"]', read:"(()=>{const b=document.querySelector('#content .opt[data-gkey=\\\"basetype\\\"]');return {h:Math.round(b.getBoundingClientRect().height),collapsed:b.classList.contains('collapsed'),vw:innerWidth}})()" },
+    ];
+    r.errors=window.__V.errors.length; return r })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};
@@ -3416,6 +3513,7 @@ const SCENARIOS = {
 async function main () {
   /* demoRect 的同一个场景需要一个"手机尺寸"的别名，好让 runner 按名字切换视口 */
   if (SCENARIOS.demoRect && !SCENARIOS.demoRectMobile) SCENARIOS.demoRectMobile = SCENARIOS.demoRect
+  if (SCENARIOS.uiFix && !SCENARIOS.uiFixMobile) SCENARIOS.uiFixMobile = SCENARIOS.uiFix
   if (SCENARIOS.demoLayout && !SCENARIOS.demoLayoutMobile) SCENARIOS.demoLayoutMobile = SCENARIOS.demoLayout
   if (SCENARIOS.scoreCalc && !SCENARIOS.scoreCalcMobile) SCENARIOS.scoreCalcMobile = SCENARIOS.scoreCalc
   if (SCENARIOS.scoreNewPreset && !SCENARIOS.scoreNewPresetMobile) SCENARIOS.scoreNewPresetMobile = SCENARIOS.scoreNewPreset
@@ -3509,7 +3607,7 @@ async function main () {
       await c.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 560, deviceScaleFactor: 1, mobile: false })
       LongMode = true
     }
-    if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile' || name === 'scoreCalcMobile' || name === 'scoreNewPresetMobile' || name === 'scorePickOpenMobilePhone' || name === 'scorePickScrollMobile' || name === 'scoreUi2Phone' || name === 'bootMobile') {
+    if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile' || name === 'scoreCalcMobile' || name === 'scoreNewPresetMobile' || name === 'scorePickOpenMobilePhone' || name === 'scorePickScrollMobile' || name === 'scoreUi2Phone' || name === 'bootMobile' || name === 'uiFixMobile') {
       // emulate a phone viewport (bootPhone tests the start screen visitors land on)
       await c.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
       await c.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {})
@@ -3682,6 +3780,51 @@ async function main () {
         rep = await c.eval(SCENARIOS[name], true)
       } catch (e) {
         rep = { fatal: String(e.message).slice(0, 600) }
+      }
+    }
+    /* 场景可以返回 __hover: [{at| x,y, read, shot, click, name}]：
+       先用真鼠标移过去（`at` 是选择器，坐标在移动前现算，牌抬起后位置会变），
+       再读样式 / 点一下 / 截图。 */
+    if (rep && rep.__hover) {
+      rep.__hoverResults = {}
+      for (const step of rep.__hover) {
+        let x = step.x, y = step.y
+        /* 牌子悬停时会抬起 7px，按钮跟着动 —— 先把鼠标放到牌上让动画走完，再算按钮坐标 */
+        if (step.pre) {
+          const pp = await c.eval('(()=>{const e=document.querySelector(' + JSON.stringify(step.pre) + '); if(!e) return null; const b=e.getBoundingClientRect(); return {x:b.left+b.width/2, y:b.top+b.height/2}})()').catch(() => null)
+          if (pp) { await c.mouse('mouseMoved', pp.x, pp.y).catch(() => {}); await sleep(step.settle || 320) }
+        }
+        if (step.at) {
+          const p = await c.eval('(()=>{const e=document.querySelector(' + JSON.stringify(step.at) + '); if(!e) return null; const b=e.getBoundingClientRect(); return {x:b.left+b.width/2, y:b.top+b.height/2}})()').catch(() => null)
+          if (!p) { rep.__hoverResults[step.name || step.at] = 'not found: ' + step.at; continue }
+          x = p.x; y = p.y
+        }
+        await c.mouse('mouseMoved', x, y).catch(() => {})
+        await sleep(step.ms || 260)
+        if (step.click) {
+          await c.mouse('mousePressed', x, y).catch(() => {})
+          await c.mouse('mouseReleased', x, y).catch(() => {})
+          await sleep(step.after || 500)
+        }
+        if (step.read) {
+          try { rep.__hoverResults[step.name || 'r' + rep.__hover.indexOf(step)] = await c.eval(step.read) } catch (e) { rep.__hoverResults[step.name || '?'] = 'ERR ' + String(e.message).slice(0, 140) }
+        }
+        if (step.shot) {
+          try {
+            /* clip: '<选择器>' —— 只截这一小块（放大 3×），用来肉眼看清按钮/格子这种细节 */
+            let clip = null
+            if (step.clip) {
+              const b = await c.eval('(()=>{const e=document.querySelector(' + JSON.stringify(step.clip) + '); if(!e) return null; const r=e.getBoundingClientRect(); return {x:r.left,y:r.top,w:r.width,h:r.height}})()').catch(() => null)
+              if (b) clip = { x: Math.max(0, b.x - 26), y: Math.max(0, b.y - 42), width: Math.min(b.w + 52, 1000), height: b.h + 84, scale: 3 }
+            }
+            const shotData = clip
+              ? await c.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip })
+              : await c.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+            const f = step.shot + (clip ? '-crop' : '') + '.png'
+            fs.writeFileSync(path.join(SHOTS, f), Buffer.from(shotData.data, 'base64'))
+            clipShots.push(f)
+          } catch (e) { /* ignore */ }
+        }
       }
     }
     let errs = []
