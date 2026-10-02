@@ -331,17 +331,22 @@ table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
 .scrowhead .btn{font-size:12px;padding:5px 10px;min-height:30px}
 .scrail{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:center;min-height:70px}
 .scrail .scempty{font-size:12px;color:#8b9aa0;padding:18px 2px}
-.sctile{position:relative;cursor:pointer;border-radius:var(--g-r);line-height:0;margin-right:-20px;transition:transform .12s,box-shadow .12s,filter .12s}
+.sctile{position:relative;cursor:pointer;border-radius:var(--g-r);line-height:0;margin-right:-20px;
+  /* --ay / --ar 是每张牌自己的弧形偏移与角度（JS 按原版公式算好塞进来） */
+  transform:translateY(var(--ay,0px)) rotate(var(--ar,0deg));
+  transform-origin:50% 100%;
+  transition:transform .12s,box-shadow .12s,filter .12s}
 .sctile:last-child{margin-right:0}
 .sctile canvas{display:block;border-radius:var(--g-r);box-shadow:0 4px 0 rgba(0,0,0,.3)}
 .scrail .scc canvas{width:71px;height:95px}
 .scrail .scj canvas{width:71px;height:95px}
 /* 原版悬停只是把牌放大 5%（0.95 → 1.00），不抬起；抬起是「选中」才有的 */
-.sctile:hover{transform:scale(1.05);z-index:200 !important}
+.sctile:hover{transform:translateY(calc(var(--ay,0px) - 7px)) rotate(var(--ar,0deg)) scale(1.05);z-index:200 !important}
 /* 原版里「打出去」的牌是原地抬起一截（不是跳到最后），底部再补一块桌面色，免得露出压着的牌 */
-.sctile.sel{transform:translateY(-19px)}
+.sctile.sel{transform:translateY(calc(var(--ay,0px) - 19px)) rotate(var(--ar,0deg))}
 .sctile.sel canvas{box-shadow:0 8px 0 rgba(0,0,0,.3)}
-.sctile.on{transform:translateY(-19px);z-index:210 !important}`n.sctile.sel:hover,.sctile.on:hover{transform:translateY(-19px) scale(1.05)}
+.sctile.on{transform:translateY(calc(var(--ay,0px) - 19px)) rotate(var(--ar,0deg));z-index:210 !important}
+.sctile.sel:hover,.sctile.on:hover{transform:translateY(calc(var(--ay,0px) - 19px)) rotate(var(--ar,0deg)) scale(1.05)}
 .sctile.on canvas{box-shadow:0 4px 0 rgba(0,0,0,.3),0 0 0 3px var(--c-red)}
 .sctile.todo{filter:grayscale(.7) brightness(.75)}
 .sctile .scbadge{position:absolute;left:0;right:0;bottom:-1px;font-size:9.5px;line-height:1.5;text-align:center;color:#dfe7ee;

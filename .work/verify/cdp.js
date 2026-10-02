@@ -2843,6 +2843,47 @@ const SCENARIOS = {
      r.oracle={ from:r.px.plain[0], y0:oracle(r.px.plain[0],0), y1:oracle(r.px.plain[0],1), rendered:r.px.neg0[0] };
      r.errors=window.__V.errors.length;
      return r })()`,
+  cards28: `(async()=>{
+     const B=window.__BALATRO__; const SC=B.score.state; const r={};
+     const q=(s)=>document.querySelector(s), qa=(s)=>[].slice.call(document.querySelectorAll(s));
+     /* ① 扑克牌中文名：图鉴数据 / 合成台 / 计分器 */
+     B.state.lang='zh_CN'; r.pcNames=['H_2','S_A','D_10','C_K','H_T'].map(id=>B.byId[id]? (B.byId[id].name):null);
+     r.nmZh=['H_2','S_A','D_10'].map(id=>{ const it=B.byId[id]; return it?it.name:null });
+     /* 直接问 nm()：把它暴露出来的办法是看详情面板标题 */
+     B.state.tab='codex'; B.state.cat='PlayingCard'; B.render(); await __V.wait(700);
+     r.codexFirst=qa('.cell .nm').slice(0,3).map(e=>e.textContent);
+     /* ② 计分器：小丑牌弹窗里的版本胶囊 */
+     B.state.tab='score'; B.render(); await __V.wait(600);
+     SC.jokers=[B.score.jokerFromItem(B.byId['j_joker'])]; B.render(); await __V.wait(500);
+     q('#scJokers .sctile').click(); await __V.wait(500);
+     const edPills=qa('#scPanel .scpk[data-pick="ed"]');
+     r.jokerEdition={pills:edPills.length, labels:edPills.map(b=>b.textContent)};
+     if(edPills[4]){ edPills[4].click(); await __V.wait(500) }
+     r.jokerEdition.after=SC.jokers[0].ed;
+     r.jokerEdition.scoreHasEdition=qa('.scline').some(e=>/版本/.test(e.textContent));
+     const d=q('#scPanelDone'); if(d) d.click(); await __V.wait(300);
+     /* ③ 小按钮：小丑牌与扑克牌的 ◀ ▶ ⧉ ✕ */
+     r.actions={joker:qa('#scJokers .sctile .scmv button').map(b=>b.textContent),
+                hand:qa('#scHand .sctile .scmv button').map(b=>b.textContent)};
+     const n0=SC.jokers.length, c0=SC.played.length+SC.held.length;
+     const dupJ=qa('#scJokers .sctile .scmv button').filter(b=>b.textContent==='⧉')[0];
+     if(dupJ){ dupJ.click(); await __V.wait(500) }
+     r.dupJoker={before:n0, after:SC.jokers.length};
+     const dupC=qa('#scHand .sctile .scmv button').filter(b=>b.textContent==='⧉')[0];
+     if(dupC){ dupC.click(); await __V.wait(500) }
+     r.dupCard={before:c0, after:SC.played.length+SC.held.length};
+     /* ④ 弧形：读每张牌的 --ay / --ar */
+     const tiles=qa('#scHand .sctile');
+     r.arc=tiles.map(t=>({ay:t.style.getPropertyValue('--ay'), ar:t.style.getPropertyValue('--ar')}));
+     r.arcPx=tiles.map(t=>Math.round(t.getBoundingClientRect().top));
+     r.errors=window.__V.errors.length;
+     return r })()`,
+  polyProbe: `(async()=>{
+     const B=window.__BALATRO__; const SC=B.score.state;
+     const j=B.score.jokerFromItem(B.byId['j_joker']); j.ed='e_polychrome'; SC.jokers=[j];
+     SC.played=[B.score.card('K','S'),B.score.card('K','H')]; SC.held=[]; SC.hand='Pair';
+     const r=B.score.compute();
+     return {mult:+r.mult.toFixed(2), rows:r.rows.map(x=>x.label).filter(l=>/版本/.test(l))} })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};
@@ -3522,3 +3563,4 @@ main().catch((e) => {
   try { freePort(PORT) } catch { /* ignore */ }
   process.exit(1)
 })
+

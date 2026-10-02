@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "43ae7050";
+window.__APP_BUILD__ = "cb868388";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -1716,6 +1716,9 @@ function copyLink () {
 
 /* ------------------------------------------------------------------ i18n */
 function nm (item, lang) {
+  /* 扑克牌的名字由花色 + 点数拼出来（游戏数据里没有给它们本地化名） */
+  if (item && item.cat === 'PlayingCard' && item.suit && item.value != null) return pcName(item, lang);
+  /* 扑克牌的名字由花色 + 点数拼出来（游戏数据里没有给它们本地化名） */
   lang = lang || S.lang;
   if (item.i18n && item.i18n[lang]) return item.i18n[lang];
   if (item.i18n && item.i18n['en-us']) return item.i18n['en-us'];
@@ -3986,6 +3989,20 @@ function renderDetail () {
 const RANK_CHIPS = { 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, J: 10, Q: 10, K: 10, A: 11 };
 const RANK_ID = { 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, J: 11, Q: 12, K: 13, A: 14 };
 const SUIT_EN = { S: 'Spades', H: 'Hearts', D: 'Diamonds', C: 'Clubs' };
+/* 花色的各语言名字 —— 直接从游戏本地化文件的 suits_plural 里读出来（由 patch-cards.js 生成），
+   所以 52 张扑克牌的名字是"红桃A / 方片10 / 黑桃K"这种，和游戏里一致。 */
+const PC_SUITS = {"de":{"Clubs":"Kreuz","Diamonds":"Karo","Hearts":"Herz","Spades":"Piks"},"en-us":{"Clubs":"Clubs","Diamonds":"Diamonds","Hearts":"Hearts","Spades":"Spades"},"es_419":{"Clubs":"Tréboles","Diamonds":"Diamantes","Hearts":"Corazones","Spades":"Espadas"},"es_ES":{"Clubs":"Tréboles","Diamonds":"Diamantes","Hearts":"Corazones","Spades":"Picas"},"fr":{"Clubs":"Trèfles","Diamonds":"Carreaux","Hearts":"Cœurs","Spades":"Piques"},"id":{"Clubs":"Keriting","Diamonds":"Wajik","Hearts":"Hati","Spades":"Sekop"},"it":{"Clubs":"Fiori","Diamonds":"Quadri","Hearts":"Cuori","Spades":"Picche"},"ja":{"Clubs":"クラブ","Diamonds":"ダイヤ","Hearts":"ハート","Spades":"スペード"},"ko":{"Clubs":"클럽","Diamonds":"다이아몬드","Hearts":"하트","Spades":"스페이드"},"nl":{"Clubs":"Klaveren","Diamonds":"Ruiten","Hearts":"Harten","Spades":"Schoppen"},"pl":{"Clubs":"Trefle","Diamonds":"Karo","Hearts":"Kiery","Spades":"Piki"},"pt_BR":{"Clubs":"Paus","Diamonds":"Ouros","Hearts":"Copas","Spades":"Espadas"},"ru":{"Clubs":"Трефы","Diamonds":"Бубны","Hearts":"Черви","Spades":"Пики"},"zh_CN":{"Clubs":"梅花","Diamonds":"方片","Hearts":"红桃","Spades":"黑桃"},"zh_TW":{"Clubs":"梅花","Diamonds":"方塊","Hearts":"紅心","Spades":"黑桃"}};
+/** 一张扑克牌的名字：<花色><点数>（按当前语言；没有该语言的花色表就退回英文） */
+function pcName (item, lang) {
+  const L = lang || S.lang;
+  const t = PC_SUITS[L] || PC_SUITS['en-us'];
+  const suit = item.suit || 'Spades';
+  const rank = String(item.value == null ? '' : item.value);
+  if (L === 'en-us') return rank + ' of ' + (t[suit] || suit);
+  return (t[suit] || suit) + rank;      /* 中文/日文/韩文都是"花色在前" */
+}
+/* 花色的各语言名字 —— 直接从游戏本地化文件的 suits_plural 里读出来（由 patch-cards.js 生成），
+   所以 52 张扑克牌的名字是"红桃A / 方片10 / 黑桃K"这种，和游戏里一致。 */
 const SUIT_SYM = { S: '♠', H: '♥', D: '♦', C: '♣' };
 const EDITION_NUM = { e_foil: { chips: 50 }, e_holo: { mult: 10 }, e_polychrome: { xmult: 1.5 } };
 
@@ -4272,6 +4289,8 @@ function scoreCompute () {
     const ed = EDITION_NUM[j.ed];
     if (ed && ed.chips) { chips += ed.chips; rows.push({ label: `${j.name} 版本 +${ed.chips} 筹码`, chips, mult, op: 'ed', ref: jref }) }
     if (ed && ed.mult) { mult += ed.mult; rows.push({ label: `${j.name} 版本 +${ed.mult} 倍率`, chips, mult, op: 'ed', ref: jref }) }
+    /* 多彩版本的 ×1.5 以前在小丑这一支里漏掉了（逐牌那一支有 ×1.5）—— 补上 */
+    if (ed && ed.xmult) { mult *= ed.xmult; rows.push({ label: `${j.name} 版本 ×${ed.xmult} 倍率`, chips, mult, op: 'x', ref: jref }) }
     const cfg = src.cfg, type = cfg.type;
     const typeOk = !type || SC.hand === type;
     if (cfg.x_mult > 1 && typeOk) { mult *= cfg.x_mult; rows.push({ label: `${tag} ×${cfg.x_mult} 倍率`, chips, mult, op: 'x', ref: jref }) }
@@ -5050,6 +5069,40 @@ function scJokerStateText (j) {
   return bits.length ? bits.join(' ') : '';
 }
 
+/** 一排小按钮：◀ ▶ 挪位置、⧉ 复制一张、✕ 移除（小丑牌与扑克牌共用） */
+function scTileActions (kind, arr, i, dup) {
+  const mv = document.createElement('span');
+  mv.className = 'scmv';
+  const btn = (dir, label, title) => '<button data-mv="' + i + '" data-mvkind="' + kind + '" data-dir="' + dir + '" title="' + title + '">' + label + '</button>';
+  mv.innerHTML =
+    (i > 0 ? btn('-1', '◀', '往前挪') : '') +
+    (i < arr.length - 1 ? btn('1', '▶', '往后挪') : '') +
+    btn('dup', '⧉', '复制一张') +
+    btn('del', '✕', '移除');
+  return mv;
+}
+
+/** 小丑牌：就地复制一张（插在它后面） */
+function scDupJoker (j) {
+  const i = SC.jokers.indexOf(j);
+  if (i < 0) return;
+  const c = jokerFromItem(BY_ID[j.id]);
+  c.ed = j.ed;
+  c.state = Object.assign({}, j.state);
+  SC.jokers.splice(i + 1, 0, c);
+}
+
+/** 扑克牌：就地复制一张（留在同一侧、插在它后面） */
+function scDupCard (c) {
+  const copy = scCard(c.rank, c.suit, c.enh, c.ed, c.seal);
+  const oi = SC_UI.order.indexOf(c);
+  if (oi >= 0) SC_UI.order.splice(oi + 1, 0, copy);
+  const pi = SC.played.indexOf(c);
+  if (pi >= 0) { SC.played.splice(pi + 1, 0, copy); return }
+  const hi = SC.held.indexOf(c);
+  if (hi >= 0) SC.held.splice(hi + 1, 0, copy);
+}
+
 /* ---- 拖拽排序（游戏里牌的位置就是结算顺序，这里可以直接拖） ---- */
 const SC_DRAG = { kind: null, ref: null, from: -1 };
 function scDragStart (kind, ref, i) { return (e) => { SC_DRAG.kind = kind; SC_DRAG.ref = ref; SC_DRAG.from = i; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', String(i)) } catch (err) { /* 老浏览器 */ } } }
@@ -5222,12 +5275,7 @@ function viewScore (host) {
     t.appendChild(badge);
     /* 记录值有数就挂个小角标，一眼看出这张牌被填过 */
     if (st) t.appendChild(Object.assign(document.createElement('i'), { className: 'scgrow', textContent: st }));
-    const mv = document.createElement('span');
-    mv.className = 'scmv';
-    mv.innerHTML = (i > 0 ? '<button data-mv="' + i + '" data-dir="-1" title="往前挪">◀</button>' : '') +
-      (i < SC.jokers.length - 1 ? '<button data-mv="' + i + '" data-dir="1" title="往后挪">▶</button>' : '') +
-      '<button data-mv="' + i + '" data-dir="del" title="移除">✕</button>';
-    t.appendChild(mv);
+    t.appendChild(scTileActions('joker', SC.jokers, i, scDupJoker));
     /* 拖动换结算顺序（原版里小丑牌的位置就是结算顺序，拖比按按钮直观） */
     t.draggable = true;
     t.addEventListener('dragstart', scDragStart('joker', j, i));
@@ -5269,7 +5317,16 @@ function viewScore (host) {
     const t = spriteTile(scoreCardCanvas(c, 1), cls, cardLabel(c) + (sel ? '　·　打出去' : '　·　留在手里') + '（点一下切换，右键改牌，可以拖动）');
     t.style.zIndex = String(100 - i);
     t.style.marginRight = (i === order.length - 1 ? 0 : handPitch(order.length) - CARDW) + 'px';
+    /* 原版手牌是弧形（CardArea:align_cards）：角度 ±0.2*(k-n/2-0.5)/n，
+       两端按 |0.5*(-n/2+k-0.5)/n| 下沉一点，中间最高。 */
+    const n2 = order.length;
+    const kk = i + 1;
+    const ar = 0.2 * (kk - n2 / 2 - 0.5) / n2 * 57.2958;
+    const ay = Math.abs(0.5 * (-n2 / 2 + kk - 0.5) / n2) * 34.65;
+    t.style.setProperty('--ar', ar.toFixed(2) + 'deg');
+    t.style.setProperty('--ay', ay.toFixed(1) + 'px');
     if (c.seal === 'Red') t.appendChild(Object.assign(document.createElement('i'), { className: 'scred', textContent: '红' }));
+    t.appendChild(scTileActions('hand', order, i));
     t.draggable = true;
     t.addEventListener('dragstart', scDragStart('hand', c, i));
     t.addEventListener('dragover', scDragOverTile('hand', c));
@@ -5381,10 +5438,18 @@ function viewScore (host) {
     const mv = e.target.closest('[data-mv]');
     if (mv) {
       const i = +mv.dataset.mv;
-      if (mv.dataset.dir === 'del') SC.jokers.splice(i, 1);
-      else {
-        const k = i + (+mv.dataset.dir);
-        if (k >= 0 && k < SC.jokers.length) { const t = SC.jokers[i]; SC.jokers[i] = SC.jokers[k]; SC.jokers[k] = t }
+      const kind = mv.dataset.mvkind || 'joker';
+      const arr = kind === 'hand' ? SC_UI.order : SC.jokers;
+      const dir = mv.dataset.dir;
+      if (dir === 'del') {
+        if (kind === 'hand') scRemoveCard(arr[i]);
+        else arr.splice(i, 1);
+      } else if (dir === 'dup') {
+        if (kind === 'hand') scDupCard(arr[i]);
+        else scDupJoker(arr[i]);
+      } else {
+        const k = i + (+dir);
+        if (k >= 0 && k < arr.length) { const t2 = arr[i]; arr[i] = arr[k]; arr[k] = t2 }
       }
       scStopPlay(); render(); return;
     }
@@ -5496,6 +5561,26 @@ function scAfterEdit () {
   }
   if (host) scRefreshNumbers(host);
   if (host) scRefreshTiles(host);
+}
+
+/** 改小丑牌之后就地把弹窗与卡位刷新一遍（版本胶囊 / 记录值都用它） */
+function scAfterEditJoker () {
+  const root = document.getElementById('scPanel');
+  const host = document.getElementById('content');
+  const j = SC_UI.joker;
+  if (root && j) {
+    root.querySelectorAll('[data-pick]').forEach((b) => b.classList.toggle('on', (j[b.dataset.pick] || '') === b.dataset.v));
+    const art = root.querySelector('.scmodalart');
+    if (art) {
+      const want = scJokerSig(j, 2);
+      if (art.dataset.sig !== want) {
+        art.dataset.sig = want; art.innerHTML = '';
+        const cv = scoreJokerCanvas(j, 2);
+        if (cv) { cv.style.width = '71px'; cv.style.height = '95px'; art.appendChild(cv) }
+      }
+    }
+  }
+  if (host) { scRefreshNumbers(host); scRefreshTiles(host) }
 }
 
 /** 只重画变掉的那些卡位（不动整页） */
@@ -5611,6 +5696,12 @@ function scOpenJokerEditor (j, keep) {
       (meta.external && meta.external.length ? '　·　它还会读局面：' + meta.external.slice(0, 3).join('、') : ''),
     body: '<div class="scmodalcard">' + (cv ? '<span class="scmodalart"></span>' : '') +
       '<div class="scpkrows">' +
+      '<div class="scgrowbox"><div class="scgrowtitle">版本（影响这张牌的结算：闪箔 +50 筹码 / 镭射 +10 倍率 / 多彩 ×1.5 / 负片）</div>' +
+      scPillGrid('版本', [['', '无']].concat(ITEMS.filter((x) => x.cat === 'Edition' && !x.shader).map((x) => [x.id, nm(x)])), j.ed, 'ed') +
+      '</div>' +
+      '<div class="scgrowbox"><div class="scgrowtitle">版本（影响这张牌的结算：闪箔 +50 筹码 / 镭射 +10 倍率 / 多彩 ×1.5 / 负片）</div>' +
+      scPillGrid('版本', [['', '无']].concat(ITEMS.filter((x) => x.cat === 'Edition' && !x.shader).map((x) => [x.id, nm(x)])), j.ed, 'ed') +
+      '</div>' +
       (fields.length
         ? '<div class="scgrowbox"><div class="scgrowtitle">记录值（原版里这张牌自己累计的数，填了它才算得对）</div><div class="scgrowfs">' + fields.map(fieldInput).join('') + '</div></div>'
         : '<div class="scgrowbox"><div class="scgrowtitle">这张牌没有累计值 —— 它只看牌型和你选的牌</div></div>') +
@@ -5622,7 +5713,10 @@ function scOpenJokerEditor (j, keep) {
   if (cv) { const art = root.querySelector('.scmodalart'); if (art) { cv.style.width = '71px'; cv.style.height = '95px'; art.appendChild(cv) } }
   const scroll = root.querySelector('.scpanelscroll');
   const foot = root.querySelector('.scpanelfoot');
-  scroll.onclick = null;
+  scroll.onclick = (e) => {
+    const pk = e.target.closest('[data-pick]');
+    if (pk && SC_UI.joker) { SC_UI.joker[pk.dataset.pick] = pk.dataset.v; scAfterEditJoker(); return }
+  };
   scroll.oninput = (e) => {
     const jj = SC_UI.joker;
     if (!jj) return;
