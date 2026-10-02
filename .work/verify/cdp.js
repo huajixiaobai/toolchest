@@ -2734,6 +2734,55 @@ const SCENARIOS = {
      q('#scPanelDone').click();
      r.errors=window.__V.errors.length;
      return r })()`,
+  /* 编辑性能：连点强化胶囊 + 连改记录值，看每次耗时会不会越点越慢（监听器叠加会指数爆炸） */
+  scorePerf: `(async()=>{
+     const B=window.__BALATRO__; const SC=B.score.state; const r={view:'scorePerf'};
+     const q=(s)=>document.querySelector(s), qa=(s)=>[].slice.call(document.querySelectorAll(s));
+     const H=window.__V;
+     H.busy=0; /* 统计页面里挂了多少个 DOM 事件监听器 */
+     const countListeners=()=>{ try{ return getEventListeners?0:0 }catch(e){ return 0 } };
+     B.state.tab='score'; B.render(); await H.wait(700);
+     B.score.setHand([['K','S'],['3','H'],['5','D']]); await H.wait(700);
+     /* 打开改牌弹窗 */
+     qa('#scHand .sctile')[0].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));
+     await H.wait(500);
+     const perf={opened:!!q('#scPanel')};
+     /* 连续点强化胶囊 12 次（以前这里会越点越卡） */
+     const t0=performance.now(); const times=[];
+     const enh=qa('#scPanel .scpk[data-pick="enh"]');
+     for(let i=0;i<12;i++){ const a=performance.now(); enh[1+(i%6)].click(); times.push(Math.round(performance.now()-a)); }
+     perf.enhClicks={n:times.length, list:times, totalMs:Math.round(performance.now()-t0), maxMs:Math.max.apply(null,times)};
+     await H.wait(300);
+     /* 连续改小丑牌记录值 12 次 */
+     q('#scPanelDone')&&q('#scPanelDone').click(); await H.wait(200);
+     SC.jokers=[B.score.jokerFromItem(B.byId['j_ride_the_bus'])]; B.render(); await H.wait(400);
+     q('#scJokers .sctile').click(); await H.wait(500);
+     const inp=q('#scPanel [data-jstate]');
+     const t1=performance.now(); const t2=[];
+     for(let i=0;i<12;i++){ const a=performance.now(); inp.value=String(i); inp.dispatchEvent(new Event('input',{bubbles:true})); t2.push(Math.round(performance.now()-a)); }
+     perf.jokerInputs={n:t2.length, list:t2, totalMs:Math.round(performance.now()-t1), maxMs:Math.max.apply(null,t2)};
+     /* 关键断言：轮次不能越点越慢（最后 4 次 / 前 4 次 的比值） */
+     const ratio=(list)=>{ const a=list.slice(0,4).reduce((x,y)=>x+y,0)/4, b=list.slice(-4).reduce((x,y)=>x+y,0)/4; return a>0?+(b/a).toFixed(2):0 };
+     perf.enhRatio=ratio(times); perf.jokerRatio=ratio(t2);
+     perf.state=JSON.stringify(SC.jokers[0]&&SC.jokers[0].state);
+     /* 弹窗里"改成…"按钮应该已经删掉、手填修正也不该在 */
+     perf.removed={toggleBtn:!q('#scCardToggle'), manualInputs:qa('[data-jman]').length};
+     /* 整体修改字段数（轻量化后） */
+     perf.envFields=qa('[data-env]').length;
+     perf.ftEnv=qa('#scPanel [data-jenv]').length;
+     /* 占卜师：它的"已用塔罗牌"应该出现在它自己的弹窗里（不再占整体修改的格子） */
+     { const d=q('#scPanelDone'); if(d) d.click(); await H.wait(200);
+       SC.jokers=[B.score.jokerFromItem(B.byId['j_fortune_teller'])]; B.render(); await H.wait(400);
+       q('#scJokers .sctile').click(); await H.wait(500);
+       const env=qa('#scPanel [data-jenv]');
+       perf.fortuneEnv={inputs:env.length, key:env[0]?env[0].dataset.jenv:null, label:env[0]?env[0].closest('.scgrowf').querySelector('span').textContent:null};
+       if(env[0]){ env[0].value='7'; env[0].dispatchEvent(new Event('input',{bubbles:true})); await H.wait(500) }
+       perf.fortuneMult=q('.scmult b')?q('.scmult b').textContent:null;
+       perf.jokerNameCN=(q('#scJokers .scbadge')||{}).textContent;
+       const d2=q('#scPanelDone'); if(d2) d2.click(); }
+     perf.errors=window.__V.errors.length;
+     r.perf=perf;
+     return r })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};

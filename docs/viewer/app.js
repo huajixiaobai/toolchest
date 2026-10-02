@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "c9bfec2a";
+window.__APP_BUILD__ = "57825011";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -4258,7 +4258,7 @@ function scoreCompute () {
     if (j.name === 'Blueprint' && SC.jokers[ji + 1]) src = SC.jokers[ji + 1];
     else if (j.name === 'Brainstorm' && SC.jokers[0] && SC.jokers[0] !== j) src = SC.jokers[0];
     const copied = src !== j;
-    const tag = copied ? j.name + ' → ' + (src.name || src.id) : j.name;
+    const tag = copied ? scJokerName(j) + ' → ' + scJokerName(src) : scJokerName(j);
     const rule = jokerRule(src);
     const ed = EDITION_NUM[j.ed];
     if (ed && ed.chips) { chips += ed.chips; rows.push({ label: `${j.name} 版本 +${ed.chips} 筹码`, chips, mult, op: 'ed', ref: jref }) }
@@ -4275,12 +4275,12 @@ function scoreCompute () {
          认不出来的才列进"没自动算"，并告诉用户去改哪里。 */
       const ok = condMatchesHand(rule.c, src, playedCount);
       if (ok === false) { /* 条件不满足，静默跳过 */ } else if (ok === null) {
-        pending.push({ i: ji, n: tag, why: '条件里有认不出运行时的东西 —— 改「局面」里的数值，或在这张牌上用手填修正' });
+        pending.push({ i: ji, n: scJokerName(src), why: '条件里有认不出运行时的东西 —— 试试点开这张牌填它的记录值' });
       } else {
         applyRule(rule, Object.assign({}, src, { name: tag }), rows, () => ({ chips, mult }), (v) => { chips = v.chips; mult = v.mult }, jref);
       }
     } else if (!rule && !scCfgDriven(src)) {
-      pending.push({ i: ji, n: tag, why: '没有自动规则（原版这张牌改的是别的东西：金钱、手牌上限、生成消耗品…结算这一手不该加东西）' });
+      pending.push({ i: ji, n: scJokerName(src), why: '原版这张牌改的是别的东西（金钱、手牌上限、生成消耗品…），结算这一手不加分' });
     }
     if (j.manual && (j.manual.chips || j.manual.mult || j.manual.xmult !== 1)) {
       chips += j.manual.chips || 0; mult += j.manual.mult || 0; mult *= j.manual.xmult || 1;
@@ -4425,8 +4425,30 @@ function jokerFromItem (it) {
  * 中间是游戏同款的「筹码 × 倍率」，底下是逐步播放 —— 每一步会高亮贡献它的那张牌
  * 或那张小丑，并把它们的贡献浮在旁边。纯数字看不出所以然，这样才一眼明白分从哪来。 */
 
+/* 卡图缓存：compose 里可能跑 WebGL 着色器（版本特效），同一种牌反复重画很贵。
+   缓存住"源画布"，用的时候再 drawImage 复制一份（复制几乎不花时间，而且每个卡位
+   必须是自己的 canvas 节点）。 */
+const SC_CACHE = new Map();
+const SC_CACHE_MAX = 160;
+function scCachedCanvas (sig, make) {
+  let src = SC_CACHE.get(sig);
+  if (!src) {
+    src = make();
+    if (!src) return null;
+    if (SC_CACHE.size >= SC_CACHE_MAX) SC_CACHE.delete(SC_CACHE.keys().next().value);
+    SC_CACHE.set(sig, src);
+  }
+  const cv = document.createElement('canvas');
+  cv.width = src.width; cv.height = src.height;
+  cv.getContext('2d').drawImage(src, 0, 0);
+  return cv;
+}
+const scCardSig = (c, s) => ['c', s, c.rank, c.suit, c.enh || '', c.ed || '', c.seal || '', S.phase].join('|');
+const scJokerSig = (j, s) => ['j', s, j.id, j.ed || '', S.phase].join('|');
+
 /** 一张扑克牌的真实卡图（中心框 + 牌面 + 强化 + 版本 + 蜡封） */
-function scoreCardCanvas (c, scale) {
+function scoreCardCanvas (c, scale) { return scCachedCanvas(scCardSig(c, scale), () => scCardRaw(c, scale)) }
+function scCardRaw (c, scale) {
   const id = c.suit + '_' + (c.rank === '10' ? 'T' : c.rank);
   const face = BY_ID[id];
   const enh = c.enh ? BY_ID[c.enh] : null;
@@ -4440,7 +4462,8 @@ function scoreCardCanvas (c, scale) {
 }
 
 /** 一张小丑牌的真实卡图 */
-function scoreJokerCanvas (j, scale) {
+function scoreJokerCanvas (j, scale) { return scCachedCanvas(scJokerSig(j, scale), () => scJokerRaw(j, scale)) }
+function scJokerRaw (j, scale) {
   const it = BY_ID[j.id];
   if (!it) return null;
   const spec = Object.assign({}, specForItem(it));
@@ -4910,26 +4933,54 @@ function handLabel (h) {
 function handByKey (key) { return D.hands.find((h) => h.name === key) || D.hands[0] }
 
 /* ---- 局面：原版算分读到的外部状态，全部可以改（gen-state.js 扫出来的字段） ---- */
+/* 整体修改只留"原版里 2 张以上小丑牌会用到"的字段（由 gen-state.js 扫出来的用法统计决定）。
+   只被一张牌用到的（例如占卜师的"已用塔罗牌"）挪到那张牌自己的弹窗里，见 scJokerEnvFields()。 */
 const SC_ENV_FIELDS = [
-  ['dollars', '金钱 \$', 0, 9999],
-  ['handsLeft', '剩余出牌', 0, 99],
-  ['discardsLeft', '剩余弃牌', 0, 99],
-  ['handsPlayed', '本回合已出牌', 0, 99],
-  ['discardsUsed', '本回合已弃牌', 0, 99],
-  ['roundHands', '每回合出牌数', 0, 99],
-  ['roundDiscards', '每回合弃牌数', 0, 99],
-  ['deckCards', '牌堆剩几张', 0, 999],
-  ['deckSize', '起始牌组张数', 0, 999],
+  ['dollars', '金钱 $', 0, 9999],                    /* 5 张：Vagabond / Bull / Bootstraps / The Hermit… */
+  ['discardsLeft', '剩余弃牌', 0, 99],               /* 4 张：Banner / Mystic Summit / Delayed Gratification / Burglar */
+  ['discardsUsed', '本回合已弃牌', 0, 99],           /* 3 张 */
+  ['handsLeft', '剩余出牌', 0, 99],                  /* 2 张：Dusk / Acrobat */
+  ['handsPlayed', '本回合已出牌', 0, 99],            /* 2 张：Sixth Sense / DNA */
+  ['deckCards', '牌堆剩几张', 0, 999],               /* 5 张：Blue Joker / Erosion… */
+  ['deckSize', '起始牌组张数', 0, 999],              /* 配合 Erosion */
   ['handCards', '手里几张', 0, 99],
-  ['jokerSlots', '小丑栏位', 0, 30],
+  ['jokerSlots', '小丑栏位', 0, 30],                 /* Joker Stencil 等 */
   ['consumeableSlots', '消耗品牌位', 0, 10],
   ['consumeablesUsed', '已有消耗品', 0, 10],
-  ['tarotUsed', '已用塔罗牌', 0, 999],
-  ['planetUsed', '已用星球牌', 0, 999],
-  ['spectralUsed', '已用幽灵牌', 0, 999],
-  ['ante', '底注', 1, 39],
-  ['round', '回合', 1, 99],
 ];
+
+/* 局面字段 ←→ 源码里的写法：只被一张牌用到的，就放到那张牌的弹窗里改 */
+const SC_ENV_PATHS = [
+  [/^G\.GAME\.consumeable_usage_total\.tarot$/, 'tarotUsed', '已用塔罗牌'],
+  [/^G\.GAME\.consumeable_usage_total\.planet$/, 'planetUsed', '已用星球牌'],
+  [/^G\.GAME\.consumeable_usage_total\.spectral$/, 'spectralUsed', '已用幽灵牌'],
+  [/^G\.GAME\.round_resets\.hands$/, 'roundHands', '每回合出牌数'],
+  [/^G\.GAME\.round_resets\.discards$/, 'roundDiscards', '每回合弃牌数'],
+  [/^G\.GAME\.current_round\.free_rerolls$/, 'freeRerolls', '免费重掷次数'],
+];
+
+/** 这张小丑牌单独用到的局面字段（原版里只有它会读的那些） */
+function scJokerEnvFields (j) {
+  const ext = (JOKER_STATE.jokers[j.name] || {}).external || [];
+  const out = [];
+  for (const raw of ext) {
+    const p = String(raw).replace(/^#\s*/, '').trim();
+    for (const [re, key, label] of SC_ENV_PATHS) {
+      if (re.test(p) && !SC_ENV_FIELDS.some((f) => f[0] === key) && !out.some((o) => o[0] === key)) out.push([key, label]);
+    }
+  }
+  return out;
+}
+
+/** 小丑牌弹窗里那一段"它单独用到的局面数值" */
+function jenvHtml (j) {
+  const list = scJokerEnvFields(j);
+  if (!list.length) return '';
+  return '<div class="scgrowbox"><div class="scgrowtitle">这张牌单独用到的局面数值（原版里只有它读这些）</div><div class="scgrowfs">' +
+    list.map(([k, label]) => '<label class="scgrowf"><span>' + label + '</span>' +
+      '<input type="number" data-jenv="' + k + '" value="' + (SC.env[k] || 0) + '"></label>').join('') +
+    '</div></div>';
+}
 
 /* ---- 小丑牌记录值的中文名（字段名来自游戏源码，名字是给人看的） ---- */
 const SC_FIELD_LABEL = {
@@ -4961,6 +5012,12 @@ const SC_FIELD_LABEL = {
 const scFieldLabel = (f) => SC_FIELD_LABEL[f] || ('记录值 ' + f);
 /** 哪些字段是"选牌型"而不是数字（To Do List 要指定一个牌型） */
 const SC_FIELD_HAND = new Set(['to_do_poker_hand']);
+
+/** 小丑牌的中文名（图鉴里本地化过的名字，mod 条目也一样） */
+function scJokerName (j) {
+  const it = j && BY_ID[j.id];
+  return (it && nm(it)) || (j && j.name) || (j && j.id) || '';
+}
 
 /** 一张牌的短名字：K♠ / K♠ 钢铁牌（强化名走本地化，mod 条目也一样） */
 function scCardLabel (c) {
@@ -5144,13 +5201,15 @@ function viewScore (host) {
     const cls = 'scj' + (active && active.kind === 'joker' && active.i === i ? ' on' : (step >= 0 && !reached('joker', i) ? ' todo' : '')) +
       (SC_UI.joker === j ? ' focus' : '');
     const st = scJokerStateText(j);
-    const t = spriteTile(scoreJokerCanvas(j, 1), cls, (j.name || j.id) + '　·　第 ' + (i + 1) + ' 个结算' + (st ? '　·　记录值 ' + st : '') +
+    const t0 = scoreJokerCanvas(j, 1);
+    const t = spriteTile(t0, cls, scJokerName(j) + '　·　第 ' + (i + 1) + ' 个结算' + (st ? '　·　记录值 ' + st : '') +
       '\n点一下改它的记录值 · 拖动可以换结算顺序');
     t.style.zIndex = String(100 - i);
     t.style.marginRight = (i === SC.jokers.length - 1 ? 0 : jokerPitch(SC.jokers.length) - CARDW) + 'px';
     const badge = document.createElement('i');
     badge.className = 'scbadge';
-    badge.textContent = (j.name || j.id) + (st ? ' · ' + st : '');
+    badge.textContent = scJokerName(j) + (st ? ' · ' + st : '');
+    t.dataset.sig = scCardSig({ rank: '', suit: '' }, 1);   /* 小丑不参与卡牌规格对比 */
     t.appendChild(badge);
     /* 记录值有数就挂个小角标，一眼看出这张牌被填过 */
     if (st) t.appendChild(Object.assign(document.createElement('i'), { className: 'scgrow', textContent: st }));
@@ -5409,12 +5468,58 @@ function scClosePanel (keepSel) {
   if (!keepSel) { SC_UI.focus = null; SC_UI.joker = null }
 }
 
-/** 内容变了就地把弹窗刷新一遍（不重建 DOM，打字时光标不跳） */
-function scSyncPanel () {
-  if (document.getElementById('scPanel')) {
-    if (SC_UI.focus) scOpenCardEditor(SC_UI.focus, true);
-    else if (SC_UI.joker) scOpenJokerEditor(SC_UI.joker, true);
+/** 弹窗开着的时候编辑了一下：只把该变的地方就地更新，不重建 DOM、不重挂监听器 */
+function scAfterEdit () {
+  const root = document.getElementById('scPanel');
+  const host = document.getElementById('content');
+  if (root && SC_UI.focus) {
+    const c = SC_UI.focus;
+    /* 胶囊的选中态 */
+    root.querySelectorAll('[data-pick]').forEach((b) => b.classList.toggle('on', (c[b.dataset.pick] || '') === b.dataset.v));
+    /* 卡图：规格变了才重画 */
+    const art = root.querySelector('.scmodalart');
+    if (art) {
+      const want = scCardSig(c, 2);
+      if (art.dataset.sig !== want) { art.dataset.sig = want; art.innerHTML = ''; const cv = scoreCardCanvas(c, 2); if (cv) { cv.style.width = '71px'; cv.style.height = '95px'; art.appendChild(cv) } }
+    }
+    const hint = root.querySelector('.scpickhint');
+    if (hint) hint.textContent = '点一下就是它现在的样子：' + scCardLabel(c);
   }
+  if (host) scRefreshNumbers(host);
+  if (host) scRefreshTiles(host);
+}
+
+/** 只重画变掉的那些卡位（不动整页） */
+function scRefreshTiles (host) {
+  if (SC_UI.focus && (SC.played.indexOf(SC_UI.focus) >= 0 || SC.held.indexOf(SC_UI.focus) >= 0)) {
+    const c = SC_UI.focus;
+    const tiles = host.querySelectorAll('#scHand .sctile, #scPlayed .sctile');
+    for (const t of tiles) {
+      if (t.dataset.sig !== scCardSig(c, 1)) continue;
+      const old = t.querySelector('canvas');
+      const cv = scoreCardCanvas(c, 1);
+      if (cv && old) t.replaceChild(cv, old);
+      break;
+    }
+  }
+  if (SC_UI.joker) {
+    const j = SC_UI.joker;
+    const tiles = host.querySelectorAll('#scJokers .sctile');
+    const idx = SC.jokers.indexOf(j);
+    if (tiles[idx]) {
+      const old = tiles[idx].querySelector('canvas');
+      const cv = scoreJokerCanvas(j, 1);
+      if (cv && old) tiles[idx].replaceChild(cv, old);
+      const b = tiles[idx].querySelector('.scbadge');
+      const st = scJokerStateText(j);
+      if (b) b.textContent = scJokerName(j) + (st ? ' · ' + st : '');
+    }
+  }
+}
+
+/** 兼容旧调用：面板开着就就地刷新 */
+function scSyncPanel () {
+  if (document.getElementById('scPanel')) scAfterEdit();
 }
 
 function scPillGrid (label, list, cur, field) {
@@ -5433,6 +5538,8 @@ function scOpenCardEditor (c, keep) {
   const eds = [['', '无']].concat(ITEMS.filter((x) => x.cat === 'Edition' && !x.shader).map((x) => [x.id, nm(x)]));
   const seals = [['', '无'], ['Red', '红蜡封'], ['Gold', '金蜡封'], ['Blue', '蓝蜡封'], ['Purple', '紫蜡封']];
   const cv = scoreCardCanvas(c, 2);
+  /* 右侧图鉴直接跟着这张牌走，不用再点一次"在图鉴里看" */
+  try { S.sel = c.suit + '_' + (c.rank === '10' ? 'T' : c.rank); renderDetail() } catch (e) { /* 图鉴还没起来就算了 */ }
   scPanel({
     title: '改这张牌',
     hint: '点一下就是它现在的样子：' + scCardLabel(c),
@@ -5443,23 +5550,27 @@ function scOpenCardEditor (c, keep) {
       scPillGrid('蜡封', seals, c.seal, 'seal') +
       '</div></div>',
     foot: '<button class="btn" id="scCardCodex" title="在图鉴里看这张牌的原始数据">在图鉴里看</button>' +
-      '<button class="btn orange" id="scCardToggle">' + (scIsPlayed(c) ? '改成留在手里' : '改成打出去') + '</button>' +
-      '<button class="btn warn" id="scCardDel">移除这张牌</button>',
+      '<button class="btn warn" id="scCardDel">移除这张牌</button>' +
+      '<span class="scfoothint">想改成"留手"就把弹窗关掉、点一下这张牌。</span>',
   });
   const root = document.getElementById('scPanel');
   if (cv) { const art = root.querySelector('.scmodalart'); if (art) { cv.style.width = '71px'; cv.style.height = '95px'; art.appendChild(cv) } }
-  root.querySelector('.scpanelscroll').addEventListener('click', (e) => {
+  /* 注意：容器元素是复用的，这里必须用属性式 handler —— 用 addEventListener 的话
+     每编辑一次就多挂一个，点快了会成倍重入（这就是之前卡死的原因）。 */
+  const scroll = root.querySelector('.scpanelscroll');
+  const foot = root.querySelector('.scpanelfoot');
+  scroll.onclick = (e) => {
     const pk = e.target.closest('[data-pick]');
-    if (pk && SC_UI.focus) { SC_UI.focus[pk.dataset.pick] = pk.dataset.v; render(); return }
-  });
-  root.querySelector('.scpanelfoot').addEventListener('click', (e) => {
+    if (pk && SC_UI.focus) { SC_UI.focus[pk.dataset.pick] = pk.dataset.v; scAfterEdit(); return }
+  };
+  scroll.oninput = null; scroll.onchange = null;
+  foot.onclick = (e) => {
     if (e.target.id === 'scCardDel') { const cc = SC_UI.focus; scClosePanel(); scRemoveCard(cc); render(); return }
-    if (e.target.id === 'scCardToggle' && SC_UI.focus) { scToggleCard(SC_UI.focus); render(); return }
     if (e.target.id === 'scCardCodex' && SC_UI.focus) {
       const id = SC_UI.focus.suit + '_' + (SC_UI.focus.rank === '10' ? 'T' : SC_UI.focus.rank);
-      scClosePanel(); selectItem(id, true); return;
+      scClosePanel(); selectItem(id, true);
     }
-  });
+  };
 }
 
 /** 改一张小丑牌：记录值（原版里它自己累计的数）+ 手填修正 */
@@ -5483,8 +5594,9 @@ function scOpenJokerEditor (j, keep) {
       '<em>' + esc(f) + '</em></label>';
   };
   const cv = scoreJokerCanvas(j, 2);
+  try { S.sel = j.id; renderDetail() } catch (e) { /* ignore */ }
   scPanel({
-    title: esc(j.name || j.id),
+    title: esc(scJokerName(j)),
     hint: '第 ' + (idx + 1) + ' 个结算　·　' +
       (rule ? (rule.k === 'yes' ? '规则可自动判定' : rule.k === 'manual' ? '条件要靠记录值 / 手填' : rule.k === 'by-card' ? '按打出的每张牌判定' : '增加重复次数') : '没有自动规则，只能手填') +
       (meta.external && meta.external.length ? '　·　它还会读局面：' + meta.external.slice(0, 3).join('、') : ''),
@@ -5493,34 +5605,32 @@ function scOpenJokerEditor (j, keep) {
       (fields.length
         ? '<div class="scgrowbox"><div class="scgrowtitle">记录值（原版里这张牌自己累计的数，填了它才算得对）</div><div class="scgrowfs">' + fields.map(fieldInput).join('') + '</div></div>'
         : '<div class="scgrowbox"><div class="scgrowtitle">这张牌没有累计值 —— 它只看牌型和你选的牌</div></div>') +
-      '<div class="scgrowbox"><div class="scgrowtitle">手填修正（自动算不出来的部分，直接加进结算）</div>' +
-      '<div class="scgrowfs">' +
-      '<label class="scgrowf"><span>+ 筹码</span><input type="number" data-jman="chips" value="' + (j.manual.chips || 0) + '"></label>' +
-      '<label class="scgrowf"><span>+ 倍率</span><input type="number" data-jman="mult" value="' + (j.manual.mult || 0) + '"></label>' +
-      '<label class="scgrowf"><span>× 倍率</span><input type="number" step="0.1" data-jman="xmult" value="' + (j.manual.xmult == null ? 1 : j.manual.xmult) + '"></label>' +
-      '</div></div></div></div>',
+      jenvHtml(j) + '</div></div>',
     foot: '<button class="btn" id="scJokerCodex" title="在图鉴里看它的完整数据">在图鉴里看</button>' +
       '<button class="btn warn" id="scJokerDel">移除这张小丑牌</button>',
   });
   const root = document.getElementById('scPanel');
   if (cv) { const art = root.querySelector('.scmodalart'); if (art) { cv.style.width = '71px'; cv.style.height = '95px'; art.appendChild(cv) } }
-  root.querySelector('.scpanelscroll').addEventListener('input', (e) => {
+  const scroll = root.querySelector('.scpanelscroll');
+  const foot = root.querySelector('.scpanelfoot');
+  scroll.onclick = null;
+  scroll.oninput = (e) => {
     const jj = SC_UI.joker;
     if (!jj) return;
     const st = e.target.closest('[data-jstate]');
     if (st) {
       const f = st.dataset.jstate;
       jj.state[f] = SC_FIELD_HAND.has(f) ? st.value : (Number(st.value) || 0);
-      scStopPlay(); SC_UI.step = -1; render(); return;
+      scStopPlay(); SC_UI.step = -1; scAfterEdit(); return;
     }
-    const man = e.target.closest('[data-jman]');
-    if (man) { jj.manual[man.dataset.jman] = Number(man.value) || 0; scStopPlay(); SC_UI.step = -1; render() }
-  });
-  root.querySelector('.scpanelscroll').addEventListener('change', (e) => {
+    const ev = e.target.closest('[data-jenv]');
+    if (ev) { SC.env[ev.dataset.jenv] = Number(ev.value) || 0; scStopPlay(); SC_UI.step = -1; scRefreshNumbers(document.getElementById('content')); return }
+  };
+  scroll.onchange = (e) => {
     const st = e.target.closest('[data-jstate]');
-    if (st && SC_FIELD_HAND.has(st.dataset.jstate) && SC_UI.joker) { SC_UI.joker.state[st.dataset.jstate] = st.value; render() }
-  });
-  root.querySelector('.scpanelfoot').addEventListener('click', (e) => {
+    if (st && SC_FIELD_HAND.has(st.dataset.jstate) && SC_UI.joker) { SC_UI.joker.state[st.dataset.jstate] = st.value; scAfterEdit() }
+  };
+  foot.onclick = (e) => {
     if (e.target.id === 'scJokerDel') {
       const jj = SC_UI.joker;
       scClosePanel();
@@ -5529,7 +5639,7 @@ function scOpenJokerEditor (j, keep) {
       render(); return;
     }
     if (e.target.id === 'scJokerCodex' && SC_UI.joker) { const id = SC_UI.joker.id; scClosePanel(); selectItem(id, true) }
-  });
+  };
 }
 
 /** 只把数字重算一遍（局面输入框在打字时不要整页重建，否则光标会跳） */
