@@ -341,7 +341,9 @@ table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
 .scrowhead>span{font-size:13px;color:#fff;text-shadow:var(--g-txt);letter-spacing:.5px}
 .scrowhead>em{font-style:normal;font-size:11.5px;color:var(--c-jgrey);flex:1 1 120px;min-width:0}
 .scrowhead .btn{font-size:12px;padding:5px 10px;min-height:30px}
-.scrail{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:center;min-height:70px}
+/* padding-top 是给「卡图上方的按钮条」留的位置：条挂在牌上方 3~25px，
+   不留出来的话它会盖住上一排的表头按钮（用户报的：手牌那排的按钮压住了「＋ 加牌」）。 */
+.scrail{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:center;min-height:70px;padding-top:42px}
 /* 宽松排法：不叠、不弧，每张牌左上角的点数与花色完整可见 */
 .scrail.wide .sctile{margin-right:10px !important;transform:none !important}
 .scrail.wide .sctile:hover{transform:translateY(-7px) scale(1.03) !important}
@@ -380,7 +382,7 @@ table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
    按钮自己做悬停 / 按下 / 聚焦反馈。 */
 /* 用 opacity 而不是 display 控制显隐：display:none 里的按钮按 Tab 也聚焦不到，
    于是 :focus-within 永远触发不了（键盘用户根本叫不出这排按钮）。opacity:0 的元素照样能聚焦。 */
-.sctile .scmv{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);margin-bottom:5px;display:flex;gap:4px;z-index:260;
+.sctile .scmv{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);margin-bottom:3px;display:flex;gap:4px;z-index:260;
   opacity:0;pointer-events:none;transition:opacity .12s}
 .sctile:hover .scmv,.sctile:focus-within .scmv,.sctile.sel .scmv,.sctile.on .scmv{opacity:1}
 .sctile:hover .scmv button,.sctile:focus-within .scmv button,.sctile.sel .scmv button,.sctile.on .scmv button{pointer-events:auto}
@@ -389,7 +391,7 @@ table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
 /* 隐形"过桥"：条在牌上方 27px 处，鼠标从牌面往上移的途中会经过一段空白（条本身不吃指针）。
    没有这块透明命中区的话，指针一离开牌面 :hover 就断了，条会在你够到按钮之前淡掉 —— 点不到。
    它只是一块透明的命中区，没有任何视觉，所以不会像以前那条深色"桥"那样误导人。 */
-.sctile::after{content:'';position:absolute;left:0;right:0;bottom:100%;height:30px}
+.sctile::after{content:'';position:absolute;left:0;right:0;bottom:100%;height:28px}
 .sctile .scmv button{
   min-width:24px;min-height:22px;padding:0 5px;font-size:12px;line-height:1;
   border:1px solid #6d8188;border-radius:5px;background:#232c2f;color:#fff;cursor:pointer;
@@ -397,6 +399,12 @@ table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
 .sctile .scmv button:hover{background:var(--c-red);border-color:#ffffff66;transform:translateY(-1px)}
 .sctile .scmv button:active{background:#c94a42;transform:translateY(1px)}
 .sctile .scmv button:focus-visible{outline:2px solid var(--c-money);outline-offset:1px}
+/* 触屏 / 平板：按钮按手指尺寸放大，行距也跟着加；悬停态在触屏上由「点一下」触发 */
+@media (hover:none){
+  .sctile .scmv button{min-width:32px;min-height:30px;font-size:14px}
+  .sctile::after{height:36px}
+  .scrail{padding-top:48px}
+}
 /* 角标不吃指针：命中判定永远落在牌本身，不会再出现"看着在牌上、其实点在角标上" */
 .sctile .scbadge,.sctile .scred{pointer-events:none}
 /* 选中标记：原版的红色小三角（get_chosen_triangle_from_rect），会轻轻弹 */

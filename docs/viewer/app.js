@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "03fae874";
+window.__APP_BUILD__ = "da8592d1";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -1116,14 +1116,25 @@ function stopAnim () {
 const IMG = {};
 const IMG_READY = {};
 let ALL_READY = Promise.resolve();
+let REPAINT_TIMER = null;
+/** 某张贴图解完码之后，如果首屏早就画完了，就把当前这一屏重画一次。
+ *  没有这一步，那些「先画好、图还没解码」的缩略图会一直空着 —— 用户报的正是这个：
+ *  选完 exe 进合成台，「选择主体」里的缩略图不显示，切到别的工具再回来才有。 */
+function scheduleRepaint () {
+  if (typeof window === 'undefined' || !window.__BALATRO_READY__ || REPAINT_TIMER) return;
+  const ae = document.activeElement;
+  if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return;   /* 正在输入框里就别抢焦点 */
+  REPAINT_TIMER = setTimeout(() => { REPAINT_TIMER = null; if (!SCP.open) { try { render() } catch (e) { /* ignore */ } } }, 150);
+}
 function img (file) {
   if (!IMG[file]) {
     const el = new Image();
     el.src = ATLAS[file] || '';
     IMG[file] = el;
     IMG_READY[file] = new Promise((res) => {
-      if (el.complete && el.naturalWidth) res(el);
-      else { el.onload = () => res(el); el.onerror = () => res(null); }
+      const done = (v) => { res(v); scheduleRepaint(); };
+      if (el.complete && el.naturalWidth) done(el);
+      else { el.onload = () => done(el); el.onerror = () => done(null); }
     });
   }
   return IMG[file];
@@ -2614,7 +2625,7 @@ function renderSidebar () {
     for (const m of MODS) row(m.name, '⊕', ITEMS.filter((i) => i.source === m.id).length, S.source === m.id, pickSource(m.id), m.id);
   }
   group('工具');
-  for (const [k, label, icon] of [['forge', '卡牌合成台', '⚒'], ['atlas', '图集浏览', '▦'], ['hands', '牌型数据', '♠'], ['score', '得分计算器', '🧮'], ['shaders', '着色器', '✦'], ['data', '数据总表', '▤'], ['mods', '导入 Mod', '⊕']]) {
+  for (const [k, label, icon] of [['forge', '卡牌合成台', '⚒'], ['score', '得分计算器', '🧮'], ['atlas', '图集浏览', '▦'], ['hands', '牌型数据', '♠'], ['shaders', '着色器', '✦'], ['data', '数据总表', '▤'], ['mods', '导入 Mod', '⊕']]) {
     row(label, icon, k === 'mods' && MODS.length ? MODS.length : null, S.tab === k, pickTool(k));
   }
 }
@@ -2802,6 +2813,31 @@ function forgeSpec () {
   }
   return spec;
 }
+/* 动画信息（帧数 / 接缝比）算一次要跑一整段动画、再逐帧读像素 —— 合成台里最贵的一步，
+ *  CDP profile 实测每次渲染 170~250ms（getImageData 占绝大头）。
+ *  所以：① 按「规格 + 动画设置」缓存，同样的选择重渲染直接命中；
+ *  ② 没命中就先放一句「计算中…」，等浏览器空闲了再算，不把这一帧卡住。
+ *  apply(undefined) = 占位中 / apply(null) = 算不出来 / apply(obj) = 结果 */
+const ANIM_INFO_CACHE = new Map();
+function animInfoAsync (spec, apply) {
+  let sig = '';
+  try { sig = JSON.stringify(spec) + '|' + S.anim.fps + '|' + S.anim.seconds + '|' + (S.anim.loop || 'auto') + '|' + S.anim.speed } catch (e) { sig = '' }
+  if (ANIM_INFO_CACHE.has(sig)) { apply(ANIM_INFO_CACHE.get(sig)); return }
+  apply(undefined);
+  const run = () => {
+    let out = null;
+    try {
+      const f = buildAnimFrames(spec, 1, animOpts(spec));
+      const o = animOpts(spec);
+      out = { frames: f.frames.length, delay: f.delay, seam: loopSeamRatio(f.frames), autoPeriod: o.autoPeriod || null, loopMode: (S.anim.loop || 'auto') };
+    } catch (e) { out = null }
+    if (ANIM_INFO_CACHE.size > 40) ANIM_INFO_CACHE.clear();
+    ANIM_INFO_CACHE.set(sig, out);
+    try { apply(out) } catch (e) { /* 元素可能已经不在页面上了 */ }
+  };
+  if (window.requestIdleCallback) requestIdleCallback(run, { timeout: 500 }); else setTimeout(run, 16);
+}
+
 function viewForge (root) {
   refreshForgeLists();
   const wrap = document.createElement('div'); wrap.className = 'forge';
@@ -3030,17 +3066,17 @@ function viewForge (root) {
     const seam = document.createElement('div'); seam.className = 'hint mono'; seam.style.minHeight = '16px';
     anSec.body.appendChild(seam);
     function refreshAnimInfo () {
-      const spec = forgeSpec();
-      const f = buildAnimFrames(spec, 1, animOpts(spec));
-      const m = loopSeamRatio(f.frames);
-      const secs = (f.frames.length * f.delay / 1000).toFixed(1);
-      const o = animOpts(spec);
-      const loopNote = o.autoPeriod
-        ? ` · 检测到循环点 ${o.autoPeriod.toFixed(2)}s`
-        : ((S.anim.loop || 'auto') === 'auto' ? ' · 未找到短循环，已按来回循环' : '');
-      seam.textContent = m
-        ? `${f.frames.length} 帧 · ${f.delay}ms（≈${Math.round(1000 / f.delay)}fps）· 全长 ${secs}s · 接缝比 ${m.ratio.toFixed(2)}（1 = 最顺）${loopNote}`
-        : '';
+      animInfoAsync(forgeSpec(), (info) => {
+        if (info === undefined) { seam.textContent = '计算动图信息…'; return }
+        if (!info) { seam.textContent = ''; return }
+        const secs = (info.frames * info.delay / 1000).toFixed(1);
+        const loopNote = info.autoPeriod
+          ? ` · 检测到循环点 ${info.autoPeriod.toFixed(2)}s`
+          : (info.loopMode === 'auto' ? ' · 未找到短循环，已按来回循环' : '');
+        seam.textContent = info.seam
+          ? `${info.frames} 帧 · ${info.delay}ms（≈${Math.round(1000 / info.delay)}fps）· 全长 ${secs}s · 接缝比 ${info.seam.ratio.toFixed(2)}（1 = 最顺）${loopNote}`
+          : '';
+      });
     }
     refreshAnimInfo();
 
@@ -3087,6 +3123,30 @@ function viewForge (root) {
     navigator.clipboard?.writeText(txt).then(() => toast('已复制组合 JSON'), () => toast('复制失败'));
   }
 
+  /* ---- 缩略图缓存 ----------------
+   * 「选择主体」最多有 150+ 项，以前每次重排（切牌型 / 搜索框每敲一个字）都要把每一项
+   * 重新 compose 一遍（每张 1-3ms，一敲就是几百毫秒）。这里按条目 id 缓存那张 26×35 的小图，
+   * 重排时只做一次 drawImage 复制。相位固定 0，保证缓存可复用。 */
+  const MINI_CACHE = new Map();
+  const miniThumb = (it) => {
+    let src = MINI_CACHE.get(it.id);
+    if (!src) {
+      const spec = specForItem(it);
+      if (!spec) return null;
+      const mini = compose(spec, 2, 0);
+      src = newCanvas(26, 35);
+      const c2 = src.getContext('2d');
+      c2.imageSmoothingEnabled = false;
+      const r = Math.min(src.width / mini.width, src.height / mini.height);
+      c2.drawImage(mini, (src.width - mini.width * r) / 2, (src.height - mini.height * r) / 2, mini.width * r, mini.height * r);
+      if (MINI_CACHE.size > 1500) MINI_CACHE.clear();
+      MINI_CACHE.set(it.id, src);
+    }
+    const out = newCanvas(26, 35);
+    out.getContext('2d').drawImage(src, 0, 0);
+    return out;
+  };
+
   /* ---- option groups ---- */
   const groups = [];
   const group = (title, items, getValue, onPick, opts) => {
@@ -3106,17 +3166,14 @@ function viewForge (root) {
       for (const it of list) {
         const b = document.createElement('button');
         b.className = 'pick'; b.title = nm(it) + ' · ' + it.id;
-        const spec = specForItem(it);
-        if (spec) {
-          const mini = compose(spec, 2, phaseNow());
-          const sm = newCanvas(26, 35);
-          const c2 = sm.getContext('2d');
-          c2.imageSmoothingEnabled = false;
-          const r = Math.min(sm.width / mini.width, sm.height / mini.height);
-          const w = mini.width * r, hh = mini.height * r;
-          c2.drawImage(mini, (sm.width - w) / 2, (sm.height - hh) / 2, w, hh);
-          b.appendChild(sm);
-        }
+        /* 滚到视野里才画（rootMargin 300px 提前量）：150 项一次性 compose 要 370ms，
+           现在只有真正看得到的那几十项会画，剩下的滚动时补上，缓存命中后就是一次 drawImage。 */
+        const art = document.createElement('span');
+        art.className = 'pickart';
+        b.appendChild(art);
+        b.__paintThumb = () => { if (b.__painted) return; b.__painted = true;
+          const sm = miniThumb(it); if (sm) { art.innerHTML = ''; art.appendChild(sm) } };
+        if (IO) { b._paint = b.__paintThumb; IO.observe(b) } else b.__paintThumb();
         const s = document.createElement('span'); s.textContent = nm(it); b.appendChild(s);
         if (it.source) {
           const md = document.createElement('i'); md.className = 'pickmod'; md.textContent = 'MOD';
@@ -3930,12 +3987,13 @@ function renderDetail () {
     btns2.appendChild(fz);
     const seamInfo = document.createElement('div'); seamInfo.className = 'hint mono';
     if (!(spec.standalone)) {
-      const m = loopSeamRatio(buildAnimFrames(specForItem(it), 1, animOpts(specForItem(it))).frames);
-      const o = animOpts(specForItem(it));
-    if (m) {
-      seamInfo.textContent = `循环接缝 ${(m.seam * 100).toFixed(2)}% ／ 平均帧差 ${(m.avg * 100).toFixed(2)}% → 接缝比 ${m.ratio.toFixed(2)}（越接近 1 越顺）`
-        + (o.autoPeriod ? ` · 已按检测到的循环点 ${o.autoPeriod.toFixed(2)}s 导出` : '');
-    }
+      animInfoAsync(specForItem(it), (info) => {
+        if (info === undefined) { seamInfo.textContent = '循环接缝计算中…'; return }
+        if (!info || !info.seam) { seamInfo.textContent = ''; return }
+        const m = info.seam;
+        seamInfo.textContent = `循环接缝 ${(m.seam * 100).toFixed(2)}% ／ 平均帧差 ${(m.avg * 100).toFixed(2)}% → 接缝比 ${m.ratio.toFixed(2)}（越接近 1 越顺）`
+          + (info.autoPeriod ? ` · 已按检测到的循环点 ${info.autoPeriod.toFixed(2)}s 导出` : '');
+      });
     }
     btns2.appendChild(seamInfo);
     s3b.appendChild(btns2);
@@ -5290,6 +5348,39 @@ function scJokerStateText (j) {
   return bits.length ? bits.join(' ') : '';
 }
 
+/** 触屏上没有右键：长按 480ms 等同于右键（PC 的右键 = 改这张牌 / 改这张小丑牌）。
+ *  长按之后紧跟的那次 click 会被吞掉，免得顺带把这张牌又切换一次。 */
+/** 长按之后浏览器会补一次 click（触屏上弹窗是底部整幅的，那一击往往落在遮罩上，
+ *  刚打开的面板会被立刻关掉）。这里在捕获阶段吃掉紧接着的那一次点击。 */
+function swallowNextClick () {
+  const kill = (e) => { e.stopPropagation(); e.preventDefault(); cleanup() };
+  const cleanup = () => { document.removeEventListener('click', kill, true); clearTimeout(timer) };
+  const timer = setTimeout(cleanup, 800);
+  document.addEventListener('click', kill, true);
+}
+function bindContext (el, handler) {
+  el.oncontextmenu = (e) => { e.preventDefault(); handler(e) };
+  let timer = null;
+  const cancel = () => { if (timer) { clearTimeout(timer); timer = null } };
+  el.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) return cancel();
+    const t = e.touches[0];
+    cancel();
+    timer = setTimeout(() => {
+      timer = null;
+      el.__lpAt = Date.now();
+      if (navigator.vibrate) { try { navigator.vibrate(12) } catch (err) { /* ignore */ } }
+      swallowNextClick();
+      handler({ clientX: t.clientX, clientY: t.clientY });
+    }, 480);
+  }, { passive: true });
+  el.addEventListener('touchmove', cancel, { passive: true });
+  el.addEventListener('touchcancel', cancel, { passive: true });
+  el.addEventListener('touchend', (e) => { cancel(); if (el.__lpAt && Date.now() - el.__lpAt < 900) { el.__lpAt = 0; if (e.cancelable) e.preventDefault() } });
+}
+/** 长按之后的 900ms 里，点击不算数（否则长按开面板的同时又切了一次牌） */
+function lpSwallow (el) { return el.__lpAt && Date.now() - el.__lpAt < 900 }
+
 /** 一排小按钮：◀ ▶ 挪位置、⧉ 复制一张、✕ 移除（小丑牌与扑克牌共用） */
 function scTileActions (kind, arr, i, dup) {
   const mv = document.createElement('span');
@@ -5445,7 +5536,7 @@ function viewScore (host) {
         <div class="scrail plays" id="scPlayed"></div>
       </div>
       <div class="scrowbox scfull">
-        <div class="scrowhead"><span>手牌</span><em>点一下 = 打出去，再点一下 = 留在手里（右键改牌，可以拖动换位置）</em>
+        <div class="scrowhead"><span>手牌</span><em>点一下 = 打出去，再点一下 = 留在手里（右键 / 长按改牌，可以拖动换位置）</em>
           <button class="btn primary" id="scAddCard">＋ 加牌</button>
           <button class="btn" id="scDeal" title="按原版起手的 8 张随机发一手">发 8 张</button>
           <select class="scsel" id="scPreset" title="一键摆好一个常见局面">
@@ -5520,13 +5611,13 @@ function viewScore (host) {
   }
   SC.played.forEach((c, i) => {
     const cls = 'scc' + (active && active.kind === 'played' && active.i === i ? ' on' : (step >= 0 && !reached('played', i) ? ' todo' : ''));
-    const t = spriteTile(scoreCardCanvas(c, 1), cls, cardLabel(c) + '　·　点一下改回留手，右键改牌');
+    const t = spriteTile(scoreCardCanvas(c, 1), cls, cardLabel(c) + '　·　点一下改回留手，右键 / 长按改牌');
     t.__card = c;                       /* 记住代表哪张牌：改完就地重画它，不用等整页 render */
     t.style.zIndex = String(100 - i);
     t.style.marginRight = (i === SC.played.length - 1 ? 0 : PLAY_PITCH - CARDW) + 'px';
     if (c.seal === 'Red') t.appendChild(Object.assign(document.createElement('i'), { className: 'scred', textContent: '红' }));
-    t.onclick = () => { scStopPlay(); scToggleCard(c); render() };
-    t.oncontextmenu = (e) => { e.preventDefault(); scOpenCardEditor(c); render() };
+    t.onclick = () => { if (lpSwallow(t)) return; scStopPlay(); scToggleCard(c); render() };
+    bindContext(t, () => { scOpenCardEditor(c); render() });
     railP.appendChild(t);
   });
 
@@ -5540,7 +5631,7 @@ function viewScore (host) {
   order.forEach((c, i) => {
     const sel = scIsPlayed(c);
     const cls = 'scc' + (sel ? ' sel' : '') + (isActive(c) ? ' on' : (isTodo(c) ? ' todo' : ''));
-    const t = spriteTile(scoreCardCanvas(c, 1), cls, cardLabel(c) + (sel ? '　·　打出去' : '　·　留在手里') + '（点一下切换，右键改牌，可以拖动）');
+    const t = spriteTile(scoreCardCanvas(c, 1), cls, cardLabel(c) + (sel ? '　·　打出去' : '　·　留在手里') + '（点一下切换，右键 / 长按改牌，可以拖动）');
     t.__card = c;
     t.style.zIndex = String(100 - i);
     t.style.marginRight = (i === order.length - 1 ? 0 : handPitch(order.length) - CARDW) + 'px';
@@ -5559,8 +5650,8 @@ function viewScore (host) {
     t.addEventListener('dragover', scDragOverTile('hand', c));
     t.addEventListener('dragleave', scDragLeaveTile());
     t.addEventListener('drop', scDropOnTile('hand', order, c));
-    t.onclick = () => { scStopPlay(); scToggleCard(c); render() };
-    t.oncontextmenu = (e) => { e.preventDefault(); scOpenCardEditor(c); render() };
+    t.onclick = () => { if (lpSwallow(t)) return; scStopPlay(); scToggleCard(c); render() };
+    bindContext(t, () => { scOpenCardEditor(c); render() });
     railH.appendChild(t);
   });
 
@@ -6256,8 +6347,8 @@ function init () {
   ALL_READY.then(() => {
     // the handle exists before the first paint (which waits for every sheet to decode)
     window.__BALATRO_READY__ = false;
-    if (S.tab === 'codex' || S.tab === 'hands' || S.tab === 'atlas') render();
-    else if (S.tab === 'forge' && forgeRedraw) forgeRedraw();
+    render();                        /* 贴图解码完再整页重画一次：补上首屏那些空白缩略图 */
+    if (S.tab === 'forge' && forgeRedraw) forgeRedraw();
     console.log('[Balatro 素材图鉴] 已加载', ITEMS.length, '个条目 /', Object.keys(D.atlases).length, '个图集 /', Object.keys(ATLAS).length, '张贴图 /',
       GL ? GL.names().length + ' 个着色器就绪' : '无 WebGL');
     if (MODS.length) console.log('[Balatro 素材图鉴] 已导入', MODS.length, '个 Mod');

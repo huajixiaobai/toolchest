@@ -76,6 +76,13 @@ class CDP {
       clickCount: type === 'mousePressed' || type === 'mouseReleased' ? 1 : 0,
     })
   }
+  /* 真触摸：长按 / 点击都走 CDP 的触摸事件（页面里造 TouchEvent 不算数） */
+  async touch (type, x, y) {
+    await this.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints: type === 'touchEnd' ? [] : [{ x: Math.round(x), y: Math.round(y), radiusX: 8, radiusY: 8, force: 1 }],
+    })
+  }
   async shot (name) {
     const r = await this.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
     fs.writeFileSync(path.join(SHOTS, name + '.png'), Buffer.from(r.data, 'base64'))
@@ -3172,6 +3179,108 @@ const SCENARIOS = {
       { at:'#content .opt[data-gkey=\"basetype\"] h4', name:'typeHover', ms:600, click:true, shot:'ui-type-collapsed'+SUF, clip:'#content .opt[data-gkey=\"basetype\"]', read:"(()=>{const b=document.querySelector('#content .opt[data-gkey=\\\"basetype\\\"]');return {h:Math.round(b.getBoundingClientRect().height),collapsed:b.classList.contains('collapsed'),vw:innerWidth}})()" },
     ];
     r.errors=window.__V.errors.length; return r })()`,
+  /* 占位：真正的逻辑在 runner 里（要调 CDP 的 Profiler，页面里做不到） */
+  profileForge: '1',
+  /* 交互 / 适配 / 优化体检：工具顺序、行距、缩略图补画、长按=右键、各视图渲染耗时 */
+  uxAudit: `(async()=>{
+    const B=window.__BALATRO__; const S=B.state; const q=(s)=>document.querySelector(s); const qa=(s)=>[].slice.call(document.querySelectorAll(s));
+    const r={}; const t=()=>performance.now();
+    const box=(e)=>{ if(!e) return null; const b=e.getBoundingClientRect(); return {x:Math.round(b.left),y:Math.round(b.top),w:Math.round(b.width),h:Math.round(b.height),t:Math.round(b.top),b:Math.round(b.bottom)} };
+    await __V.wait(1500);
+    r.viewport={w:innerWidth,h:innerHeight,touch:('ontouchstart' in window),hoverNone:matchMedia('(hover:none)').matches};
+
+    /* ① 工具顺序 */
+    S.tab='codex'; B.render(); await __V.wait(600);
+    r.tools=qa('#sidebar .nav[data-tool], #sidebar [data-tool]').map((e)=>e.textContent.replace(/\\s+/g,' ').trim()).filter(Boolean).slice(0,10);
+    if(!r.tools.length){ const box2=q('#sidebar'); r.tools=box2?box2.textContent.split('\\n').map((s)=>s.trim()).filter(Boolean).slice(-12):[]; }
+
+    /* ② 手牌行：卡图上的按钮条会不会压住上面那排表头按钮 */
+    S.tab='score'; B.render(); await __V.wait(900);
+    const it=B.byId['j_joker'];
+    B.score.setHand([B.score.card('5','D')], [B.score.jokerFromItem(it)]); await __V.wait(700);
+    const st=B.score.state; st.held=[B.score.card('7','H')]; B.render(); await __V.wait(700);
+    const addCard=q('#scAddCard'); const addBox=box(addCard);
+    const handTile=q('#scHand .sctile');
+    const handBar=handTile?box(handTile.querySelector('.scmv')):null;
+    const jokTile=q('#scJokers .sctile');
+    const jokBar=jokTile?box(jokTile.querySelector('.scmv')):null;
+    const addJoker=box(q('#scAddJoker'));
+    const handTileBox=box(handTile);
+    r.spacing={ addCard:addBox, handBar:handBar, handTile:handTileBox,
+                handBarAboveAdd:(handBar&&addBox)? (addBox.b - handBar.t):null,
+                jokBar:jokBar, addJoker:addJoker,
+                jokBarAboveAdd:(jokBar&&addJoker)? (addJoker.b - jokBar.t):null };
+
+    /* ③ 合成台缩略图：进页面后第一次打开合成台，就该是画好的（用户报过"要切走再回来才出现"） */
+    S.tab='forge'; S.forge.open={basetype:true,base:true}; S.forge.baseType='PlayingCard'; B.render(); await __V.wait(2200);
+    const blankOf=(cv)=>{ try{ const d=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data;
+      let n=0; for(let i=3;i<d.length;i+=4){ if(d[i]>8 && ++n>20) return false } return true }catch(e){ return 'tainted' } };
+    const cells=qa('#content .opt[data-gkey="base"] .pick');
+    const cvs=cells.map((c)=>c.querySelector('canvas')).filter(Boolean);
+    r.thumbs={ cells:cells.length, canvases:cvs.length, blank:cvs.filter(blankOf).length };
+    /* 空白的那些把 id 列出来，方便定位 */
+    r.thumbs.blankIds=cells.filter((c)=>{ const cv=c.querySelector('canvas'); return cv?blankOf(cv):false }).map((c)=>c.title.split('\\n')[0]).slice(0,6);
+    /* 换到另一个大分类（150 张小丑牌）也一样要画好 */
+    S.forge.baseType='Joker'; B.render(); await __V.wait(2200);
+    const jcells=qa('#content .opt[data-gkey="base"] .pick');
+    const jcvs=jcells.map((c)=>c.querySelector('canvas')).filter(Boolean);
+    r.thumbs.jokers={ cells:jcells.length, canvases:jcvs.length, blank:jcvs.filter(blankOf).length };
+
+    /* ④ 各视图渲染耗时（同一台机器上比较，看有没有明显偏慢的） */
+    const views=['codex','forge','atlas','hands','data','score','shaders'];
+    r.renderMs={};
+    for (const v of views) {
+      S.tab=v; if (v==='forge') { S.forge.open={basetype:true,base:true}; S.forge.baseType='Joker' }
+      const t0=t(); B.render(); const dt=t()-t0;
+      await __V.wait(80);
+      r.renderMs[v]=Math.round(dt);
+    }
+    /* ⑤ 合成台搜索：缓存命中前后的延迟（以前每敲一个字都要把每一项重新 compose 一遍） */
+    S.tab='forge'; S.forge.open={basetype:true,base:true}; S.forge.baseType='Joker'; B.render(); await __V.wait(2500);
+    const search=q('#content .opt[data-gkey="basetype"] input');
+    if (search) {
+      const typeInto=(val)=>{ search.value=val; const t0=t(); search.dispatchEvent(new Event('input',{bubbles:true})); return Math.round(t()-t0) };
+      const ms=[]; ms.push(typeInto('j')); ms.push(typeInto('jo')); ms.push(typeInto('jok')); ms.push(typeInto('joke')); ms.push(typeInto('joker'));
+      await __V.wait(400);
+      r.searchMs=ms;
+      search.value=''; search.dispatchEvent(new Event('input',{bubbles:true}));
+      await __V.wait(400);
+    }
+    r.canvases=document.querySelectorAll('canvas').length;
+    r.nodes=document.querySelectorAll('*').length;
+    if (performance.memory) r.heapMB=+(performance.memory.usedJSHeapSize/1048576).toFixed(1);
+
+    /* ⑤b 合成台耗时拆解：筛成 0 项 vs 150 项（差值 = 每项成本）+ 单张 compose 成本 */
+    S.tab='forge'; S.forge.open={basetype:true,base:true}; S.forge.baseType='Joker'; S.forge.baseQuery='zzzzzz';
+    B.render(); await __V.wait(700);
+    const t0b=t(); B.render(); await __V.wait(150); const fixed=Math.round(t()-t0b);
+    S.forge.baseQuery=''; B.render(); await __V.wait(1200);
+    const t1b=t(); B.render(); await __V.wait(150); const full=Math.round(t()-t1b);
+    const specs=B.items.filter((x)=>x.cat==='Joker').slice(0,20);
+    const c0=t(); for (const s of specs) B.compose(B.specForItem(s),2); const perCompose=+((t()-c0)/specs.length).toFixed(2);
+    r.forgeCost={ fixed0:fixed, full150:full, perItemMs:+((full-fixed)/150).toFixed(2), perComposeMs:perCompose };
+    /* ⑤c 找出这 300+ms 到底花在哪：换主体 / 换折叠状态看耗时怎么变 */
+    const forgeState=(st,label)=>{ Object.assign(S.forge,st); const t0=t(); B.render(); r.forgeStates[label]=Math.round(t()-t0) };
+    r.forgeStates={};
+    S.tab='forge';
+    forgeState({baseType:'Stake', baseQuery:'', open:{}}, 'stake8_全收起');
+    forgeState({baseType:'Joker', baseQuery:'', open:{}}, 'joker150_全收起');
+    forgeState({baseType:'Joker', baseQuery:'', open:{basetype:true,base:true}}, 'joker150_开两栏');
+    forgeState({baseType:'Joker', baseQuery:'', open:{basetype:true,base:true,summary:true,export:true,anim:true}}, 'joker150_全展开');
+    r.errors=window.__V.errors.length;
+
+    /* ⑥ 长按（触屏）= 右键：长按手牌应该弹出改牌面板 */
+    S.tab='score'; B.render(); await __V.wait(900);
+    B.score.setHand([], [B.score.jokerFromItem(it)]); await __V.wait(500);
+    const st2=B.score.state; st2.held=[B.score.card('9','S')]; B.render(); await __V.wait(700);
+    r.__hover=[
+      /* 手牌在最底下，手机/平板上它可能在视野之外 —— 先把那张牌滚到屏幕中间再长按 */
+      { name:'scrollHand', ms:700, read:"(()=>{const t=document.querySelector('#scHand .sctile'); if(t) t.scrollIntoView({block:'center'}); return 'ok'})()" },
+      { at:'#scHand .sctile', name:'longPressHand', longPress:true, hold:750,
+        read:"(()=>({panelOpen:!!document.querySelector('#scPanel')&&getComputedStyle(document.querySelector('#scPanel')).display!=='none',panelTitle:(document.querySelector('#scPanel .scpicktop')||{}).textContent||null,held:document.querySelectorAll('#scHand .sctile').length,y:Math.round(document.querySelector('#scHand .sctile').getBoundingClientRect().top)}))()",
+        shot:'ux-longpress'+ (innerWidth<600?'-ph':(innerWidth<1000?'-tab':'')) },
+    ];
+    return r })()`,
   gifQuality: `(async()=>{
     const A = window.__BALATRO__;
     const r = {};
@@ -3514,6 +3623,7 @@ async function main () {
   /* demoRect 的同一个场景需要一个"手机尺寸"的别名，好让 runner 按名字切换视口 */
   if (SCENARIOS.demoRect && !SCENARIOS.demoRectMobile) SCENARIOS.demoRectMobile = SCENARIOS.demoRect
   if (SCENARIOS.uiFix && !SCENARIOS.uiFixMobile) SCENARIOS.uiFixMobile = SCENARIOS.uiFix
+  if (SCENARIOS.uxAudit && !SCENARIOS.uxAuditMobile) { SCENARIOS.uxAuditMobile = SCENARIOS.uxAudit; SCENARIOS.uxAuditTablet = SCENARIOS.uxAudit }
   if (SCENARIOS.demoLayout && !SCENARIOS.demoLayoutMobile) SCENARIOS.demoLayoutMobile = SCENARIOS.demoLayout
   if (SCENARIOS.scoreCalc && !SCENARIOS.scoreCalcMobile) SCENARIOS.scoreCalcMobile = SCENARIOS.scoreCalc
   if (SCENARIOS.scoreNewPreset && !SCENARIOS.scoreNewPresetMobile) SCENARIOS.scoreNewPresetMobile = SCENARIOS.scoreNewPreset
@@ -3607,7 +3717,12 @@ async function main () {
       await c.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 560, deviceScaleFactor: 1, mobile: false })
       LongMode = true
     }
-    if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile' || name === 'scoreCalcMobile' || name === 'scoreNewPresetMobile' || name === 'scorePickOpenMobilePhone' || name === 'scorePickScrollMobile' || name === 'scoreUi2Phone' || name === 'bootMobile' || name === 'uiFixMobile') {
+    if (name === 'uxAuditTablet') {
+      /* iPad Air 竖屏 / 常见安卓平板：触摸 + 无悬停，最能暴露"只能鼠标用"的交互 */
+      await c.send('Emulation.setDeviceMetricsOverride', { width: 834, height: 1112, deviceScaleFactor: 2, mobile: true })
+      await c.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {})
+      MobileMode = true
+    } else if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile' || name === 'scoreCalcMobile' || name === 'scoreNewPresetMobile' || name === 'scorePickOpenMobilePhone' || name === 'scorePickScrollMobile' || name === 'scoreUi2Phone' || name === 'bootMobile' || name === 'uiFixMobile' || name === 'uxAuditMobile') {
       // emulate a phone viewport (bootPhone tests the start screen visitors land on)
       await c.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
       await c.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {})
@@ -3753,7 +3868,28 @@ async function main () {
     } catch (e) {
       console.log('             driver hook failed:', String(e.message).slice(0, 200))
     }
-    if (name === 'editions') {
+    if (name === 'profileForge') {
+      /* 用 CDP 的 CPU profiler 找"慢在哪"：反复渲染合成台，把自耗时最多的函数列出来 */
+      await c.eval("(()=>{const B=window.__BALATRO__; B.state.tab='forge'; B.state.forge.open={basetype:true,base:true,summary:true}; B.state.forge.baseType='Joker'; B.render(); return 1})()")
+      await sleep(900)
+      await c.send('Profiler.enable')
+      await c.send('Profiler.setSamplingInterval', { interval: 80 })
+      await c.send('Profiler.start')
+      await c.eval('(()=>{const B=window.__BALATRO__; for(let i=0;i<4;i++) B.render(); return 1})()')
+      const prof = await c.send('Profiler.stop').catch(() => null)
+      const p = prof && prof.profile
+      const byId = {}
+      if (p) for (const nd of p.nodes || []) byId[nd.id] = { fn: nd.callFrame.functionName || '(anon)', url: String(nd.callFrame.url || '').split('/').pop(), line: (nd.callFrame.lineNumber || 0) + 1, self: 0 }
+      const deltas = (p && p.timeDeltas) || []
+      ;(p && p.samples || []).forEach((sid, i) => { const nd = byId[sid]; if (nd) nd.self += (deltas[i] || 0) })
+      const agg = {}
+      for (const id in byId) { const nd = byId[id]; const k = nd.fn + '  @' + nd.url + ':' + nd.line; agg[k] = (agg[k] || 0) + nd.self }
+      rep = {
+        renders: 4,
+        top: Object.entries(agg).sort((a, b) => b[1] - a[1]).slice(0, 20).map(([k, v]) => Math.round(v / 1000) + 'ms  ' + k),
+        samples: (p && p.samples || []).length,
+      }
+    } else if (name === 'editions') {
       // step through each edition chip one at a time so the capture cannot race the UI
       rep = await c.eval(SCENARIOS[name], true).catch((e) => ({ fatal: String(e.message).slice(0, 400) }))
       const labels = (rep && rep.labels) || []
@@ -3805,6 +3941,12 @@ async function main () {
           await c.mouse('mousePressed', x, y).catch(() => {})
           await c.mouse('mouseReleased', x, y).catch(() => {})
           await sleep(step.after || 500)
+        }
+        if (step.longPress) {
+          await c.touch('touchStart', x, y).catch(() => {})
+          await sleep(step.hold || 700)
+          await c.touch('touchEnd', x, y).catch(() => {})
+          await sleep(step.after || 600)
         }
         if (step.read) {
           try { rep.__hoverResults[step.name || 'r' + rep.__hover.indexOf(step)] = await c.eval(step.read) } catch (e) { rep.__hoverResults[step.name || '?'] = 'ERR ' + String(e.message).slice(0, 140) }
