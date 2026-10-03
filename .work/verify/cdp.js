@@ -3133,6 +3133,11 @@ const SCENARIOS = {
     S.tab='maker'; B.render(); await __V.wait(900);
     r.view={ hasView:!!q('.maker'), sections:qa('.mkright .opt').length, cells:qa('#mkArtGrid .mkcell').length, hasLua:!!q('#mkLua'), buttons:qa('.mkbtnrow .btn').map(function(b){return b.textContent.trim()}) };
     /* 贴图网格必须真的画出图（以前全是黑格子） */
+    /* 合并检查：克隆下拉与「从哪个图集取图」必须在同一段里（同一个 .opt 内） */
+    r.merged=(function(){ const c=q('#mkClone'), a3=q('#mkAtlas'); if(!c||!a3) return false;
+      const sec=(el)=>{ let p=el; while(p && !p.classList.contains('opt')) p=p.parentElement; return p };
+      return sec(c)===sec(a3) })(),
+    r.soulControls={ on:!!q('#mkSoulOn'), atlas:!!q('#mkSoulAtlas'), up:!!q('#mkSoulUp'), pick:!!q('#mkSoulPick') },
     r.thumbs={ cells:qa('#mkArtGrid .mkcell').length, painted:qa('#mkArtGrid .mkcell canvas').length,
       presets:qa('.mkpreset').length, typeChips:qa('.mkhchip').length, header:!!q('.mkhead'), summary:(q('#mkSum')||{}).textContent ? true : false };
     /* 预设库点一下要能填好效果行 */
