@@ -3134,7 +3134,7 @@ const SCENARIOS = {
     S.tab='maker'; B.render(); await __V.wait(900);
     const SUF3 = innerWidth < 600 ? '-ph' : (innerWidth < 1000 ? '-tab' : '');
     r.__hover=[
-      { at:'#mkArtGrid .mkcell', name:'mkHover', ms:500, shot:'ui-maker'+SUF3, clip:'.maker' },
+      { at:'#mkArtGrid .mkcell', name:'mkHover', ms:500, shot:'ui-maker'+SUF3, clip:'#content' },
     ];
     r.errors=window.__V.errors.length;
     return r })()`,

@@ -383,6 +383,96 @@ table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
 @media (prefers-reduced-motion: reduce){
   .scblindrow,.scblindpick{transition:none}
 }
+/* ================================================================ Mod 制作器（重做外观） */
+.maker{display:grid;grid-template-columns:312px minmax(0,1fr);gap:16px;align-items:start}
+@media(max-width:900px){.maker{grid-template-columns:minmax(0,1fr)}}
+/* ---- 顶部标题条：类型胶囊 + 实时摘要 ---- */
+.mkhead{background:linear-gradient(180deg,#1b2733,#16202a);border:1px solid var(--line);border-radius:12px;
+  padding:12px 14px;margin-bottom:14px;box-shadow:0 6px 18px #00000055}
+.mkhtitle{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:9px}
+.mkhtitle b{font-size:17px;color:#fff;text-shadow:var(--g-txt);letter-spacing:.4px}
+.mkhtitle span{font-size:12px;color:var(--fg3)}
+.mkhchips{display:flex;flex-wrap:wrap;gap:6px}
+.mkhchip{font-size:12px;padding:5px 10px;border-radius:999px;border:1px solid var(--line2);background:#18232d;
+  color:var(--fg2);cursor:pointer;transition:.12s}
+.mkhchip:hover{color:#fff;border-color:var(--accent2,#009dff)}
+.mkhchip.on{background:linear-gradient(180deg,#3aa07a,#2a7f60);border-color:#4bc292;color:#06170f;font-weight:700}
+.mkhsum{margin-top:10px;font-size:12px;color:#cfd8de;line-height:1.6}
+.mkhsum b{color:#fff}
+.mkhsum code{background:#0f1720;border:1px solid var(--line2);border-radius:5px;padding:1px 6px;font-size:11px;color:#9fd8ff}
+/* ---- 左栏：卡位 + 导出 ---- */
+.mkleft{display:flex;flex-direction:column;gap:12px;position:sticky;top:0}
+@media(max-width:900px){.mkleft{position:static;order:-1}}
+.mkright{display:flex;flex-direction:column;gap:12px}
+.mkpv{position:relative;border-radius:12px;padding:14px 12px 12px;text-align:center;overflow:hidden;
+  background:radial-gradient(120% 90% at 50% 0%,#22303d 0%,#141d26 62%,#101820 100%);
+  border:1px solid var(--line);box-shadow:0 10px 24px #00000066}
+.mkpv::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(45deg,#ffffff05 0 10px,transparent 10px 20px)}
+.mkpvbox{display:flex;align-items:center;justify-content:center;min-height:168px;position:relative;z-index:1}
+.mkpvbox canvas{image-rendering:pixelated;filter:drop-shadow(0 12px 22px #000c)}
+.mkpvline{position:relative;z-index:1;text-align:left;margin-top:10px}
+.mkpvname{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.mkpvname b{color:#fff;font-size:15px;text-shadow:var(--g-txt)}
+.mktag{font-style:normal;font-size:10.5px;border-radius:999px;padding:1px 7px;background:#2a3742;color:#cfe0ec}
+.mkpvfx{margin-top:5px;font-size:12px;line-height:1.6;color:#c6d3dc}
+/* ---- 段落标题 ---- */
+.mkright .opt{border-radius:12px}
+.mkright .opt h4{font-size:13.5px}
+.mklabel{font-size:11px;color:var(--fg3);letter-spacing:.3px;margin:2px 0 6px}
+/* ---- 预设库 ---- */
+.mkpresets{margin-bottom:12px}
+.mkpreset{display:inline-block;margin:0 6px 6px 0;font-size:12px;padding:6px 10px;border-radius:999px;
+  border:1px dashed #3d5261;background:#16202a;color:#bfe0ff;cursor:pointer;transition:.12s}
+.mkpreset:hover{background:#1d2c3a;border-color:var(--accent2,#009dff);color:#fff;transform:translateY(-1px)}
+/* ---- 效果行：读得懂的句子 ---- */
+.mkfxlist{display:flex;flex-direction:column;gap:7px;margin-bottom:8px}
+.mkfx{display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:#18232d;border:1px solid var(--line2);
+  border-left:3px solid #4a5b66;border-radius:9px;padding:8px 10px 8px 8px;transition:.12s}
+.mkfx:hover{background:#1c2833}
+.mkfx-chips{border-left-color:#009dff}
+.mkfx-mult{border-left-color:#fe5f55}
+.mkfx-xmult{border-left-color:#f3b958}
+.mkfx-dollars{border-left-color:#4bc292}
+.mkfx-reps{border-left-color:#a782d1}
+.mkfx-hands,.mkfx-discards,.mkfx-handsize{border-left-color:#ff9a00}
+.mkfx-tarot,.mkfx-planet{border-left-color:#13afce}
+.mknum{font-style:normal;width:20px;height:20px;flex:0 0 auto;border-radius:50%;background:#0f1720;color:#9fb0c0;
+  font-size:11px;display:flex;align-items:center;justify-content:center}
+.mkword{font-size:11.5px;color:var(--fg3)}
+.mkfx .tbtn{font-size:12px;padding:4px 6px;min-height:30px;background:#101820}
+.mkfx .mkx{padding:4px 8px;min-height:30px}
+.mkfx .mkn{width:72px!important;min-width:72px!important}
+/* ---- 贴图网格 ---- */
+.mkartgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(36px,1fr));gap:5px;max-height:250px;overflow:auto;
+  background:#101820;border:1px solid var(--line);border-radius:10px;padding:8px;margin-top:8px;
+  box-shadow:inset 0 2px 8px #00000066}
+.mkcell{width:100%;aspect-ratio:1/1;border:1px solid var(--line2);border-radius:6px;background:#1b2530;cursor:pointer;padding:0;
+  transition:transform .1s,border-color .1s,box-shadow .1s}
+.mkcell:hover{transform:scale(1.12);border-color:var(--accent2,#009dff);z-index:2}
+.mkcell.on{border-color:#4bc292;background:#12352b;box-shadow:0 0 0 2px #4bc29266,0 0 12px #4bc29255}
+/* ---- 表单 ---- */
+.mkrow{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:flex-end;margin-bottom:9px}
+.mkrow label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--fg3)}
+.mkrow label.mkwide{flex:1 1 100%}
+.mkrow .tbtn{min-width:122px;background:#101820}
+.mkn{width:76px!important;min-width:76px!important}
+.mkck{flex-direction:row!important;align-items:center;gap:6px;color:var(--fg2)!important;font-size:12px!important}
+.mksoul{flex-direction:column;align-items:flex-start;gap:4px;margin-top:10px;padding:9px 10px;background:#16202a;
+  border:1px dashed #3d5261;border-radius:9px}
+.mkbtnrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
+.mkbtnrow .btn{min-height:36px}
+.mklua{width:100%;min-height:190px;background:#0b1118;color:#cfe3ef;border:1px solid var(--line2);border-radius:9px;
+  padding:10px 11px;font-family:var(--mono);font-size:11.5px;line-height:1.6;white-space:pre;overflow:auto;
+  box-shadow:inset 0 2px 10px #000a}
+.mkfile{display:flex;flex-direction:column;gap:3px}
+.hint.ok{color:#7ee0a8}
+@media (hover:none){
+  .mkcell{min-height:42px}
+  .mkfx .tbtn,.mkfx .mkx{min-height:38px}
+  .mkpreset{min-height:40px;display:flex;align-items:center}
+  .mkhchip{min-height:36px;display:inline-flex;align-items:center}
+}
 .scrowhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
 .scrowhead>span{font-size:13px;color:#fff;text-shadow:var(--g-txt);letter-spacing:.5px}
 .scrowhead>em{font-style:normal;font-size:11.5px;color:var(--c-jgrey);flex:1 1 120px;min-width:0}

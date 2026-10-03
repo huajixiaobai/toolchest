@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "81617775";
+window.__APP_BUILD__ = "cd8cefc1";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -6663,6 +6663,9 @@ const MK_COND = [
   ['suit', '花色是…'],
   ['rank', '点数是…'],
   ['face', '人头牌（J/Q/K）'],
+  ['enh', '强化是…'],
+  ['even', '偶数点数'],
+  ['odd', '奇数点数'],
   ['hand', '牌型是…'],
   ['count', '这一手至少…张'],
 ];
@@ -6672,11 +6675,38 @@ const MK_EFF = [
   ['xmult', '× 倍率'],
   ['dollars', '+ 金钱'],
   ['reps', '再多结算 N 次'],
+  ['hands', '+ 出牌次数'],
+  ['discards', '+ 弃牌次数'],
+  ['handsize', '+ 手牌上限'],
+  ['tarot', '给一张随机塔罗'],
+  ['planet', '给一张随机星球'],
+];
+/* 常用效果预设：点一下就把整套效果行填好（仍然不用写代码） */
+const MK_PRESETS = [
+  ['每张打出的红桃 +50 筹码', [{ when: 'card', cond: 'suit', condVal: 'Hearts', eff: 'chips', val: 50 }]],
+  ['每张打出的黑桃 +3 倍率', [{ when: 'card', cond: 'suit', condVal: 'Spades', eff: 'mult', val: 3 }]],
+  ['每张人头牌 ×1.5 倍率', [{ when: 'card', cond: 'face', eff: 'xmult', val: 1.5 }]],
+  ['每张打出的 A +30 筹码', [{ when: 'card', cond: 'rank', condVal: 'Ace', eff: 'chips', val: 30 }]],
+  ['打出对子时 +$2', [{ when: 'hand', cond: 'hand', condVal: 'Pair', eff: 'dollars', val: 2 }]],
+  ['打出这一手 +4 倍率', [{ when: 'hand', cond: '', eff: 'mult', val: 4 }]],
+  ['每弃一张牌 +1 倍率', [{ when: 'discard', cond: '', eff: 'mult', val: 1 }]],
+  ['每张打出的牌再结算一次', [{ when: 'repetition', cond: '', eff: 'reps', val: 1 }]],
+  ['留在手里的牌 +20 筹码', [{ when: 'held', cond: '', eff: 'chips', val: 20 }]],
+  ['打完这一手 +1 出牌次数', [{ when: 'hand', cond: '', eff: 'hands', val: 1 }]],
+  ['打完这一手 +1 弃牌次数', [{ when: 'hand', cond: '', eff: 'discards', val: 1 }]],
+  ['手牌上限 +1', [{ when: 'hand', cond: '', eff: 'handsize', val: 1 }]],
+  ['卖掉这张牌 +$3', [{ when: 'sell', cond: '', eff: 'dollars', val: 3 }]],
+  ['每张打出的梅花 ×1.2 倍率', [{ when: 'card', cond: 'suit', condVal: 'Clubs', eff: 'xmult', val: 1.2 }]],
+  ['打出同花时 +$5', [{ when: 'hand', cond: 'hand', condVal: 'Flush', eff: 'dollars', val: 5 }]],
 ];
 const MK_RARITY = [[1, '普通'], [2, '罕见'], [3, '稀有'], [4, '传奇']];
 const MK_SUITS = [['Hearts', '红桃'], ['Diamonds', '方片'], ['Spades', '黑桃'], ['Clubs', '梅花']];
 const MK_RANKS = [['2', '2'], ['3', '3'], ['4', '4'], ['5', '5'], ['6', '6'], ['7', '7'], ['8', '8'], ['9', '9'], ['10', '10'], ['Jack', 'J'], ['Queen', 'Q'], ['King', 'K'], ['Ace', 'A']];
-const MK_USE = [['dollars', '给一笔钱'], ['chips', '本手 +筹码'], ['mult', '本手 +倍率'], ['none', '什么都不做（占位）']];
+const MK_USE = [['dollars', '给一笔钱'], ['chips', '本手 +筹码'], ['mult', '本手 +倍率'],
+  ['handsize', '手牌上限 +N'], ['tarot', '给一张随机塔罗'], ['planet', '给一张随机星球'],
+  ['none', '什么都不做（占位）']];
+const MK_SETS = [['Tarot', '塔罗'], ['Planet', '星球'], ['Spectral', '幽灵']];
+const MK_USE_ANY_TYPE = false;   /* 非小丑牌类型也允许挑牌组 */
 
 const MK = {
   type: 'Joker',
@@ -6688,12 +6718,28 @@ const MK = {
   eternal: true, perishable: true, blueprint: true,
   nameZh: '阿尔法', nameEn: 'Alpha', textZh: '', textEn: '',
   effects: [{ when: 'card', cond: 'suit', condVal: 'Hearts', eff: 'chips', val: 50 }],
-  useKind: 'dollars', useVal: 4,
+  useKind: 'dollars', useVal: 4, set: 'Tarot',
+  /* 悬浮立绘（传奇牌那种飘在半空的画）：开了就多导一张 soul.png，并在 Lua 里写 soul_pos */
+  soul: { on: false, atlas: 'Joker', pos: { x: 0, y: 2 }, upload: null, uploadName: '' },
   advanced: false, lua: null, luaDirty: false, config: '',
   cloneFrom: '',
 };
 
 function mkType () { return MK_TYPES.filter((t) => t[0] === MK.type)[0] || MK_TYPES[0] }
+/** 预览卡上的小标签：稀有度 + 价格（只有小丑牌/消耗品有） */
+function mkTag () {
+  const bits = [];
+  if (MK.type === 'Joker') bits.push(...MK_RARITY.filter((r) => r[0] === MK.rarity).map((r) => r[1]));
+  bits.push('$' + MK.cost);
+  if (MK.soul.on && MK.type === 'Joker') bits.push('有立绘');
+  return bits.map((b) => '<i class="mktag">' + b + '</i>').join('');
+}
+/** 顶部那一行实时摘要 */
+function mkSummaryHtml () {
+  return '<b>' + esc(mkType()[1]) + '</b> · ' + esc(MK.nameZh || MK.key) +
+    ' <code>' + esc(MK.prefix) + '_' + esc(MK.key) + '</code> · ' + esc(mkAutoText('zh') || '还没有效果') +
+    ' · 贴图 ' + (MK.art.upload ? '上传的图' : (MK.art.atlas + ' x' + MK.art.pos.x + ' y' + MK.art.pos.y));
+}
 function mkAtlasName () {
   const a = D.atlases[MK.art.atlas];
   if (MK.art.upload) return null;
@@ -6720,6 +6766,14 @@ function mkArtCanvas (scale) {
   return cv;
 }
 /** 预览：原版卡图（中心框 + 贴图），和合成台一样的方式 */
+/** 悬浮立绘的图：和主体用同一套取图方式，只是图集/坐标换成 soul 那一份 */
+function mkSoulCanvas (scale) {
+  const keep = MK.art;
+  MK.art = { atlas: MK.soul.atlas, pos: MK.soul.pos, upload: MK.soul.upload, uploadName: MK.soul.uploadName };
+  const cv = mkArtCanvas(scale);
+  MK.art = keep;
+  return cv;
+}
 function mkPreviewCanvas () {
   const spec = { standalone: { atlas: MK.art.atlas, pos: MK.art.pos } };
   try { return compose(spec, 2) } catch (e) { return mkArtCanvas(2) }
@@ -6731,6 +6785,9 @@ function mkCondSnippet (e) {
   if (e.cond === 'face') return 'context.other_card:is_face()';
   if (e.cond === 'hand') return "context.scoring_name == '" + v + "'";
   if (e.cond === 'count') return '#' + 'context.full_hand >= ' + (v || 5);
+  if (e.cond === 'enh') return "context.other_card.config.center.key == '" + (v || 'm_bonus') + "'";
+  if (e.cond === 'even') return 'context.other_card:get_id() <= 10 and context.other_card:get_id() % 2 == 0';
+  if (e.cond === 'odd') return '(context.other_card:get_id() % 2 == 1 or context.other_card:get_id() == 14)';
   return '';
 }
 /** 一行效果 → Lua 片段 */
@@ -6740,7 +6797,12 @@ function mkEffectLua (e) {
     : e.eff === 'mult' ? 'mult = ' + val
       : e.eff === 'xmult' ? 'x_mult = ' + (val || 1)
         : e.eff === 'dollars' ? 'dollars = ' + val
-          : 'repetitions = ' + (val || 1);
+          : e.eff === 'hands' ? 'hands = ' + (val || 1)
+            : e.eff === 'discards' ? 'discards = ' + (val || 1)
+              : e.eff === 'handsize' ? 'h_size = ' + (val || 1)
+                : e.eff === 'tarot' ? "create_card('Tarot', G.play)"
+                  : e.eff === 'planet' ? "create_card('Planet', G.play)"
+                    : 'repetitions = ' + (val || 1);
   const cond = mkCondSnippet(e);
   const lines = [];
   if (e.when === 'card') {
@@ -6787,6 +6849,9 @@ function mkCondText (e) {
   if (e.cond === 'face') return '人头牌（J/Q/K）';
   if (e.cond === 'hand') return '「' + (handCN({ name: v }) || v) + '」';
   if (e.cond === 'count') return '这一手至少 ' + (v || 5) + ' 张';
+  if (e.cond === 'enh') return '「' + (v || 'm_bonus') + '」强化';
+  if (e.cond === 'even') return '偶数点数';
+  if (e.cond === 'odd') return '奇数点数';
   return '';
 }
 function mkEffText (e) {
@@ -6795,6 +6860,11 @@ function mkEffText (e) {
   if (e.eff === 'mult') return '+' + val + ' 倍率';
   if (e.eff === 'xmult') return '×' + (val || 1) + ' 倍率';
   if (e.eff === 'dollars') return '+$' + val;
+  if (e.eff === 'hands') return '出牌次数 +' + (val || 1);
+  if (e.eff === 'discards') return '弃牌次数 +' + (val || 1);
+  if (e.eff === 'handsize') return '手牌上限 +' + (val || 1);
+  if (e.eff === 'tarot') return '给一张随机塔罗';
+  if (e.eff === 'planet') return '给一张随机星球';
   return '再多结算 ' + (val || 1) + ' 次';
 }
 function mkWhenText (e) {
@@ -6832,6 +6902,15 @@ function mkLua () {
   L.push('    px = ' + CARD_W + ',');
   L.push('    py = ' + CARD_H);
   L.push('}');
+  if (MK.type === 'Joker' && MK.soul.on) {
+    L.push('');
+    L.push('SMODS.Atlas {');
+    L.push("    key = 'soul',");
+    L.push("    path = 'soul.png',");
+    L.push('    px = ' + CARD_W + ',');
+    L.push('    py = ' + CARD_H);
+    L.push('}');
+  }
   L.push('');
   const loc = [
     '    loc_txt = {',
@@ -6864,6 +6943,9 @@ function mkLua () {
     L.push('    eternal_compat = ' + (MK.eternal ? 'true' : 'false') + ',');
     L.push('    perishable_compat = ' + (MK.perishable ? 'true' : 'false') + ',');
     L.push('    blueprint_compat = ' + (MK.blueprint ? 'true' : 'false') + ',');
+    if (MK.soul.on) {
+      L.push("    soul_pos = { x = 0, y = 0 },");
+    }
     L.push('    calculate_joker = function(self, context)');
     MK.effects.forEach((e, i) => {
       L.push('        -- ' + (i + 1) + '. ' + mkWhenText(e) + '：' + mkEffText(e));
@@ -6875,7 +6957,7 @@ function mkLua () {
   } else if (MK.type === 'Consumable') {
     L.push('SMODS.Consumable {');
     L.push("    key = '" + key + "',");
-    L.push("    set = 'Tarot',");
+    L.push("    set = '" + (MK.set || 'Tarot') + "',");
     L.push.apply(L, loc);
     L.push('    config = { extra = { value = ' + (Number(MK.useVal) || 0) + ' } },');
     L.push('    cost = ' + MK.cost + ',');
@@ -6886,6 +6968,8 @@ function mkLua () {
     if (MK.useKind === 'dollars') L.push('        ease_dollars(' + (Number(MK.useVal) || 0) + ')');
     else if (MK.useKind === 'chips') L.push('        update_hand_text({ immediate = true }, { chips = G.GAME.chips + ' + (Number(MK.useVal) || 0) + ' })');
     else if (MK.useKind === 'mult') L.push('        update_hand_text({ immediate = true }, { mult = ' + (Number(MK.useVal) || 0) + ' })');
+    else if (MK.useKind === 'handsize') L.push('        G.hand:change_size(' + (Number(MK.useVal) || 1) + ')');
+    else if (MK.useKind === 'tarot' || MK.useKind === 'planet') L.push("        local c = create_card('" + (MK.useKind === 'tarot' ? 'Tarot' : 'Planet') + "', G.play); c:add_to_deck(); G.consumeables:emplace(c)");
     else L.push('        -- 想做点什么就改这里');
     L.push('    end');
     L.push('}');
@@ -6927,6 +7011,10 @@ async function mkBuildFiles () {
   const two = await canvasBytes(mkArtCanvas(2));
   files.push({ name: 'assets/1x/sheet.png', data: one });
   files.push({ name: 'assets/2x/sheet.png', data: two });
+  if (MK.type === 'Joker' && MK.soul.on) {
+    files.push({ name: 'assets/1x/soul.png', data: await canvasBytes(mkSoulCanvas(1)) });
+    files.push({ name: 'assets/2x/soul.png', data: await canvasBytes(mkSoulCanvas(2)) });
+  }
   return files;
 }
 /** 只刷新 Lua 文本框与预览那行（文本框里打字时用） */
@@ -6942,20 +7030,27 @@ let mkRedraw = () => { render() };
 
 /* ---------------------------------------------------------------- 视图 */
 function viewMaker (root) {
+  /* 顶部：类型胶囊 + 一行摘要（像原版的标题条） */
+  const head = document.createElement('div'); head.className = 'mkhead';
+  head.innerHTML = '<div class="mkhtitle"><b>Mod 制作器</b><span>不用写代码，选一选就能出一个能用的 mod</span></div>' +
+    '<div class="mkhchips">' + MK_TYPES.map((t) => '<button class="mkhchip' + (t[0] === MK.type ? ' on' : '') + '" data-mktype="' + t[0] + '">' + t[1] + '</button>').join('') + '</div>' +
+    '<div class="mkhsum" id="mkSum"></div>';
+  root.appendChild(head);
+  head.onclick = (e) => { const b = e.target.closest('[data-mktype]'); if (b) mkSet({ type: b.dataset.mktype }) };
   const wrap = document.createElement('div'); wrap.className = 'maker';
   const left = document.createElement('div'); left.className = 'mkleft';
   const right = document.createElement('div'); right.className = 'mkright';
   wrap.appendChild(left); wrap.appendChild(right); root.appendChild(wrap);
 
   /* 预览 */
-  const pv = document.createElement('div'); pv.className = 'mkpv opt'; pv.dataset.gkey = 'pv';
+  const pv = document.createElement('div'); pv.className = 'mkpv';
   const pvBox = document.createElement('div'); pvBox.className = 'mkpvbox';
   const cv = mkPreviewCanvas();
   if (cv) { cv.style.width = '142px'; cv.style.height = '190px'; pvBox.appendChild(cv) }
   pv.appendChild(pvBox);
-  const pvLine = document.createElement('div'); pvLine.className = 'hint mkpvline';
-  pvLine.innerHTML = '<b>' + esc(MK.nameZh || MK.key) + '</b> · ' + esc(mkType()[1]) +
-    '<br>' + esc(mkAutoText('zh') || '（还没有效果）');
+  const pvLine = document.createElement('div'); pvLine.className = 'mkpvline';
+  pvLine.innerHTML = '<div class="mkpvname"><b>' + esc(MK.nameZh || MK.key) + '</b>' + mkTag() + '</div>' +
+    '<div class="mkpvfx">' + esc(mkAutoText('zh') || '（还没有效果 —— 在右边第 ③ 段选一个预设）') + '</div>';
   pv.appendChild(pvLine);
   left.appendChild(pv);
 
@@ -7016,27 +7111,37 @@ function viewMaker (root) {
       '<label class="mkfile">或上传自己的图<input type="file" id="mkUpload" accept="image/*"></label></div>' +
       '<div class="hint" id="mkArtHint"></div>' +
       '<div class="mkartgrid" id="mkArtGrid"></div>';
+    if (MK.type === 'Joker') {
+      b.appendChild(Object.assign(document.createElement('div'), { className: 'mkrow mksoul' }));
+      b.lastChild.innerHTML = '<label class="mkck"><input type="checkbox" id="mkSoulOn"' + (MK.soul.on ? ' checked' : '') + '>再给一张「悬浮立绘」（传奇牌那种飘在半空的画）</label>' +
+        '<div class="hint">开了之后会多导一张 soul.png，并写上 soul_pos —— 现在用的是主体那张图，等导出来你可以替换 assets/1x/soul.png。</div>';
+    }
     right.appendChild(sec('② 长什么样', b, 'art').box);
   }
 
   /* ③ 它做什么（预设式） */
   if (MK.type === 'Joker') {
     const b = document.createElement('div');
+    const pres = document.createElement('div'); pres.className = 'mkpresets';
+    pres.innerHTML = '<div class="mklabel">常用预设（点一下就是一整套效果）</div>' +
+      MK_PRESETS.map((p, i) => '<button class="mkpreset" data-preset="' + i + '">' + p[0] + '</button>').join('');
+    b.appendChild(pres);
     const list = document.createElement('div'); list.className = 'mkfxlist';
     MK.effects.forEach((e, i) => {
-      const row = document.createElement('div'); row.className = 'mkfx';
-      const when = '<select class="tbtn" data-fx="' + i + '" data-f="when">' +
+      const row = document.createElement('div'); row.className = 'mkfx mkfx-' + e.eff;
+      row.innerHTML = '<i class="mknum">' + (i + 1) + '</i>';
+      const when = '<span class="mkword">当</span><select class="tbtn" data-fx="' + i + '" data-f="when">' +
         MK_WHEN.map((w) => '<option value="' + w[0] + '"' + (e.when === w[0] ? ' selected' : '') + '>' + w[1] + '</option>').join('') + '</select>';
-      const cond = '<select class="tbtn" data-fx="' + i + '" data-f="cond">' +
+      const cond = '<span class="mkword">且</span><select class="tbtn" data-fx="' + i + '" data-f="cond">' +
         MK_COND.map((c) => '<option value="' + c[0] + '"' + (e.cond === c[0] ? ' selected' : '') + '>' + c[1] + '</option>').join('') + '</select>';
       const condVal = e.cond === 'suit' ? '<select class="tbtn" data-fx="' + i + '" data-f="condVal">' + MK_SUITS.map((s) => '<option value="' + s[0] + '"' + (e.condVal === s[0] ? ' selected' : '') + '>' + s[1] + '</option>').join('') + '</select>'
         : e.cond === 'rank' ? '<select class="tbtn" data-fx="' + i + '" data-f="condVal">' + MK_RANKS.map((r) => '<option value="' + r[0] + '"' + (e.condVal === r[0] ? ' selected' : '') + '>' + r[1] + '</option>').join('') + '</select>'
           : e.cond === 'hand' ? '<select class="tbtn" data-fx="' + i + '" data-f="condVal">' + D.hands.slice().sort((x, y) => (y.order || 0) - (x.order || 0)).map((h) => '<option value="' + h.name + '"' + (e.condVal === h.name ? ' selected' : '') + '>' + handCN(h) + '</option>').join('') + '</select>'
             : (e.cond === 'count' ? '<input class="tbtn" type="number" min="1" max="5" data-fx="' + i + '" data-f="condVal" value="' + (e.condVal || 5) + '">' : '');
-      const eff = '<select class="tbtn" data-fx="' + i + '" data-f="eff">' +
+      const eff = '<span class="mkword">则给</span><select class="tbtn" data-fx="' + i + '" data-f="eff">' +
         MK_EFF.map((x) => '<option value="' + x[0] + '"' + (e.eff === x[0] ? ' selected' : '') + '>' + x[1] + '</option>').join('') + '</select>';
       const val = '<input class="tbtn mkn" type="number" step="0.5" data-fx="' + i + '" data-f="val" value="' + e.val + '">';
-      row.innerHTML = when + cond + condVal + eff + val +
+      row.innerHTML = row.innerHTML + when + cond + condVal + eff + val +
         '<button class="btn warn mkx" data-del="' + i + '" title="删掉这一行">✕</button>';
       list.appendChild(row);
     });
@@ -7048,7 +7153,10 @@ function viewMaker (root) {
     right.appendChild(sec('③ 它做什么（选择式，不用写代码）', b, 'fx').box);
   } else {
     const b = document.createElement('div');
-    b.innerHTML = '<div class="mkrow"><label>使用效果<select class="tbtn" id="mkUse">' +
+    b.innerHTML = '<div class="mkrow"><label>属于哪一类<select class="tbtn" id="mkSet">' +
+      MK_SETS.map((x) => '<option value="' + x[0] + '"' + (MK.set === x[0] ? ' selected' : '') + '>' + x[1] + '</option>').join('') +
+      '</select></label></div>' +
+      '<div class="mkrow"><label>使用效果<select class="tbtn" id="mkUse">' +
       MK_USE.map((u) => '<option value="' + u[0] + '"' + (MK.useKind === u[0] ? ' selected' : '') + '>' + u[1] + '</option>').join('') +
       '</select></label><label>数值<input class="tbtn mkn" type="number" id="mkUseVal" value="' + MK.useVal + '"></label></div>' +
       '<div class="hint">这一版对非小丑牌类型只做「外观 + 文案 + 基础数值 + 一个使用效果」，更细的逻辑在下面的「高级」里自己补。</div>';
@@ -7117,6 +7225,7 @@ function viewMaker (root) {
       if (el.tagName === 'SELECT' || el.type === 'number') { mkRedraw(); return }
       /* 文本框：只刷新 Lua 与预览那一行 */
       mkRefreshLuaAndPreview();
+      const sum = document.querySelector('#mkSum'); if (sum) sum.innerHTML = mkSummaryHtml();
     });
   });
   qa('[data-mkflag]').forEach((el) => el.addEventListener('change', () => mkSet({ [el.dataset.mkflag]: el.checked })));
@@ -7162,6 +7271,8 @@ function viewMaker (root) {
   const sz = q('#mkSize');
   if (sz) sz.onchange = () => mkSet({});
   paintArtGrid();
+  { const so = q('#mkSoulOn'); if (so) so.onchange = () => mkSet({ soul: Object.assign({}, MK.soul, { on: so.checked }) }) }
+  { const st = q('#mkSet'); if (st) st.onchange = () => mkSet({ set: st.value }) }
   { const u = q('#mkUse'); if (u) u.onchange = () => mkSet({ useKind: u.value });
     const uv = q('#mkUseVal'); if (uv) uv.oninput = () => mkSet({ useVal: Number(uv.value) || 0 }) }
   /* 效果行 */
@@ -7179,6 +7290,11 @@ function viewMaker (root) {
       mkSet({ effects: list2 });
     });
   });
+  qa('[data-preset]').forEach((el) => el.addEventListener('click', () => {
+    const p = MK_PRESETS[Number(el.dataset.preset)];
+    mkSet({ effects: p[1].map((x) => Object.assign({}, x)), textZh: '', textEn: '' });
+    status('已套用预设「' + p[0] + '」—— 数值和条件都能再改。');
+  }));
   qa('[data-del]').forEach((el) => el.addEventListener('click', () => {
     const list2 = MK.effects.slice(); list2.splice(Number(el.dataset.del), 1);
     mkSet({ effects: list2 });
@@ -7235,6 +7351,7 @@ function viewMaker (root) {
     if (navigator.clipboard) navigator.clipboard.writeText(txt).then(() => status('Lua 已复制到剪贴板。', 'ok'), () => status('复制失败，请手动选中文本框复制。'))
     else status('这个浏览器不给剪贴板权限，请手动选中文本框复制。')
   };
+  { const sum = document.querySelector('#mkSum'); if (sum) sum.innerHTML = mkSummaryHtml() }
   mkRedraw = () => render();
 }
 
