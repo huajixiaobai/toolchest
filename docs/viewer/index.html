@@ -463,6 +463,14 @@ table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
   transition:transform .1s,border-color .1s,box-shadow .1s}
 .mkcell:hover{transform:scale(1.12);border-color:var(--accent2,#009dff);z-index:2}
 .mkcell.on{border-color:#4bc292;background:#12352b;box-shadow:0 0 0 2px #4bc29266,0 0 12px #4bc29255}
+/* 逐帧时长：一排小倍数输入框 */
+.mkweights{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:8px 0 4px;background:#18232d;border:1px solid var(--line2);border-radius:8px;padding:8px 10px}
+.mkweights>.mklabel{flex-basis:100%;margin:0 0 2px}
+.mkweight{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:#9fb0bf}
+.mkweight>span{min-width:14px;text-align:right;opacity:.75}
+.mkweight input{width:46px;min-height:28px;text-align:center;background:#101820;color:#e8eef5;border:1px solid var(--line2);border-radius:6px;padding:2px 4px;font:inherit}
+.mkweight input:focus{outline:none;border-color:var(--accent2,#009dff)}
+.mkweights .hint{flex-basis:100%;margin:0}
 /* ---- 表单 ---- */
 .mkrow{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:flex-end;margin-bottom:9px}
 .mkrow label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--fg3)}

@@ -5921,7 +5921,7 @@ function init () {
     mods: MODS, importModZip, importModFiles, importBatch, importZipBuffer, filesFromDrop, removeMod, sourceItems,
     modImport: window.__MODIMPORT__, categoryLabel,
     /* Mod 制作器：状态 / 生成的 Lua / manifest / 要打包的文件（脚本与控制台都能用） */
-    maker: { typeChip: (ty) => { mkSet({ type: ty }) }, state: MK, lua: () => mkLua(), manifest: () => mkManifest(), files: () => mkBuildFiles(), types: MK_TYPES, when: MK_WHEN, eff: MK_EFF, motion: MK_MOTION,
+    maker: { typeChip: (ty) => { mkSet({ type: ty }) }, state: MK, lua: () => mkLua(), manifest: () => mkManifest(), files: () => mkBuildFiles(), types: MK_TYPES, when: MK_WHEN, eff: MK_EFF, motion: MK_MOTION, delays: () => mkFrameDelays(MK.art), animArgs: () => mkAnimArgs(MK.art),
       presets: MK_PRESETS, cond: MK_COND, readImage: mkReadImage, sheet: (scale, which) => mkSheetCanvas(scale, which || "art"),
       atlasLabel: mkAtlasLabel },   /* 脚本/控制台都能用：读图（含动图拆帧）、取帧序列画布 */
     // --- 得分计算器（脚本化测试与自用都方便）---
@@ -6309,6 +6309,50 @@ function mkFrameDelay (src, fps) {
   if (src && src.frames && src.frames.length && src.delay) return src.delay;
   return Math.round(1000 / (fps || 10));
 }
+/** 每一帧各停多久（毫秒）：导入的按文件自己的逐帧延时，生成的按 fps 基准，再乘上逐帧倍数 */
+function mkFrameDelays (src) {
+  const list = mkSourceFrames(src);
+  const n = list ? list.length : 1;
+  if (n < 2) return [160];
+  const own = (src && src.delays && src.delays.length === n) ? src.delays : null;
+  const w = (src && src.weights && src.weights.length === n) ? src.weights : null;
+  const baseMs = own ? 0 : Math.round(1000 / ((src && src.gen && src.gen.fps) || 10));
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const d = own ? Math.max(10, own[i] || own[0]) : baseMs;
+    out.push(Math.max(10, Math.round(d * ((w && w[i]) || 1))));
+  }
+  return out;
+}
+/** 预览用：第 frameIndex 帧该停多久 */
+function mkFrameDelayAt (src, frameIndex, fallback) {
+  const list = mkSourceFrames(src);
+  const n = list ? list.length : 1;
+  if (n < 2) return fallback || 160;
+  const d = mkFrameDelays(src);
+  return d[frameIndex % n] || fallback || 160;
+}
+/** 导出 Lua 用的动图三件套：最小延时当基准 → fps；其余帧换算成整数倍数（只有非均匀时才写） */
+function mkAnimArgs (src) {
+  const list = mkSourceFrames(src);
+  const n = list ? list.length : 1;
+  if (n < 2) return null;
+  const d = mkFrameDelays(src);
+  const min = Math.min.apply(null, d);
+  const mult = d.map((x) => Math.max(1, Math.min(99, Math.round(x / min))));
+  const uniform = mult.every((x) => x === mult[0]);
+  return { n: n, fps: Math.max(1, Math.min(60, Math.round(1000 / min))), frame_durations: uniform ? null : mult, baseMs: min };
+}
+/** 逐帧时长那一行的说明：现在各帧是不是一样长、哪些更慢 */
+function mkWeightHintText () {
+  const d = mkFrameDelays(MK.art);
+  if (d.length < 2) return "";
+  const min = Math.min.apply(null, d);
+  const kinds = new Set(d).size;
+  if (kinds < 2) return "现在每帧一样长（" + d[0] + "ms）。想让某几帧慢一点，就把它的倍数调大。";
+  const slow = d.map((x, i) => [i + 1, x]).filter((p) => p[1] > min).map((p) => "第 " + p[0] + " 帧 " + (p[1] / min).toFixed(1) + "×");
+  return "现在有 " + kinds + " 种时长（基准 " + min + "ms）：" + slow.slice(0, 8).join("、") + (slow.length > 8 ? " …" : "") + "。导出会写进 sprite_args.frame_durations。";
+}
 /** 动效那一行下面的说明，跟着当前状态走 */
 function mkMotionHintText () {
   const g = MK.art.gen || {};
@@ -6550,7 +6594,7 @@ function mkGifFrames (bytes, max) {
   try {
     const g = gifDecodeFrames(bytes, max || 24);
     if (!g || !g.length) return null;
-    return { frames: mkFramesToCanvases(g), delay: g[0].delay, total: g.length };
+    return { frames: mkFramesToCanvases(g), delay: g[0].delay, delays: g.map((f) => f.delay), total: g.length };
   } catch (e) { return null }
 }
 /* ---------------------------------------------------------------- APNG 帧解析
@@ -6789,7 +6833,7 @@ async function mkApngFrames (bytes, max) {
   try {
     const g = await apngDecodeFrames(bytes, max || 24, mkInflateZlib);
     if (!g || !g.length) return null;
-    return { frames: mkFramesToCanvases(g), delay: g[0].delay, total: g.length };
+    return { frames: mkFramesToCanvases(g), delay: g[0].delay, delays: g.map((f) => f.delay), total: g.length };
   } catch (e) { return null }
 }
 async function mkReadImage (file) {
@@ -6799,14 +6843,14 @@ async function mkReadImage (file) {
     const isGif = /gif/i.test(file.type || '') || /\.gif$/i.test(file.name || '');
     if (isGif) {
       const g = mkGifFrames(new Uint8Array(await file.arrayBuffer()), 24);
-      if (g && g.frames.length > 1) { URL.revokeObjectURL(url); return { frames: g.frames, cover: g.frames[0], delay: g.delay, gif: true } }
+      if (g && g.frames.length > 1) { URL.revokeObjectURL(url); return { frames: g.frames, cover: g.frames[0], delay: g.delay, delays: g.delays, gif: true } }
       if (g && g.frames.length === 1) { URL.revokeObjectURL(url); return { frames: g.frames, cover: g.frames[0], delay: g.delay, gif: true, single: true } }
     }
     /* ② APNG：也自己解（acTL / fcTL / fdAT + 帧合成）；普通 PNG 会返回 null，照旧走静态那条路 */
     const isPng = /png/i.test(file.type || '') || /\.png$/i.test(file.name || '');
     if (isPng) {
       const a = await mkApngFrames(new Uint8Array(await file.arrayBuffer()), 24);
-      if (a && a.frames.length > 1) { URL.revokeObjectURL(url); return { frames: a.frames, cover: a.frames[0], delay: a.delay, apng: true } }
+      if (a && a.frames.length > 1) { URL.revokeObjectURL(url); return { frames: a.frames, cover: a.frames[0], delay: a.delay, delays: a.delays, apng: true } }
       if (a && a.frames.length === 1) { URL.revokeObjectURL(url); return { frames: a.frames, cover: a.frames[0], delay: a.delay, apng: true, single: true } }
     }
     /* ③ 动图 WebP：这个只能靠内核的 ImageDecoder（没有它就只能按第一帧用，界面上会说实话） */
@@ -6892,14 +6936,18 @@ function mkStartAnim (delay) {
     const sN = sList ? sList.length : 1;
     const total = Math.max(aN, sN);
     mkFrame = (mkFrame + 1) % (total * 60);      /* 前 60 步给立绘浮动留相位，同时保证帧序走满一圈 */
-    if (total < 2 && !soulAlive) return;
-    const old = box.querySelector("canvas");
-    const cv = mkPreviewCanvas();
-    cv.style.width = '142px'; cv.style.height = '190px';
-    if (old) box.replaceChild(cv, old); else box.appendChild(cv);
+    if (total >= 2 || soulAlive) {
+      const old = box.querySelector("canvas");
+      const cv = mkPreviewCanvas();
+      cv.style.width = '142px'; cv.style.height = '190px';
+      if (old) box.replaceChild(cv, old); else box.appendChild(cv);
+    }
+    /* 每一帧停多久：主体有帧就用主体的逐帧时长，否则看立绘，都没有就用传入的兜底延时 */
+    const tickSrc = aN > 1 ? MK.art : (sN > 1 ? MK.soul : null);
+    const wait = tickSrc ? mkFrameDelayAt(tickSrc, mkFrame, mkAnimDelay) : mkAnimDelay;
+    mkAnimTimer = setTimeout(tick, Math.max(30, Math.min(2000, wait)));
   };
-  mkAnimTimer = setInterval(tick, mkAnimDelay);
-  tick();
+  mkAnimTimer = setTimeout(tick, mkAnimDelay);
 }
 function mkCondSnippet (e) {
   const v = e.condVal;
@@ -7034,29 +7082,26 @@ function mkLua () {
   L.push('-- 直接放：%AppData%/Balatro/Mods/' + MK.modId + '/');
   L.push('');
   /* 图集：动图要写全三样（atlas_table / frames / fps），字段之间的逗号统一在这里拼，避免手写续行漏逗号 */
-  const atlasLines = (key, file, frames, delay) => {
+  const atlasLines = (key, file, anim) => {
     const rows = [['key', "'" + key + "'"], ['path', "'" + file + "'"], ['px', String(CARD_W)], ['py', String(CARD_H)]];
-    if (frames > 1) {
-      const fps = delay ? Math.max(1, Math.min(60, Math.round(1000 / delay))) : 10;
+    if (anim && anim.n > 1) {
       rows.push(['atlas_table', "'ANIMATION_ATLAS'", '动图必须写这一行：不写就算静态图集，帧数会被忽略']);
-      rows.push(['frames', String(frames), '动图：横向帧序列']);
-      rows.push(['fps', String(fps), delay ? '每帧 ' + delay + 'ms' : '']);
+      rows.push(['frames', String(anim.n), '动图：横向帧序列']);
+      rows.push(['fps', String(anim.fps), '基准 ' + anim.baseMs + 'ms/帧']);
+      /* 各帧快慢不一样时：帧停留 = 倍数 / fps（见 overrides.lua 的 frame_duration / fps） */
+      if (anim.frame_durations) rows.push(['sprite_args', '{ frame_durations = { ' + anim.frame_durations.join(', ') + ' } }', '逐帧时长倍数（1 = 基准），缩放要这样写才和 fps 对得上']);
     }
     return rows.map((r, i) => '    ' + r[0] + ' = ' + r[1] + (i < rows.length - 1 ? ',' : '') + (r[2] ? '   -- ' + r[2] : ''));
   };
-  const aListLua = mkSourceFrames(MK.art);
-  const aNLua = aListLua ? aListLua.length : 1;
-  const aDelayLua = aListLua ? mkFrameDelay(MK.art, MK.art.gen && MK.art.gen.fps) : 0;
+  const aAnim = mkAnimArgs(MK.art);
   L.push('SMODS.Atlas {');
-  for (const line of atlasLines('sheet', 'sheet.png', aNLua, aDelayLua)) L.push(line);
+  for (const line of atlasLines('sheet', 'sheet.png', aAnim)) L.push(line);
   L.push('}');
   if (MK.type === 'Joker' && MK.soul.on) {
     L.push('');
     L.push('SMODS.Atlas {');
-    const sListLua = mkSourceFrames(MK.soul);
-    const sNLua = sListLua ? sListLua.length : 1;
-    const sDelayLua = sListLua ? mkFrameDelay(MK.soul, MK.soul.gen && MK.soul.gen.fps) : 0;
-    for (const line of atlasLines('soul', 'soul.png', sNLua, sDelayLua)) L.push(line);
+    const sAnim = mkAnimArgs(MK.soul);
+    for (const line of atlasLines('soul', 'soul.png', sAnim)) L.push(line);
     L.push('}');
   }
   L.push('');
@@ -7421,6 +7466,16 @@ function viewMaker (root) {
     genRow.appendChild(field('帧率（原版默认 10）', '<select class="tbtn" id="mkMotionFps">' + [4, 6, 8, 10, 12, 15, 20, 25].map((k) => '<option value="' + k + '"' + (gen.fps === k ? ' selected' : '') + '>' + k + ' fps</option>').join('') + '</select>'));
     genRow.appendChild(field('幅度', '<input type="range" id="mkMotionAmp" min="1" max="8" value="' + gen.amp + '">'));
     src.appendChild(genRow);
+    /* 逐帧时长：导入的动图如果各帧快慢不一样，这里能一眼看出哪几帧更慢，也能自己调 */
+    const frNow = mkSourceFrames(MK.art);
+    if (frNow && frNow.length > 1 && frNow.length <= 24) {
+      const wRow = document.createElement('div'); wRow.className = 'mkweights';
+      const wNow = MK.art.weights || [];
+      wRow.innerHTML = '<span class="mklabel">每帧时长（倍数，1 = 一个基准时长）</span>' + frNow.map((_x, i) =>
+        '<label class="mkweight"><span>' + (i + 1) + '</span><input type="number" min="1" max="99" data-frame="' + i + '" value="' + (wNow[i] || 1) + '"></label>').join('') +
+        '<div class="hint" id="mkWeightHint">' + mkWeightHintText() + '</div>';
+      src.appendChild(wRow);
+    }
     src.insertAdjacentHTML('beforeend', '<div class="hint">' + MK_IMG_TIP + '</div><div class="hint" id="mkMotionHint">' + mkMotionHintText() + '</div><div class="hint" id="mkArtHint"></div>');
     const grid = document.createElement('div'); grid.className = 'mkartgrid'; grid.id = 'mkArtGrid';
     src.appendChild(grid);
@@ -7671,7 +7726,7 @@ function viewMaker (root) {
     const info = await mkReadImage(f);
     if (!info) { status('这张图读不了（格式不支持）'); return }
     const multi = info.frames.length > 1;
-    mkSet({ art: Object.assign({}, MK.art, { upload: info.frames[0] || info.cover, frames: multi ? info.frames : null, animated: multi, delay: info.delay || 0, uploadName: f.name }) });
+    mkSet({ art: Object.assign({}, MK.art, { upload: info.frames[0] || info.cover, frames: multi ? info.frames : null, animated: multi, delay: info.delay || 0, delays: (multi && info.delays) ? info.delays : null, weights: null, uploadName: f.name }) });
     if (multi) {
       status('已使用「' + f.name + '」：动图拆出 ' + info.frames.length + ' 帧（每帧 ' + (info.delay || '?') + 'ms），预览按这个节奏逐帧播放，导出会铺成横向帧序列、Lua 里写 frames = ' + info.frames.length + '。', 'ok');
       mkStartAnim(info.delay);
@@ -7695,6 +7750,17 @@ function viewMaker (root) {
       status('已关掉动效预设：有导入的帧序列就用导入的，没有就是静态。');
     }
   };
+  /* 逐帧时长：改任意一格的倍数 → 存下来 → 预览按新时长重排 */
+  qa('[data-frame]').forEach((el) => el.addEventListener('change', () => {
+    const listNow = mkSourceFrames(MK.art);
+    const cnt = listNow ? listNow.length : 0;
+    if (cnt < 2) return;
+    const w = new Array(cnt).fill(1);
+    qa('[data-frame]').forEach((x) => { w[Number(x.dataset.frame)] = Math.max(1, Math.min(99, Number(x.value) || 1)) });
+    mkSet({ art: Object.assign({}, MK.art, { weights: w }) });
+    mkStartAnim(0);
+    status('每帧时长已更新：' + w.join(' / ') + '（倍数）—— 导出会写成 sprite_args.frame_durations。');
+  }));
   const mo = q('#mkMotion'); if (mo) mo.onchange = () => mkSetGen('art', { kind: mo.value });
   const mn = q('#mkMotionN'); if (mn) mn.onchange = () => mkSetGen('art', { n: Number(mn.value) });
   const mf = q('#mkMotionFps'); if (mf) mf.onchange = () => mkSetGen('art', { fps: Number(mf.value) });
@@ -7724,7 +7790,7 @@ function viewMaker (root) {
     const info = await mkReadImage(f);
     if (!info) { status('这张立绘图读不了'); return }
     const multi = info.frames.length > 1;
-    mkSet({ soul: Object.assign({}, MK.soul, { on: true, upload: info.frames[0] || info.cover, frames: multi ? info.frames : null, delay: info.delay || 0, uploadName: f.name }) });
+    mkSet({ soul: Object.assign({}, MK.soul, { on: true, upload: info.frames[0] || info.cover, frames: multi ? info.frames : null, delay: info.delay || 0, delays: (multi && info.delays) ? info.delays : null, weights: null, uploadName: f.name }) });
     status('立绘已换成「' + f.name + '」' + (multi ? '（动图 ' + info.frames.length + ' 帧，每帧 ' + (info.delay || '?') + 'ms，预览里会飘着动）' : '') + '，预览里现在就能看到。', 'ok');
     mkStartAnim(multi ? info.delay : 0);
   };

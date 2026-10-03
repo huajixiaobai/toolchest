@@ -23,7 +23,8 @@ for (let f = 0; f < N; f++) {
   }
   bufs.push(px.buffer.slice(px.byteOffset, px.byteOffset + px.byteLength))
 }
-const dels = [60, 70, 80, 90, 100]
+/* 延时故意不均匀：基准 60ms，倍数应当是 1 / 1 / 2 / 1 / 3 —— 用来验证逐帧时长（sprite_args.frame_durations） */
+const dels = [60, 60, 120, 60, 180]
 const png = UPNG.encode(bufs, W, H, 0, dels)     /* 无损 RGBA */
 const out = path.join(__dirname, 'gifdump', 'apng-sample.png')
 fs.mkdirSync(path.dirname(out), { recursive: true })

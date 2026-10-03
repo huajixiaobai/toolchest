@@ -449,6 +449,28 @@ node bundle.js
 
 ## 九、更新记录
 
+**第四十八轮（逐帧时长：各帧快慢不一样也能表达出来；十种类型过一遍结构自检）**
+- 先把游戏那边的算法再核一遍（`.work/third-party/smods/smods-26.829.0/src/overrides.lua`）：
+  ```lua
+  local frame_duration = (self.sprite_args.frame_durations or {})[self.current_animation.current+1] or self.sprite_args.frame_duration or 1
+  local fps = self.sprite_args.fps or self.atlas.fps or G.ANIMATION_FPS
+  self.current_animation.frame_duration = frame_duration / fps
+  ```
+  也就是**每帧实际停留 = 倍数 / fps** 秒。所以「第 3 帧要慢一倍」在游戏里不是写毫秒，而是**把最小延时当基准 → `fps = 1000/基准` → 其余帧写整数倍数**。
+- ① 导出：`mkAnimArgs(src)` 算 `{n, fps, frame_durations}`，只有**非均匀**时才写 `sprite_args = { frame_durations = { … } }`；均匀的话一个字段都不多写（免得凭空引入差异）。
+- ② 界面：帧序列多于 1 帧时，动效那一行下面出现一排**倍数输入框**（`1` 起，最多 99），下面一行直接说明「现在有几种时长、哪几帧更慢」；改任意一格立刻重排预览。预览计时器也从**固定间隔的 `setInterval`** 改成**按当前帧时长自排的 `setTimeout` 链**，所以快慢不一样的帧在预览里就是快慢不一样。
+- ③ 十种类型的结构性自检（新场景 `mkTypes`）：每种类型都用「呼吸 6 帧 12fps」生成一份 Lua 与帧条，断言：Atlas 块每行逗号都对（最后一行不能有）、`ANIMATION_ATLAS` 至少 1 个、`frames = 6`、`fps = 12`、1x 帧条宽 **426** = 71×6、2x **852** = 142×6、且**不能再出现旧的 `soul_pos`**；Joker 那轮把立绘也开上并给它同样的动效，于是要求 **2 个** `ANIMATION_ATLAS` 且必须有 `soul_atlas = 'soul'`。
+- 实测：
+  | 场景 | 结果 |
+  | --- | --- |
+  | `mkTypes`（10 种类型） | `allOk: true`、`jokerOk: true`、`bad: []`、报错 0；十种全部 1x=426 / 2x=852、语法全过、`soulPos` 全为 false |
+  | `mkMotion` | 倍数输入框 8 个；均匀时 `noFdWhenUniform: true`；把第 3 帧改成 3× 后 Lua 出现 `frame_durations = { 1, 1, 3, 1, 1, 1, 1, 1 }`，提示行写「现在有 2 种时长（基准 100ms）：第 3 帧 3.0×」 |
+  | `mkApng`（延时 60/60/120/60/180） | `fps = 17`（基准 60ms）+ `frame_durations = { 1, 1, 2, 1, 3 }`，两条都断言到了 |
+  | `mkGif`（原版那张 24 帧、每帧 40ms，均匀） | `noFdWhenUniform: true`、`frameDurations: false` —— 均匀时不写多余字段 |
+  | `mkGifSoul` / `modMaker` | 全 ✅（见回归） |
+- 这一轮又是自己踩的坑：`mkTypes` 第一次跑 `jokerOk: false` —— **是我的断言写错了**（只给了主体动效，立绘还是静态的，`ANIMATION_ATLAS` 当然是 1 个而不是 2 个）。给立绘也加上动效后 `jokerOk: true`。记一笔：断言写错和代码写错看起来一样，都得先怀疑自己。
+- 仍然**没验证**的：游戏里实际播放效果。这台机器跑不了 Balatro，逐帧时长这一套是照着 Steamodded 源码的算式写的，不是看游戏跑出来的。
+
 **第四十七轮（动效换思路：按「游戏里的做法」来；顺带修掉立绘在游戏里指错图集）**
 - 用户建议：别在「能不能拆某个动图格式」上钻牛角尖，想想**游戏里的动态效果**是怎么做的。翻本机装的 Steamodded 源码（`.work/third-party/smods/smods-26.829.0`）后确认：
   - 游戏里的「动」就是一件事：**图集里横向排 N 帧 + fps**。`src/overrides.lua` 里 `local fps = self.sprite_args.fps or self.atlas.fps or G.ANIMATION_FPS`，`frames` 取不到就退回 `atlas.frames`；`AnimatedSprite` 由 `SMODS.get_atlas_sprite_class()` 按 `atlas_table` 选出来。

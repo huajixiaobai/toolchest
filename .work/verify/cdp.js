@@ -3125,7 +3125,24 @@ const SCENARIOS = {
     r.sheetWidth=png?(png.data[16]*16777216+png.data[17]*65536+png.data[18]*256+png.data[19]):0;
     r.expectWidth=142*Math.max(1,r.frames);
     const lua=B.maker.lua();
+    r.animTable=lua.split("atlas_table = 'ANIMATION_ATLAS'").length-1;
+    r.noFdWhenUniform=lua.indexOf('sprite_args')<0;
+    r.atlasSyntaxOk2=(function(){
+      const NL=String.fromCharCode(10);
+      const start=lua.indexOf('SMODS.Atlas {');
+      if(start<0) return false;
+      const body=lua.slice(start+13); const end=body.indexOf(NL+'}');
+      if(end<0) return false;
+      const lines=body.slice(0,end).split(NL).map(function(t){ const c=t.indexOf('--'); return (c>=0?t.slice(0,c):t).trim() }).filter(function(t){return t.length>0});
+      if(lines.length<5) return false;
+      for(let i=0;i<lines.length;i++){ const hasComma=lines[i].charAt(lines[i].length-1)===","; if(i===lines.length-1){ if(hasComma) return false } else if(!hasComma) return false }
+      return true })();
     r.framesInLua=lua.indexOf("frames = "+r.frames)>=0;
+    /* 这张 APNG 的延时是 60/60/120/60/180 → 基准 60ms → fps = 17，倍数 1,1,2,1,3 */
+    r.fpsFromDelays=lua.indexOf("fps = 17")>=0;
+    r.frameDurations=lua.indexOf("frame_durations = { 1, 1, 2, 1, 3 }")>=0;
+    /* 逐帧延时的绝对值（毫秒）：直接断言时间模型，不靠计时器间接推断 */
+    r.delays=B.maker.delays?B.maker.delays().join(','):'';
     /* 动图三件套必须齐：atlas_table / frames / fps（Steamodded 里 Atlas 默认是 ASSET_ATLAS 静态图集） */
     r.animTable=lua.split("atlas_table = 'ANIMATION_ATLAS'").length-1;
     r.fpsInLua=lua.indexOf("fps = ")>=0;
@@ -3186,6 +3203,45 @@ const SCENARIOS = {
     r.fpsCount=lua.split("fps = ").length-1;
     r.errors=window.__V.errors.length;
     return r })()`,
+  /* 十种 mod 类型的结构性自检：每种都用「呼吸 6 帧 12fps」生成一份 Lua 与帧条，逐项断言 */
+  mkTypes: `(async()=>{
+    const B=window.__BALATRO__; const S=B.state; const r={}; await __V.wait(1400);
+    const NL=String.fromCharCode(10);
+    const checkAtlas=(lua)=>{
+      const start=lua.indexOf('SMODS.Atlas {');
+      if(start<0) return { ok:false, why:'没有 Atlas 块' };
+      const body=lua.slice(start+13); const end=body.indexOf(NL+'}');
+      if(end<0) return { ok:false, why:'Atlas 块没闭合' };
+      const lines=body.slice(0,end).split(NL).map(function(t){ const c=t.indexOf('--'); return (c>=0?t.slice(0,c):t).trim() }).filter(function(t){return t.length>0});
+      for(let i=0;i<lines.length;i++){ const hasComma=lines[i].charAt(lines[i].length-1)===",";
+        if(i===lines.length-1){ if(hasComma) return { ok:false, why:'最后一行多了逗号: '+lines[i] } } else if(!hasComma) return { ok:false, why:'少逗号: '+lines[i] } }
+      return { ok:true } };
+    S.tab='maker'; B.render(); await __V.wait(900);
+    r.types=[];
+    for (const ty of ['Joker','Consumable','Voucher','Booster','Back','Enhancement','Edition','Seal','Tag','Blind']) {
+      B.maker.typeChip(ty); await __V.wait(220);
+      B.maker.state.art.gen={kind:'breathe', n:6, fps:12, amp:4};
+      B.maker.state.art.weights=null;
+      /* Joker 那一轮把立绘也打开并给同样的动效：这样一个 mod 里两张图集都该是 ANIMATION_ATLAS */
+      if(ty==='Joker'){ B.maker.state.soul.on=true; B.maker.state.soul.gen={kind:'float', n:6, fps:12, amp:3} }
+      B.render(); await __V.wait(420);
+      const lua=B.maker.lua();
+      const at=checkAtlas(lua);
+      const files=await B.maker.files();
+      const rd=(nm)=>{ const f=files.filter(function(x){return x.name===nm})[0]; return f?(f.data[16]*16777216+f.data[17]*65536+f.data[18]*256+f.data[19]):0 };
+      const w1=rd('assets/1x/sheet.png'), w2=rd('assets/2x/sheet.png');
+      const anim=lua.split("atlas_table = 'ANIMATION_ATLAS'").length-1;
+      const soulAtlas=lua.indexOf("soul_atlas = 'soul'")>=0;
+      const soulPos=lua.indexOf('soul_pos')>=0;
+      r.types.push({ type:ty, syntax:at.ok, why:at.why||'', anim:anim,
+        frames:lua.indexOf('frames = 6')>=0, fps:lua.indexOf('fps = 12')>=0,
+        w1:w1, w2:w2, w1ok:w1===426, w2ok:w2===852, soulAtlas:soulAtlas, soulPos:soulPos });
+    }
+    r.allOk=r.types.every(function(t){ return t.syntax && t.anim>=1 && t.frames && t.fps && t.w1ok && t.w2ok && !t.soulPos });
+    r.jokerOk=(function(){ const j=r.types.filter(function(t){return t.type==='Joker'})[0]; return !!j && j.soulAtlas && j.anim===2 })();
+    r.bad=r.types.filter(function(t){ return !(t.syntax && t.anim>=1 && t.frames && t.fps && t.w1ok && t.w2ok && !t.soulPos) }).map(function(t){return t.type+(t.why?('('+t.why+')'):'')});
+    r.errors=window.__V.errors.length;
+    return r })()`,
   /* 动效预设：完全不上传任何动图，只靠「按预设现场生成帧」让主体动起来。
      走的就是访客点控件那条路（真的给 select 派发 change 事件），验证：预览在动、导出是帧条、Lua 三件套齐 */
   mkMotion: `(async()=>{
@@ -3199,6 +3255,15 @@ const SCENARIOS = {
     const mn=q('#mkMotionN'); mn.value='8'; fire(mn,'change'); await __V.wait(400);
     const mf=q('#mkMotionFps'); mf.value='10'; fire(mf,'change'); await __V.wait(500);
     r.gen=B.maker.state.art.gen? Object.assign({},B.maker.state.art.gen) : null;
+    /* 逐帧时长：预设生成的帧默认一样长 → 不该写 sprite_args；把第 3 帧调成 3 倍后应当写出来 */
+    r.weightInputs=q('[data-frame]')?document.querySelectorAll('[data-frame]').length:0;
+    const lua0=B.maker.lua(); r.noFdWhenUniform=lua0.indexOf('sprite_args')<0;
+    const w3=q('[data-frame="2"]');
+    if (w3) { w3.value='3'; w3.dispatchEvent(new Event('change',{bubbles:true})); await __V.wait(500) }
+    const luaW=B.maker.lua();
+    r.fdAfterEdit=luaW.indexOf('frame_durations = { 1, 1, 3, 1, 1, 1, 1, 1 }')>=0;
+    r.delaysAfterEdit=B.maker.delays?B.maker.delays().join(','):'';
+    r.weightHint=(q('#mkWeightHint')||{}).textContent||'';
     const hash=()=>{ const cv=q('.mkpvbox canvas'); if(!cv) return null; const d=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data; let h=0; for(let i=0;i<d.length;i+=97) h=(h*31+d[i])>>>0; return h };
     const h1=hash(); await __V.wait(300); const h2=hash(); await __V.wait(300); const h3=hash();
     r.previewChanges=(h1!==h2)||(h2!==h3); r.hashes=[h1,h2,h3];
