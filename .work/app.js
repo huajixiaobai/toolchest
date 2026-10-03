@@ -5921,7 +5921,7 @@ function init () {
     mods: MODS, importModZip, importModFiles, importBatch, importZipBuffer, filesFromDrop, removeMod, sourceItems,
     modImport: window.__MODIMPORT__, categoryLabel,
     /* Mod 制作器：状态 / 生成的 Lua / manifest / 要打包的文件（脚本与控制台都能用） */
-    maker: { typeChip: (ty) => { mkSet({ type: ty }) }, state: MK, lua: () => mkLua(), manifest: () => mkManifest(), files: () => mkBuildFiles(), types: MK_TYPES, when: MK_WHEN, eff: MK_EFF,
+    maker: { typeChip: (ty) => { mkSet({ type: ty }) }, state: MK, lua: () => mkLua(), manifest: () => mkManifest(), files: () => mkBuildFiles(), types: MK_TYPES, when: MK_WHEN, eff: MK_EFF, motion: MK_MOTION,
       presets: MK_PRESETS, cond: MK_COND, readImage: mkReadImage, sheet: (scale, which) => mkSheetCanvas(scale, which || "art"),
       atlasLabel: mkAtlasLabel },   /* 脚本/控制台都能用：读图（含动图拆帧）、取帧序列画布 */
     // --- 得分计算器（脚本化测试与自用都方便）---
@@ -6250,14 +6250,83 @@ function mkDrawSource (ctx, scale, dx, dy, src) {
   try { ctx.drawImage(im2, sx, sy, sw, sh, dx, dy, w, h) } catch (e) { /* 图还没解码完 */ }
 }
 /** 主体 / 立绘的一帧或整套帧序列（动图时横向铺开，正是原版图集的排法） */
+/* ---------------------------------------------------------------- 动效（按游戏里的做法）
+ * 游戏里的"动"就一件事：图集里横向排 N 帧 + fps（SMODS.Atlas 的 atlas_table = ANIMATION_ATLAS）。
+ * 所以这里不依赖"能拆动图文件"：给了帧序列就用帧序列（GIF / APNG / 多选图片），
+ * 没给就按预设把**一张静图现场渲染成帧序列**。帧是惰性生成的，改图集格子/改参数都不会留下过期缓存。 */
+const MK_MOTION = [
+  ['', '不用预设（有导入的帧就用导入的）'],
+  ['float', '上下浮动（像原版的盲注芯片那样来回飘）'],
+  ['breathe', '呼吸（整体缓慢放大缩小）'],
+  ['sway', '轻微摇摆（左右小幅旋转）'],
+  ['blink', '闪烁（明暗起伏）'],
+  ['shake', '抖动（小幅左右上下抖）'],
+  ['beat', '心跳（快涨慢落）'],
+  ['spin', '缓慢旋转（整圈）'],
+];
+const mkMotionName = (k) => { const m = MK_MOTION.filter((x) => x[0] === k)[0]; return m ? m[1] : (k || "不生成") };
+/** 按预设画第 i 帧（整张卡面大小）：静图 + 一点位移/缩放/旋转/透明度就是游戏里那种循环动效 */
+function mkGenFrame (src, kind, i, n, amp) {
+  const cv = newCanvas(CARD_W, CARD_H);
+  const c = cv.getContext("2d");
+  c.imageSmoothingEnabled = false;
+  const t = i / Math.max(1, n);
+  const rad = Math.PI * 2 * t;
+  let dx = 0; let dy = 0; let sc = 1; let rot = 0; let al = 1;
+  if (kind === 'float') dy = Math.sin(rad) * amp;
+  else if (kind === 'breathe') sc = 1 + Math.sin(rad) * amp / 100;
+  else if (kind === 'sway') rot = Math.sin(rad) * amp * Math.PI / 180 * 3;
+  else if (kind === 'blink') al = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(rad));
+  else if (kind === 'shake') { dx = Math.sin(rad * 3) * amp * 0.6; dy = Math.cos(rad * 2) * amp * 0.4 }
+  else if (kind === 'beat') { const p = Math.pow(Math.max(0, Math.sin(rad)), 3); sc = 1 + p * amp / 100 }
+  else if (kind === 'spin') rot = rad;
+  c.save();
+  c.globalAlpha = al;
+  c.translate(CARD_W / 2 + dx, CARD_H / 2 + dy);
+  c.rotate(rot);
+  c.scale(sc, sc);
+  c.translate(-CARD_W / 2, -CARD_H / 2);
+  mkDrawSource(c, 1, 0, 0, src);   /* 静图（上传的图或图集那一格）画进卡面 */
+  c.restore();
+  return cv;
+}
+/** 这个图源现在该用哪些帧：导入的帧序列 > 预设现场生成 > null（静态） */
+function mkSourceFrames (src) {
+  if (!src) return null;
+  if (src.frames && src.frames.length) return src.frames;
+  const g = src.gen;
+  if (!g || !g.kind || !(g.n > 1)) return null;
+  const key = [g.kind, g.n, g.amp, src.atlas, src.pos ? src.pos.x + "," + src.pos.y : "", src.uploadName || ""].join("|");
+  if (src.__genCache && src.__genCache.key === key) return src.__genCache.list;
+  const base = { atlas: src.atlas, pos: src.pos, upload: src.upload || null };
+  const list = [];
+  for (let i = 0; i < g.n; i++) list.push(mkGenFrame(base, g.kind, i, g.n, g.amp));
+  src.__genCache = { key: key, list: list };
+  return list;
+}
+/** 帧延时：导入的按文件自己的，预设的按 fps（原版默认 10） */
+function mkFrameDelay (src, fps) {
+  if (src && src.frames && src.frames.length && src.delay) return src.delay;
+  return Math.round(1000 / (fps || 10));
+}
+/** 动效那一行下面的说明，跟着当前状态走 */
+function mkMotionHintText () {
+  const g = MK.art.gen || {};
+  if (!g.kind || !(g.n > 1)) {
+    const fl = mkSourceFrames(MK.art);
+    return fl ? ("主体现在用导入的 " + fl.length + " 帧（每帧 " + (MK.art.delay || "?") + "ms）。") : "主体现在是静态的：可以导入动图、多选几张图当帧，或选一个动效预设让它自己动起来。";
+  }
+  return "主体按「" + mkMotionName(g.kind) + "」生成 " + g.n + " 帧 · " + g.fps + "fps · 幅度 " + g.amp + "：预览在动，导出会铺成横向帧序列（Lua 写 ANIMATION_ATLAS + frames + fps）。";
+}
 function mkSheetCanvas (scale, which) {
   const src = which === 'soul' ? MK.soul : MK.art;
-  const frames = (src.frames && src.frames.length) ? src.frames.length : 1;   /* 这里要的是帧数，不是帧数组 */
+  const list = mkSourceFrames(src);
+  const frames = list ? list.length : 1;   /* 帧数：导入的帧序列，或按预设现场生成的帧。这里要的是帧数，不是帧数组 */
   const cv = newCanvas(Math.round(CARD_W * scale * frames), Math.round(CARD_H * scale));
   const ctx = cv.getContext('2d');
   ctx.imageSmoothingEnabled = false;
   for (let i = 0; i < frames; i++) {
-    const one = src.frames && src.frames.length ? src.frames[i] : null;
+    const one = list ? list[i] : null;
     if (one) mkDrawSource(ctx, scale, i * CARD_W * scale, 0, { atlas: src.atlas, pos: src.pos, upload: one });
     else mkDrawSource(ctx, scale, i * CARD_W * scale, 0, src);
   }
@@ -6776,24 +6845,26 @@ function mkSoulCanvas (scale) {
 }
 /** 预览：有上传（或动图）时直接画那张图/那一帧；否则用原版图集那一格 */
 function mkPreviewCanvas () {
-  if (MK.art.upload || (MK.art.frames && MK.art.frames.length)) {
-    const i = MK.art.frames && MK.art.frames.length ? (mkFrame % MK.art.frames.length) : 0;
-    const f = (MK.art.frames && MK.art.frames.length) ? MK.art.frames[i] : MK.art.upload;
-    const cv = newCanvas(CARD_W * 2, CARD_H * 2);
-    mkDrawSource(cv.getContext('2d'), 2, 0, 0, { atlas: MK.art.atlas, pos: MK.art.pos, upload: f });
-    return cv;
-  }
-  const spec = { standalone: { atlas: MK.art.atlas, pos: MK.art.pos } };
+  /* 主体：有帧序列（导入的或按预设生成的）就画当前那一帧，否则用原版图集那一格合成整张卡 */
+  const artFrames = mkSourceFrames(MK.art);
+  const artSrc = artFrames ? artFrames[mkFrame % artFrames.length] : (MK.art.upload || null);
   let base = null;
-  try { base = compose(spec, 2) } catch (e) { base = mkArtCanvas(2) }
+  if (artSrc) {
+    base = newCanvas(CARD_W * 2, CARD_H * 2);
+    mkDrawSource(base.getContext('2d'), 2, 0, 0, { atlas: MK.art.atlas, pos: MK.art.pos, upload: artSrc });
+  } else {
+    const spec = { standalone: { atlas: MK.art.atlas, pos: MK.art.pos } };
+    try { base = compose(spec, 2) } catch (e) { base = mkArtCanvas(2) }
+  }
+  /* 悬浮立绘：游戏里它是独立的一层前景精灵、一直在飘（soul_atlas / floating_sprite），
+     所以不管主体是合成的还是自己上传的，都该叠上去。 */
   if (MK.type === 'Joker' && MK.soul.on) {
+    const soulFrames = mkSourceFrames(MK.soul);
+    const soulSrc = soulFrames ? soulFrames[mkFrame % soulFrames.length] : (MK.soul.upload || null);
     const cv = newCanvas(CARD_W * 2, CARD_H * 2);
     const ctx = cv.getContext('2d');
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(base, 0, 0);
-    const soulSrc = (MK.soul.frames && MK.soul.frames.length)
-      ? MK.soul.frames[mkFrame % MK.soul.frames.length]
-      : MK.soul.upload;
     const bob = Math.sin((mkFrame % 60) / 60 * Math.PI * 2) * 4;
     const w = CARD_W * 2 * 0.86, h = CARD_H * 2 * 0.86;
     const layer = newCanvas(Math.round(w), Math.round(h));
@@ -6814,9 +6885,11 @@ function mkStartAnim (delay) {
   const tick = () => {
     const box = document.querySelector('.mkpvbox');
     if (!box || !box.isConnected) { clearInterval(mkAnimTimer); mkAnimTimer = null; return }
-    const aN = (MK.art.frames && MK.art.frames.length) || 1;
-    const soulAlive = MK.type === 'Joker' && MK.soul.on && !!(MK.soul.upload || (MK.soul.frames && MK.soul.frames.length));
-    const sN = soulAlive && MK.soul.frames ? MK.soul.frames.length : 1;
+    const aList = mkSourceFrames(MK.art);
+    const aN = aList ? aList.length : 1;
+    const soulAlive = MK.type === 'Joker' && MK.soul.on;   /* 立绘开着就一直重画：它本身就在飘 */
+    const sList = soulAlive ? mkSourceFrames(MK.soul) : null;
+    const sN = sList ? sList.length : 1;
     const total = Math.max(aN, sN);
     mkFrame = (mkFrame + 1) % (total * 60);      /* 前 60 步给立绘浮动留相位，同时保证帧序走满一圈 */
     if (total < 2 && !soulAlive) return;
@@ -6971,13 +7044,19 @@ function mkLua () {
     }
     return rows.map((r, i) => '    ' + r[0] + ' = ' + r[1] + (i < rows.length - 1 ? ',' : '') + (r[2] ? '   -- ' + r[2] : ''));
   };
+  const aListLua = mkSourceFrames(MK.art);
+  const aNLua = aListLua ? aListLua.length : 1;
+  const aDelayLua = aListLua ? mkFrameDelay(MK.art, MK.art.gen && MK.art.gen.fps) : 0;
   L.push('SMODS.Atlas {');
-  for (const line of atlasLines('sheet', 'sheet.png', (MK.art.frames && MK.art.frames.length) || 1, MK.art.delay)) L.push(line);
+  for (const line of atlasLines('sheet', 'sheet.png', aNLua, aDelayLua)) L.push(line);
   L.push('}');
   if (MK.type === 'Joker' && MK.soul.on) {
     L.push('');
     L.push('SMODS.Atlas {');
-    for (const line of atlasLines('soul', 'soul.png', (MK.soul.frames && MK.soul.frames.length) || 1, MK.soul.delay)) L.push(line);
+    const sListLua = mkSourceFrames(MK.soul);
+    const sNLua = sListLua ? sListLua.length : 1;
+    const sDelayLua = sListLua ? mkFrameDelay(MK.soul, MK.soul.gen && MK.soul.gen.fps) : 0;
+    for (const line of atlasLines('soul', 'soul.png', sNLua, sDelayLua)) L.push(line);
     L.push('}');
   }
   L.push('');
@@ -7013,7 +7092,10 @@ function mkLua () {
     L.push('    perishable_compat = ' + (MK.perishable ? 'true' : 'false') + ',');
     L.push('    blueprint_compat = ' + (MK.blueprint ? 'true' : 'false') + ',');
     if (MK.soul.on) {
-      L.push("    soul_pos = { x = 0, y = 0 },");
+      /* 立绘是单独一张 soul.png，所以要写 soul_atlas：游戏就是按这个字段去找那层前景精灵的
+         （overrides.lua: atlas_key = lc_soul_atlas or soul_atlas or lc_atlas or atlas or set）。
+         只写 soul_pos 的话它会去**主体的图集**里找，等于把牌面自己飘一遍，立绘那张图用不上。 */
+      L.push("    soul_atlas = 'soul',");
     }
     L.push('    calculate_joker = function(self, context)');
     MK.effects.forEach((e, i) => {
@@ -7173,7 +7255,8 @@ async function mkBuildFiles () {
   files.push({ name: 'manifest.json', data: TE.encode(mkManifest()) });
   files.push({ name: MK.modId + '.lua', data: TE.encode(mkLua()) });
   /* 尺寸自检：动图是横向帧条，宽度必须正好是 帧数×格宽 —— 算错的话后面 toBlob 会直接挂住 */
-  const nArt = (MK.art.frames && MK.art.frames.length) || 1;
+  const artList0 = mkSourceFrames(MK.art);
+  const nArt = artList0 ? artList0.length : 1;
   const s1 = mkSheetCanvas(1, 'art'); const s2 = mkSheetCanvas(2, 'art');
   if (s1.width !== CARD_W * nArt || s2.width !== CARD_W * 2 * nArt) {
     throw new Error('帧条宽度不对（1x ' + s1.width + '、2x ' + s2.width + '，按 ' + nArt + ' 帧应该是 ' + (CARD_W * nArt) + ' 和 ' + (CARD_W * 2 * nArt) + '）');
@@ -7183,7 +7266,8 @@ async function mkBuildFiles () {
   files.push({ name: 'assets/1x/sheet.png', data: one });
   files.push({ name: 'assets/2x/sheet.png', data: two });
   if (MK.type === 'Joker' && MK.soul.on) {
-    const nSoul = (MK.soul.frames && MK.soul.frames.length) || 1;
+    const soulList0 = mkSourceFrames(MK.soul);
+    const nSoul = soulList0 ? soulList0.length : 1;
     const q1 = mkSheetCanvas(1, 'soul'); const q2 = mkSheetCanvas(2, 'soul');
     if (q1.width !== CARD_W * nSoul || q2.width !== CARD_W * 2 * nSoul) {
       throw new Error('立绘帧条宽度不对（1x ' + q1.width + '、2x ' + q2.width + '，按 ' + nSoul + ' 帧应该是 ' + (CARD_W * nSoul) + ' 和 ' + (CARD_W * 2 * nSoul) + '）');
@@ -7326,9 +7410,18 @@ function viewMaker (root) {
     const row = document.createElement('div'); row.className = 'mkrow';
     row.appendChild(field('② 从哪个图集取图', '<select class="tbtn" id="mkAtlas">' +
       atlasNames.map((x) => '<option value="' + x + '"' + (MK.art.atlas === x ? ' selected' : '') + '>' + mkAtlasLabel(x) + '</option>').join('') + '</select>'));
-    row.appendChild(field('③ 或上传自己的图', '<input type="file" id="mkUpload" accept="image/*">', 'mkfile'));
+    row.appendChild(field('③ 或上传自己的图（可多选，每张图当一帧）', '<input type="file" id="mkUpload" accept="image/*" multiple>', 'mkfile'));
     src.appendChild(row);
-    src.insertAdjacentHTML('beforeend', '<div class="hint">' + MK_IMG_TIP + '</div><div class="hint" id="mkArtHint"></div>');
+    /* 动效：不用导入动图也能动 —— 按预设把一张静图现场渲染成帧序列（游戏里的做法就是横向 N 帧 + fps） */
+    const gen = MK.art.gen || { kind: '', n: 8, fps: 10, amp: 3 };
+    const genRow = document.createElement('div'); genRow.className = 'mkrow';
+    genRow.appendChild(field('④ 让它动起来（不导入动图也行，按预设现场生成帧）',
+      '<select class="tbtn" id="mkMotion">' + MK_MOTION.map((m) => '<option value="' + m[0] + '"' + (gen.kind === m[0] ? ' selected' : '') + '>' + m[1] + '</option>').join('') + '</select>'));
+    genRow.appendChild(field('帧数', '<select class="tbtn" id="mkMotionN">' + [4, 6, 8, 10, 12, 16, 20].map((k) => '<option value="' + k + '"' + (gen.n === k ? ' selected' : '') + '>' + k + ' 帧</option>').join('') + '</select>'));
+    genRow.appendChild(field('帧率（原版默认 10）', '<select class="tbtn" id="mkMotionFps">' + [4, 6, 8, 10, 12, 15, 20, 25].map((k) => '<option value="' + k + '"' + (gen.fps === k ? ' selected' : '') + '>' + k + ' fps</option>').join('') + '</select>'));
+    genRow.appendChild(field('幅度', '<input type="range" id="mkMotionAmp" min="1" max="8" value="' + gen.amp + '">'));
+    src.appendChild(genRow);
+    src.insertAdjacentHTML('beforeend', '<div class="hint">' + MK_IMG_TIP + '</div><div class="hint" id="mkMotionHint">' + mkMotionHintText() + '</div><div class="hint" id="mkArtHint"></div>');
     const grid = document.createElement('div'); grid.className = 'mkartgrid'; grid.id = 'mkArtGrid';
     src.appendChild(grid);
     /* 3) 悬浮立绘：自己的图集 / 自己的文件 */
@@ -7337,11 +7430,13 @@ function viewMaker (root) {
       const row2 = document.createElement('div'); row2.className = 'mkrow';
       row2.appendChild(field('立绘从哪个图集取', '<select class="tbtn" id="mkSoulAtlas">' +
         atlasNames.map((x) => '<option value="' + x + '"' + (MK.soul.atlas === x ? ' selected' : '') + '>' + mkAtlasLabel(x) + '</option>').join('') + '</select>'));
-      row2.appendChild(field('或上传立绘文件', '<input type="file" id="mkSoulUp" accept="image/*">', 'mkfile'));
+      row2.appendChild(field('或上传立绘文件（可多选，每张图当一帧）', '<input type="file" id="mkSoulUp" accept="image/*" multiple>', 'mkfile'));
       const pickBtn = document.createElement('button');
       pickBtn.className = 'btn'; pickBtn.type = 'button'; pickBtn.id = 'mkSoulPick';
       pickBtn.textContent = '在下面的网格里选立绘的格子';
       row2.appendChild(pickBtn);
+      const sgen = MK.soul.gen || { kind: '', n: 8, fps: 10, amp: 3 };
+      row2.appendChild(field('立绘动效', '<select class="tbtn" id="mkSoulMotion">' + MK_MOTION.map((m) => '<option value="' + m[0] + '"' + (sgen.kind === m[0] ? ' selected' : '') + '>' + m[1] + '</option>').join('') + '</select>'));
       soul.innerHTML = '<label class="mkck"><input type="checkbox" id="mkSoulOn"' + (MK.soul.on ? ' checked' : '') + '>给这张牌加一层「悬浮立绘」（传奇牌那种飘在半空的画）</label>';
       soul.appendChild(row2);
       soul.insertAdjacentHTML('beforeend', '<div class="hint" id="mkSoulHint">' + (MK.soul.uploadName ? ('立绘用的是你上传的文件：' + esc(MK.soul.uploadName)) : ('立绘取 ' + esc(MK.soul.atlas) + ' 的 x' + MK.soul.pos.x + ' y' + MK.soul.pos.y)) + '；开启后预览里会立刻叠出来（有帧序列时会飘着动）。</div>');
@@ -7559,8 +7654,20 @@ function viewMaker (root) {
   const as = q('#mkAtlas'); if (as) as.onchange = () => mkSet({ art: Object.assign({}, MK.art, { atlas: as.value, pos: { x: 0, y: 0 }, upload: null, uploadName: '', frames: null, animated: false }) });
   const up = q('#mkUpload');
   if (up) up.onchange = async (e) => {
-    const f = e.target.files && e.target.files[0];
-    if (!f) return;
+    const fl = [].slice.call(e.target.files || []);
+    if (!fl.length) return;
+    /* 多选：每张图当一帧（不挑格式，动图拆不了也能这么用） */
+    if (fl.length > 1) {
+      const got = [];
+      for (const one of fl) { const i2 = await mkReadImage(one); if (i2) got.push(i2.frames[0] || i2.cover) }
+      if (got.length < 2) { status('这几张图读不出来，换几张试试'); return }
+      const fps0 = (MK.art.gen && MK.art.gen.fps) || 10;
+      mkSet({ art: Object.assign({}, MK.art, { upload: got[0], frames: got, animated: true, delay: Math.round(1000 / fps0), uploadName: fl.length + ' 张图（每张一帧）' }) });
+      status('已用 ' + got.length + ' 张图拼成动图：预览在动，导出铺成横向帧序列，Lua 里写 frames = ' + got.length + '（帧率按当前 ' + fps0 + 'fps）。', 'ok');
+      mkStartAnim(Math.round(1000 / fps0));
+      return;
+    }
+    const f = fl[0];
     const info = await mkReadImage(f);
     if (!info) { status('这张图读不了（格式不支持）'); return }
     const multi = info.frames.length > 1;
@@ -7573,6 +7680,26 @@ function viewMaker (root) {
     else if (/webp/i.test(f.type || '') || /\.webp$/i.test(f.name || '')) status('已使用「' + f.name + '」（单帧）。动图 WebP 拆帧要靠浏览器内核，这个环境给不了 —— GIF 和 APNG 都能拆。');
     else status('已使用「' + f.name + '」（单帧，按静态图用）。');
   };
+  /* 动效控件：预设 / 帧数 / 帧率 / 幅度 —— 改完立刻按新参数生成帧并让预览动起来 */
+  const mkSetGen = (which, patch) => {
+    const cur = (which === 'soul' ? MK.soul : MK.art).gen || { kind: '', n: 8, fps: 10, amp: 3 };
+    const gen = Object.assign({}, cur, patch);
+    const next = which === 'soul'
+      ? { soul: Object.assign({}, MK.soul, { gen: gen }) }
+      : { art: Object.assign({}, MK.art, { gen: gen }) };
+    mkSet(next);
+    if (gen.kind && gen.n > 1) {
+      mkStartAnim(Math.round(1000 / gen.fps));
+      status('已按「' + mkMotionName(gen.kind) + '」生成 ' + gen.n + ' 帧 · ' + gen.fps + 'fps：预览在动，导出铺成横向帧序列，Lua 里是 atlas_table = ANIMATION_ATLAS + frames = ' + gen.n + ' + fps = ' + gen.fps + '。', 'ok');
+    } else {
+      status('已关掉动效预设：有导入的帧序列就用导入的，没有就是静态。');
+    }
+  };
+  const mo = q('#mkMotion'); if (mo) mo.onchange = () => mkSetGen('art', { kind: mo.value });
+  const mn = q('#mkMotionN'); if (mn) mn.onchange = () => mkSetGen('art', { n: Number(mn.value) });
+  const mf = q('#mkMotionFps'); if (mf) mf.onchange = () => mkSetGen('art', { fps: Number(mf.value) });
+  const ma = q('#mkMotionAmp'); if (ma) ma.oninput = () => mkSetGen('art', { amp: Number(ma.value) });
+  const sm2 = q('#mkSoulMotion'); if (sm2) sm2.onchange = () => mkSetGen('soul', { kind: sm2.value });
   const so = q('#mkSoulOn');
   if (so) so.onchange = () => { mkSet({ soul: Object.assign({}, MK.soul, { on: so.checked }) }); if (so.checked && (MK.soul.frames || []).length > 1) mkStartAnim() };
   const sa = q('#mkSoulAtlas');
@@ -7581,8 +7708,19 @@ function viewMaker (root) {
   if (sp) sp.onclick = () => { artTarget = artTarget === 'soul' ? 'art' : 'soul'; status(artTarget === 'soul' ? '网格现在给「悬浮立绘」选格子（再点一次切回主体）' : '网格切回给主体选格子'); redraw() };
   const su = q('#mkSoulUp');
   if (su) su.onchange = async (e) => {
-    const f = e.target.files && e.target.files[0];
-    if (!f) return;
+    const fl = [].slice.call(e.target.files || []);
+    if (!fl.length) return;
+    if (fl.length > 1) {
+      const got = [];
+      for (const one of fl) { const i2 = await mkReadImage(one); if (i2) got.push(i2.frames[0] || i2.cover) }
+      if (got.length < 2) { status('这几张立绘图读不出来'); return }
+      const fps1 = (MK.soul.gen && MK.soul.gen.fps) || 10;
+      mkSet({ soul: Object.assign({}, MK.soul, { on: true, upload: got[0], frames: got, delay: Math.round(1000 / fps1), uploadName: fl.length + ' 张图（每张一帧）' }) });
+      status('立绘已用 ' + got.length + ' 张图拼成动图（帧率按当前 ' + fps1 + 'fps），预览里会飘着动。', 'ok');
+      mkStartAnim(Math.round(1000 / fps1));
+      return;
+    }
+    const f = fl[0];
     const info = await mkReadImage(f);
     if (!info) { status('这张立绘图读不了'); return }
     const multi = info.frames.length > 1;

@@ -449,6 +449,28 @@ node bundle.js
 
 ## 九、更新记录
 
+**第四十七轮（动效换思路：按「游戏里的做法」来；顺带修掉立绘在游戏里指错图集）**
+- 用户建议：别在「能不能拆某个动图格式」上钻牛角尖，想想**游戏里的动态效果**是怎么做的。翻本机装的 Steamodded 源码（`.work/third-party/smods/smods-26.829.0`）后确认：
+  - 游戏里的「动」就是一件事：**图集里横向排 N 帧 + fps**。`src/overrides.lua` 里 `local fps = self.sprite_args.fps or self.atlas.fps or G.ANIMATION_FPS`，`frames` 取不到就退回 `atlas.frames`；`AnimatedSprite` 由 `SMODS.get_atlas_sprite_class()` 按 `atlas_table` 选出来。
+  - **所以「能不能解码动图文件」根本不是前提** —— 给一张静图，把帧序列现场渲染出来就行。
+- 于是这一轮做了三件事：
+  1. **动效预设**（8 个）：上下浮动 / 呼吸 / 轻微摇摆 / 闪烁 / 抖动 / 心跳 / 缓慢旋转 / 不用预设；再配 **帧数**（4–20）、**帧率**（4–25，默认 10 = 原版 `G.ANIMATION_FPS`）、**幅度**（1–8）。帧是**惰性生成**的：`mkSourceFrames(src)` 每次按当前图源与参数现算，所以改图集格子、改参数都不会留下过期缓存。取帧入口统一成一个函数，帧条、预览、计时器、导出、Lua 全都走它。
+  2. **上传支持多选**：每张图当一帧。这条路**不挑格式**（动图 WebP 拆不了也没关系，自己导出几帧丢进来就行），也是给手绘逐帧用的。
+  3. **立绘的 Lua 修正**：写 `soul_atlas = 'soul'`。原因（对着源码）：`overrides.lua` 里前景精灵的图集是 `atlas_key = lc_soul_atlas or soul_atlas or lc_atlas or atlas or set` —— 以前只写 `soul_pos = {x=0,y=0}` 而没有 `soul_atlas`，游戏会去**主体的图集**里找那层前景，等于把牌面自己飘一遍，立绘那张 `soul.png` 根本用不上。
+- 实测（真浏览器，`.work/verify/cdp.js` 新增 `mkMotion` 场景；**全程没有上传任何动图**，只点控件）：
+  | 检查项 | 结果 |
+  | --- | --- |
+  | 控件齐不齐 | `motion/n/fps/amp/soulMotion/hint` 全在，预设 8 个 |
+  | 选择后的状态 | `{kind:'float', n:8, fps:10, amp:3}` |
+  | 预览是否真的在动 | 三次抓帧哈希全不同（4039768636 / 3062428137 / 1392975610） |
+  | 导出帧条 | 2x `1136×190` = 142×8，与预期一致 |
+  | 把帧条读回来逐格数 | 8 格都有内容，且按正弦位移呈现出 3 种不同的像素形态（3px 浮动的物理结果） |
+  | Lua | `frames = 8` + `fps = 10` + `atlas_table = 'ANIMATION_ATLAS'` |
+  | 立绘 | `soul_atlas = 'soul'` 已写入，旧的 `soul_pos` 不再出现（`soulAtlasInLua: true` / `soulPosStale: false`） |
+  | 控制台报错 | 0 |
+- 回归：`mkGif`（24 帧）、`mkApng`（5 帧）、`mkGifSoul`（24 帧 + `soul_atlas`）、`modMaker` 全 ✅。
+- 这一轮自己踩的坑（记一下）：打补丁时把「两个字符串」当成了一个参数传给只收 3 个参数的替换函数，结果**该替换的那行被删掉**、`frames` 变成未定义 → 导出画布宽度 0。**是第四十四轮加的那道导出尺寸自检当场报的错**（`帧条宽度不对（1x 0、2x 0，按 8 帧应该是 568 和 1136）`），没有让坏产物发出去。
+
 **第四十六轮（把动图的 Lua 修对：少了 `atlas_table` 游戏里根本不会动；还漏了逗号）**
 - 上一轮已经能看到「导出带 `frames = N`」，但我一直没**对着 Steamodded 的源码核**这一行 —— 这一轮核了，本机正好装着 `smods-1.0.0-beta-1606b`，项目里也留了一份 `.work/third-party/smods`：
   - `lsp_def/classes/atlas.lua`：`atlas_table` 的取值 `ASSET_ATLAS` = 静态图集、**`ANIMATION_ATLAS` = 动画精灵**；另有 `frames = 动画帧数`、`fps = 帧率（默认 10 或 G.ANIMATION_FPS）`。

@@ -3178,9 +3178,51 @@ const SCENARIOS = {
     const lua=B.maker.lua();
     r.soulInLua=lua.indexOf("key = 'soul'")>=0;
     r.soulFramesInLua=lua.indexOf("frames = "+r.frames)>=0;
+    /* 立绘必须写 soul_atlas：只写 soul_pos 的话游戏会去主体图集里找那层前景精灵 */
+    r.soulAtlasInLua=lua.indexOf("soul_atlas = 'soul'")>=0;
+    r.soulPosStale=lua.indexOf('soul_pos')>=0;
     /* 主体 + 立绘两个图集都要标成动图（ANIMATION_ATLAS），且都要有 fps */
     r.animTables=lua.split("atlas_table = 'ANIMATION_ATLAS'").length-1;
     r.fpsCount=lua.split("fps = ").length-1;
+    r.errors=window.__V.errors.length;
+    return r })()`,
+  /* 动效预设：完全不上传任何动图，只靠「按预设现场生成帧」让主体动起来。
+     走的就是访客点控件那条路（真的给 select 派发 change 事件），验证：预览在动、导出是帧条、Lua 三件套齐 */
+  mkMotion: `(async()=>{
+    const B=window.__BALATRO__; const S=B.state; const r={}; await __V.wait(1400);
+    const q=(s)=>document.querySelector(s);
+    S.tab='maker'; B.render(); await __V.wait(900);
+    r.controls={ motion:!!q('#mkMotion'), n:!!q('#mkMotionN'), fps:!!q('#mkMotionFps'), amp:!!q('#mkMotionAmp'), soulMotion:!!q('#mkSoulMotion'), hint:!!q('#mkMotionHint') };
+    r.presetCount=(B.maker.motion||[]).length;
+    const fire=(el,ev)=>{ el.dispatchEvent(new Event(ev,{bubbles:true})) };
+    const mo=q('#mkMotion'); mo.value='float'; fire(mo,'change'); await __V.wait(400);
+    const mn=q('#mkMotionN'); mn.value='8'; fire(mn,'change'); await __V.wait(400);
+    const mf=q('#mkMotionFps'); mf.value='10'; fire(mf,'change'); await __V.wait(500);
+    r.gen=B.maker.state.art.gen? Object.assign({},B.maker.state.art.gen) : null;
+    const hash=()=>{ const cv=q('.mkpvbox canvas'); if(!cv) return null; const d=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data; let h=0; for(let i=0;i<d.length;i+=97) h=(h*31+d[i])>>>0; return h };
+    const h1=hash(); await __V.wait(300); const h2=hash(); await __V.wait(300); const h3=hash();
+    r.previewChanges=(h1!==h2)||(h2!==h3); r.hashes=[h1,h2,h3];
+    const files=await B.maker.files();
+    const png=files.filter(function(f){return f.name==='assets/2x/sheet.png'})[0];
+    r.sheetWidth=png?(png.data[16]*16777216+png.data[17]*65536+png.data[18]*256+png.data[19]):0;
+    r.expectWidth=142*8;
+    const lua=B.maker.lua();
+    r.framesInLua=lua.indexOf('frames = 8')>=0; r.fpsInLua=lua.indexOf('fps = 10')>=0;
+    r.animTable=lua.split("atlas_table = 'ANIMATION_ATLAS'").length-1;
+    try {
+      const blob=new Blob([png.data],{type:'image/png'}); const url=URL.createObjectURL(blob);
+      const im=await new Promise((res,rej)=>{const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=url});
+      const cv=document.createElement('canvas'); cv.width=im.width; cv.height=im.height;
+      const cx=cv.getContext('2d'); cx.drawImage(im,0,0);
+      const d=cx.getImageData(0,0,im.width,im.height).data;
+      const cw=Math.round(im.width/8); const cells=[];
+      for(let c=0;c<8;c++){ let ink=0,sum=0;
+        for(let y=0;y<im.height;y++) for(let x=0;x<cw;x++){ const o=(y*im.width+c*cw+x)*4; if(d[o+3]>0) ink++; sum+=d[o]*3+d[o+1]*5+d[o+2]*7 }
+        cells.push({ink:ink,sum:sum}) }
+      r.cellInk=cells.map(function(c){return c.ink}); r.distinctCells=new Set(cells.map(function(c){return c.sum})).size;
+      URL.revokeObjectURL(url);
+    } catch(e){ r.cellErr=String(e&&e.message||e) }
+    r.hint=(q('#mkMotionHint')||{}).textContent||'';
     r.errors=window.__V.errors.length;
     return r })()`,
   modMaker: `(async()=>{
