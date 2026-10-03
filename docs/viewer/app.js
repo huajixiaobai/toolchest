@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "a9c6ef43";
+window.__APP_BUILD__ = "5d96901d";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -1874,7 +1874,17 @@ function zipStore (files) {
   return out;
 }
 function canvasBytes (cv) {
-  return new Promise((res) => cv.toBlob((b) => b.arrayBuffer().then((a) => res(new Uint8Array(a))), 'image/png'));
+  return new Promise((res, rej) => {
+    if (!cv || !cv.width || !cv.height) { rej(new Error('画布尺寸是空的（' + (cv ? cv.width + '×' + cv.height : '没有画布') + '），导不出图')); return }
+    let done = false;
+    /* 宽度或高度为 0 的画布上，toBlob 的回调根本不会被调用（实测过），所以必须有兜底 */
+    const timer = setTimeout(() => { if (!done) { done = true; rej(new Error('浏览器没能在 8 秒内把画布编码成 PNG')) } }, 8000);
+    const finish = (fn, v) => { if (done) return; done = true; clearTimeout(timer); fn(v) };
+    cv.toBlob((b) => {
+      if (!b) { finish(rej, new Error('画布编码失败（浏览器返回了空结果）')); return }
+      b.arrayBuffer().then((a) => finish(res, new Uint8Array(a)), (e) => finish(rej, e));
+    }, 'image/png');
+  });
 }
 function save (data, filename, type) {
   const blob = data instanceof Uint8Array ? new Blob([data], { type: type || 'application/octet-stream' }) : data;
@@ -6929,7 +6939,7 @@ function mkDrawSource (ctx, scale, dx, dy, src) {
 /** 主体 / 立绘的一帧或整套帧序列（动图时横向铺开，正是原版图集的排法） */
 function mkSheetCanvas (scale, which) {
   const src = which === 'soul' ? MK.soul : MK.art;
-  const frames = (src.frames && src.frames.length) ? src.frames : 1;
+  const frames = (src.frames && src.frames.length) ? src.frames.length : 1;   /* 这里要的是帧数，不是帧数组 */
   const cv = newCanvas(Math.round(CARD_W * scale * frames), Math.round(CARD_H * scale));
   const ctx = cv.getContext('2d');
   ctx.imageSmoothingEnabled = false;
@@ -6963,10 +6973,216 @@ function mkOldArtCanvas (scale) {
 }
 /** 预览：原版卡图（中心框 + 贴图），和合成台一样的方式 */
 /** 读一张图：静态返回 1 帧，GIF / APNG / 动图 WebP 用 ImageDecoder 拆帧（最多 24 帧） */
+/* ---------------------------------------------------------------- GIF 帧解析
+ * 自己写的 GIF89a 解析（纯计算，不碰 canvas / DOM / Node 的 API），所以同一份代码
+ * 在浏览器里能跑、在 Node 里也能拿来做回归测试。
+ * 为什么不用 ImageDecoder：那是内核功能，版本不对/无头环境下给不出多帧，
+ * "上传动图"就会看起来完全没反应。这里块解析 + LZW 解压 + 按 disposal 合成每一帧。
+ * 返回 [{ rgba: Uint8ClampedArray(w*h*4), width, height, delay }]，最多 maxFrames 帧；
+ * 不是 GIF 或解不出任何帧时返回 null。 */
+function gifDecodeFrames (bytes, maxFrames) {
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
+  if (u8.length < 13) return null
+  const sig = String.fromCharCode(u8[0], u8[1], u8[2], u8[3], u8[4], u8[5])
+  if (sig !== 'GIF87a' && sig !== 'GIF89a') return null
+  let p = 6
+  const u16 = () => { const v = u8[p] | (u8[p + 1] << 8); p += 2; return v }
+  const sw = u16()
+  const sh = u16()
+  if (!sw || !sh) return null
+  const flags = u8[p++]
+  p += 2                                   /* 背景色索引 + 像素宽高比 */
+  let gct = null
+  let gctN = 0
+  if (flags & 0x80) { gctN = 2 << (flags & 7); gct = u8.subarray(p, p + gctN * 3); p += gctN * 3 }
+
+  const limit = Math.max(1, maxFrames || 24)
+  const out = []
+  /* 画面缓冲：整张逻辑屏，RGBA。disposal 合成都在这份缓冲上做 */
+  let screen = new Uint8ClampedArray(sw * sh * 4)
+  let gce = { delay: 80, transparent: -1, disposal: 0 }
+
+  const skipBlocks = () => { while (p < u8.length && u8[p] !== 0) p += u8[p] + 1; p++ }
+
+  /** 把一段（已拼好的）LZW 数据解成索引，写进 px（RGBA，尺寸 w×h） */
+  const lzwToRGBA = (minCode, data, px, w, h, pal, transparent) => {
+    const clear = 1 << minCode
+    const end = clear + 1
+    let size = minCode + 1
+    let next = end + 1
+    let dict = null
+    let bitPos = 0
+    const reset = () => {
+      dict = new Array(4096)
+      for (let i = 0; i < clear; i++) dict[i] = [i]
+      dict[clear] = null
+      dict[end] = null
+      size = minCode + 1
+      next = end + 1
+    }
+    reset()
+    const readCode = () => {
+      let v = 0
+      for (let i = 0; i < size; i++) {
+        const byte = data[bitPos >> 3]
+        if (byte === undefined) return -1
+        v |= ((byte >> (bitPos & 7)) & 1) << i
+        bitPos++
+      }
+      return v
+    }
+    const put = (paletteIndex, pos) => {
+      const o = pos * 4
+      if (paletteIndex === transparent) { px[o] = 0; px[o + 1] = 0; px[o + 2] = 0; px[o + 3] = 0; return }
+      const ci = paletteIndex * 3
+      px[o] = pal[ci]
+      px[o + 1] = pal[ci + 1]
+      px[o + 2] = pal[ci + 2]
+      px[o + 3] = 255
+    }
+    let pos = 0
+    let prev = -1
+    for (;;) {
+      const code = readCode()
+      if (code < 0) return pos
+      if (code === clear) { reset(); prev = -1; continue }
+      if (code === end) return pos
+      let entry
+      if (prev === -1) {
+        if (code >= clear) return pos           /* 第一码必须是字面量 */
+        entry = dict[code]
+      } else if (code < next && dict[code]) {
+        entry = dict[code]
+      } else if (code === next && dict[prev]) {
+        entry = dict[prev].concat(dict[prev][0])
+      } else {
+        return pos                              /* 码流坏了，能画多少算多少 */
+      }
+      if (prev !== -1 && next < 4096 && dict[prev]) {
+        dict[next++] = dict[prev].concat(entry[0])
+        if (next === (1 << size) && size < 12) size++
+      }
+      prev = code
+      for (let i = 0; i < entry.length; i++) {
+        if (pos < w * h) put(entry[i], pos)
+        pos++
+        if (pos >= w * h) return pos
+      }
+    }
+  }
+
+  while (p < u8.length) {
+    const b = u8[p++]
+    if (b === 0x21) {                                    /* 扩展块 */
+      const label = u8[p++]
+      if (label === 0xF9) {
+        const size = u8[p++]
+        const packed = u8[p]
+        gce = {
+          delay: Math.max(20, (u8[p + 1] | (u8[p + 2] << 8)) * 10 || 80),
+          transparent: (packed & 1) ? u8[p + 3] : -1,
+          disposal: (packed >> 2) & 7,
+        }
+        p += size
+        skipBlocks()
+      } else {
+        skipBlocks()
+      }
+    } else if (b === 0x2C) {                             /* 图像块 */
+      const ix = u16()
+      const iy = u16()
+      const iw = u16()
+      const ih = u16()
+      if (!iw || !ih) break
+      const pf = u8[p++]
+      let pal = gct
+      if (pf & 0x80) { const n = 2 << (pf & 7); pal = u8.subarray(p, p + n * 3); p += n * 3 }
+      if (!pal) break
+      const minCode = u8[p++]
+      const chunks = []
+      let total = 0
+      while (p < u8.length && u8[p] !== 0) { const len = u8[p]; p++; chunks.push(u8.subarray(p, p + len)); total += len; p += len }
+      p++
+      const data = new Uint8Array(total)
+      let off = 0
+      for (const c of chunks) { data.set(c, off); off += c.length }
+      const keep = gce.disposal === 3 ? screen.slice() : null
+      const px = new Uint8ClampedArray(iw * ih * 4)
+      lzwToRGBA(minCode, data, px, iw, ih, pal, gce.transparent)
+      /* 把这一格贴到逻辑屏上：透明像素不覆盖底下的画面 */
+      for (let y = 0; y < ih; y++) {
+        const sy = iy + y
+        if (sy < 0 || sy >= sh) continue
+        for (let x = 0; x < iw; x++) {
+          const sx = ix + x
+          if (sx < 0 || sx >= sw) continue
+          const a = px[(y * iw + x) * 4 + 3]
+          if (!a) continue
+          const s = (y * iw + x) * 4
+          const t = (sy * sw + sx) * 4
+          screen[t] = px[s]
+          screen[t + 1] = px[s + 1]
+          screen[t + 2] = px[s + 2]
+          screen[t + 3] = 255
+        }
+      }
+      out.push({ rgba: screen.slice(), width: sw, height: sh, delay: gce.delay })
+      if (out.length >= limit) break
+      if (gce.disposal === 2) {                          /* 还原成背景色（这里按透明处理） */
+        for (let y = 0; y < ih; y++) {
+          const sy = iy + y
+          if (sy < 0 || sy >= sh) continue
+          for (let x = 0; x < iw; x++) {
+            const sx = ix + x
+            if (sx < 0 || sx >= sw) continue
+            const t = (sy * sw + sx) * 4
+            screen[t] = 0; screen[t + 1] = 0; screen[t + 2] = 0; screen[t + 3] = 0
+          }
+        }
+      } else if (gce.disposal === 3 && keep) {
+        screen = keep
+      }
+      gce = { delay: 80, transparent: -1, disposal: 0 }
+    } else if (b === 0x3B) {                             /* 结束 */
+      break
+    } else {
+      break
+    }
+  }
+  return out.length ? out : null
+}
+
+/** 解出来的 RGBA 变成 canvas（导出、预览都直接用 canvas） */
+function mkFramesToCanvases (list) {
+  return list.map((f) => {
+    const cv = newCanvas(f.width, f.height);
+    const ctx = cv.getContext("2d");
+    const img = ctx.createImageData(f.width, f.height);
+    img.data.set(f.rgba);
+    ctx.putImageData(img, 0, 0);
+    return cv;
+  });
+}
+/** GIF 字节 → { frames: [canvas], delay }；不是 GIF / 解不出来返回 null */
+function mkGifFrames (bytes, max) {
+  try {
+    const g = gifDecodeFrames(bytes, max || 24);
+    if (!g || !g.length) return null;
+    return { frames: mkFramesToCanvases(g), delay: g[0].delay, total: g.length };
+  } catch (e) { return null }
+}
 async function mkReadImage (file) {
   const url = URL.createObjectURL(file);
   try {
-    if (typeof ImageDecoder !== 'undefined' && /gif|webp|apng|png$/i.test(file.type)) {
+    /* ① GIF：先用自己的解析器 —— 不挑内核，ImageDecoder 没有/拆不出多帧时也能拆 */
+    const isGif = /gif/i.test(file.type || '') || /\.gif$/i.test(file.name || '');
+    if (isGif) {
+      const g = mkGifFrames(new Uint8Array(await file.arrayBuffer()), 24);
+      if (g && g.frames.length > 1) { URL.revokeObjectURL(url); return { frames: g.frames, cover: g.frames[0], delay: g.delay, gif: true } }
+      if (g && g.frames.length === 1) { URL.revokeObjectURL(url); return { frames: g.frames, cover: g.frames[0], delay: g.delay, gif: true, single: true } }
+    }
+    /* ② APNG / 动图 WebP：这两种得靠内核的 ImageDecoder，有就用 */
+    if (typeof ImageDecoder !== 'undefined' && /webp|apng|png$/i.test(file.type)) {
       try {
         const dec = new ImageDecoder({ data: await file.arrayBuffer(), type: file.type || 'image/png' });
         await dec.completed;
@@ -7030,20 +7246,28 @@ function mkPreviewCanvas () {
 }
 let mkFrame = 0;
 let mkAnimTimer = null;
-/** 预览里的动图：6fps 换帧（只在有帧序列时跑，开销就是一次 drawImage） */
-function mkStartAnim () {
-  if (mkAnimTimer) return;
-  mkAnimTimer = setInterval(() => {
+let mkAnimDelay = 160;
+/** 预览里的动图：按图片自己的帧延时换帧（GIF 里写多少就多少，限制在 40–500ms）
+ *  —— 立绘有帧序列或者开着浮动时也靠这个计时器，所以两种情况都要让它跑起来。 */
+function mkStartAnim (delay) {
+  mkAnimDelay = Math.min(500, Math.max(40, Math.round(delay) || 160));
+  if (mkAnimTimer) { clearInterval(mkAnimTimer); mkAnimTimer = null }   /* 换图就按新延时重建 */
+  const tick = () => {
     const box = document.querySelector('.mkpvbox');
     if (!box || !box.isConnected) { clearInterval(mkAnimTimer); mkAnimTimer = null; return }
-    const total = (MK.art.frames && MK.art.frames.length) || 1;
-    if (total < 2) return;
-    mkFrame = (mkFrame + 1) % total;
+    const aN = (MK.art.frames && MK.art.frames.length) || 1;
+    const soulAlive = MK.type === 'Joker' && MK.soul.on && !!(MK.soul.upload || (MK.soul.frames && MK.soul.frames.length));
+    const sN = soulAlive && MK.soul.frames ? MK.soul.frames.length : 1;
+    const total = Math.max(aN, sN);
+    mkFrame = (mkFrame + 1) % (total * 60);      /* 前 60 步给立绘浮动留相位，同时保证帧序走满一圈 */
+    if (total < 2 && !soulAlive) return;
     const old = box.querySelector("canvas");
     const cv = mkPreviewCanvas();
     cv.style.width = '142px'; cv.style.height = '190px';
     if (old) box.replaceChild(cv, old); else box.appendChild(cv);
-  }, 160);
+  };
+  mkAnimTimer = setInterval(tick, mkAnimDelay);
+  tick();
 }
 function mkCondSnippet (e) {
   const v = e.condVal;
@@ -7386,13 +7610,24 @@ async function mkBuildFiles () {
   const files = [];
   files.push({ name: 'manifest.json', data: TE.encode(mkManifest()) });
   files.push({ name: MK.modId + '.lua', data: TE.encode(mkLua()) });
-  const one = await canvasBytes(mkSheetCanvas(1, 'art'));
-  const two = await canvasBytes(mkSheetCanvas(2, 'art'));
+  /* 尺寸自检：动图是横向帧条，宽度必须正好是 帧数×格宽 —— 算错的话后面 toBlob 会直接挂住 */
+  const nArt = (MK.art.frames && MK.art.frames.length) || 1;
+  const s1 = mkSheetCanvas(1, 'art'); const s2 = mkSheetCanvas(2, 'art');
+  if (s1.width !== CARD_W * nArt || s2.width !== CARD_W * 2 * nArt) {
+    throw new Error('帧条宽度不对（1x ' + s1.width + '、2x ' + s2.width + '，按 ' + nArt + ' 帧应该是 ' + (CARD_W * nArt) + ' 和 ' + (CARD_W * 2 * nArt) + '）');
+  }
+  const one = await canvasBytes(s1);
+  const two = await canvasBytes(s2);
   files.push({ name: 'assets/1x/sheet.png', data: one });
   files.push({ name: 'assets/2x/sheet.png', data: two });
   if (MK.type === 'Joker' && MK.soul.on) {
-    files.push({ name: 'assets/1x/soul.png', data: await canvasBytes(mkSheetCanvas(1, 'soul')) });
-    files.push({ name: 'assets/2x/soul.png', data: await canvasBytes(mkSheetCanvas(2, 'soul')) });
+    const nSoul = (MK.soul.frames && MK.soul.frames.length) || 1;
+    const q1 = mkSheetCanvas(1, 'soul'); const q2 = mkSheetCanvas(2, 'soul');
+    if (q1.width !== CARD_W * nSoul || q2.width !== CARD_W * 2 * nSoul) {
+      throw new Error('立绘帧条宽度不对（1x ' + q1.width + '、2x ' + q2.width + '，按 ' + nSoul + ' 帧应该是 ' + (CARD_W * nSoul) + ' 和 ' + (CARD_W * 2 * nSoul) + '）');
+    }
+    files.push({ name: 'assets/1x/soul.png', data: await canvasBytes(q1) });
+    files.push({ name: 'assets/2x/soul.png', data: await canvasBytes(q2) });
   }
   return files;
 }
@@ -7767,9 +8002,12 @@ function viewMaker (root) {
     const info = await mkReadImage(f);
     if (!info) { status('这张图读不了（格式不支持）'); return }
     const multi = info.frames.length > 1;
-    mkSet({ art: Object.assign({}, MK.art, { upload: info.frames[0] || info.cover, frames: multi ? info.frames : null, animated: multi, uploadName: f.name }) });
-    if (multi) { status('已使用「' + f.name + '」：动图拆出 ' + info.frames.length + ' 帧，预览会逐帧播放，导出会铺成横向帧序列。', 'ok'); mkStartAnim() }
-    else status('已使用「' + f.name + '」（单帧）。动图拆帧需要浏览器支持；拆不出多帧时这里会说明。');
+    mkSet({ art: Object.assign({}, MK.art, { upload: info.frames[0] || info.cover, frames: multi ? info.frames : null, animated: multi, delay: info.delay || 0, uploadName: f.name }) });
+    if (multi) {
+      status('已使用「' + f.name + '」：动图拆出 ' + info.frames.length + ' 帧（每帧 ' + (info.delay || '?') + 'ms），预览按这个节奏逐帧播放，导出会铺成横向帧序列、Lua 里写 frames = ' + info.frames.length + '。', 'ok');
+      mkStartAnim(info.delay);
+    } else if (info.gif) status('已使用「' + f.name + '」：这是一个只有 1 帧的 GIF，按静态图用。');
+    else status('已使用「' + f.name + '」（单帧）。GIF 一定能拆帧；APNG / 动图 WebP 要看这个浏览器给不给拆。');
   };
   const so = q('#mkSoulOn');
   if (so) so.onchange = () => { mkSet({ soul: Object.assign({}, MK.soul, { on: so.checked }) }); if (so.checked && (MK.soul.frames || []).length > 1) mkStartAnim() };
@@ -7784,9 +8022,9 @@ function viewMaker (root) {
     const info = await mkReadImage(f);
     if (!info) { status('这张立绘图读不了'); return }
     const multi = info.frames.length > 1;
-    mkSet({ soul: Object.assign({}, MK.soul, { on: true, upload: info.frames[0] || info.cover, frames: multi ? info.frames : null, uploadName: f.name }) });
-    status('立绘已换成「' + f.name + '」' + (multi ? '（动图 ' + info.frames.length + ' 帧，预览里会飘着动）' : '') + '，预览里现在就能看到。', 'ok');
-    if (multi) mkStartAnim();
+    mkSet({ soul: Object.assign({}, MK.soul, { on: true, upload: info.frames[0] || info.cover, frames: multi ? info.frames : null, delay: info.delay || 0, uploadName: f.name }) });
+    status('立绘已换成「' + f.name + '」' + (multi ? '（动图 ' + info.frames.length + ' 帧，每帧 ' + (info.delay || '?') + 'ms，预览里会飘着动）' : '') + '，预览里现在就能看到。', 'ok');
+    mkStartAnim(multi ? info.delay : 0);
   };
 
   /* 效果行 / 预设 / 删除 */
@@ -7891,7 +8129,7 @@ function viewMaker (root) {
 
   /* 动图：每次渲染重新起播（旧定时器挂在旧 DOM 上会自杀） */
   if (mkAnimTimer) { clearInterval(mkAnimTimer); mkAnimTimer = null }
-  if ((MK.art.frames && MK.art.frames.length > 1) || (MK.soul.frames && MK.soul.frames.length > 1)) mkStartAnim();
+  if ((MK.art.frames && MK.art.frames.length > 1) || (MK.soul.frames && MK.soul.frames.length > 1)) mkStartAnim(MK.art.delay || 0);
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
