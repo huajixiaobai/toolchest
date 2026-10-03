@@ -3112,6 +3112,33 @@ const SCENARIOS = {
     const q=(s)=>document.querySelector(s); const qa=(s)=>[].slice.call(document.querySelectorAll(s));
     S.tab='maker'; B.render(); await __V.wait(900);
     r.view={ hasView:!!q('.maker'), sections:qa('.mkright .opt').length, cells:qa('#mkArtGrid .mkcell').length, hasLua:!!q('#mkLua'), buttons:qa('.mkbtnrow .btn').map(function(b){return b.textContent.trim()}) };
+    /* 贴图网格必须真的画出图（以前全是黑格子） */
+    r.thumbs={ cells:qa('#mkArtGrid .mkcell').length, painted:qa('#mkArtGrid .mkcell canvas').length,
+      presets:qa('.mkpreset').length, typeChips:qa('.mkhchip').length, header:!!q('.mkhead'), summary:(q('#mkSum')||{}).textContent ? true : false };
+    /* 预设库点一下要能填好效果行 */
+    { const p=qa('.mkpreset')[0]; if(p){ p.click(); await __V.wait(600) } }
+    r.afterPreset={ effects:B.maker.state.effects.length, first:B.maker.state.effects[0] };
+    /* 动图：页面内自己编一个 3 帧 GIF，再走上传那条路读它 */
+    try {
+      const frames=[];
+      for (let i=0;i<3;i++){ const cv=document.createElement('canvas'); cv.width=32; cv.height=32; const c2=cv.getContext('2d');
+        c2.fillStyle=['#ff0000','#00ff00','#0000ff'][i]; c2.fillRect(0,0,32,32); frames.push(cv) }
+      const gif=B.encodeGIF(frames, 20);
+      const file=new File([gif], 'anim.gif', { type:'image/gif' });
+      r.readImageType=typeof B.maker.readImage;
+      const info=await B.maker.readImage(file);
+      r.infoShape=info?Object.keys(info).join(',')+' frames='+(info.frames?info.frames.length:'无'):'null';
+      r.gif={ frames:info?info.frames.length:0, firstW:info&&info.frames[0]?info.frames[0].width:null };
+      B.maker.state.art={ atlas:B.maker.state.art.atlas, pos:B.maker.state.art.pos, upload:info.frames[0], frames:info.frames, animated:true, uploadName:'anim.gif' };
+      const sheet=B.maker.sheet(2,'art');
+      r.sheet={ w:sheet.width, h:sheet.height, expect:71*2*3 };
+      const files2=await B.maker.files();
+      const png=files2.filter(function(f){return f.name==='assets/2x/sheet.png'})[0];
+      r.sheetPng={ bytes:png?png.data.length:0, width:png?(png.data[16]*16777216+png.data[17]*65536+png.data[18]*256+png.data[19]):0 };
+      const lua2=B.maker.lua();
+      r.framesDeclared=lua2.indexOf('frames = 3')>=0;
+    } catch(e){ r.gifErr=String(e.message).slice(0,120) }
+    B.maker.state.art={ atlas:'Joker', pos:{x:0,y:0}, upload:null, frames:null, animated:false, uploadName:'' };
     B.maker.state.effects=[{when:'card',cond:'suit',condVal:'Hearts',eff:'chips',val:50}];
     B.maker.state.nameZh='阿尔法'; B.maker.state.nameEn='Alpha'; B.maker.state.key='alpha';
     B.maker.state.textZh=''; B.maker.state.textEn='';

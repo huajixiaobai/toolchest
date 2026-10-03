@@ -5896,7 +5896,9 @@ function init () {
     mods: MODS, importModZip, importModFiles, importBatch, importZipBuffer, filesFromDrop, removeMod, sourceItems,
     modImport: window.__MODIMPORT__, categoryLabel,
     /* Mod 制作器：状态 / 生成的 Lua / manifest / 要打包的文件（脚本与控制台都能用） */
-    maker: { state: MK, lua: () => mkLua(), manifest: () => mkManifest(), files: () => mkBuildFiles(), types: MK_TYPES, when: MK_WHEN, eff: MK_EFF },
+    maker: { state: MK, lua: () => mkLua(), manifest: () => mkManifest(), files: () => mkBuildFiles(), types: MK_TYPES, when: MK_WHEN, eff: MK_EFF,
+      presets: MK_PRESETS, cond: MK_COND, readImage: mkReadImage, sheet: (scale, which) => mkSheetCanvas(scale, which || "art"),
+      atlasLabel: mkAtlasLabel },   /* 脚本/控制台都能用：读图（含动图拆帧）、取帧序列画布 */
     // --- 得分计算器（脚本化测试与自用都方便）---
     score: { state: SC, compute: scoreCompute, card: scCard, jokerFromItem,
       rules: () => (typeof JOKER_RULES !== 'undefined' ? JOKER_RULES : null),
@@ -5980,6 +5982,9 @@ const MK_COND = [
   ['even', '偶数点数'],
   ['odd', '奇数点数'],
   ['hand', '牌型是…'],
+  ['edition', '版本是…'],
+  ['seal', '蜡封是…'],
+  ['deckcount', '牌堆里至少…张'],
   ['count', '这一手至少…张'],
 ];
 const MK_EFF = [
@@ -5993,6 +5998,8 @@ const MK_EFF = [
   ['handsize', '+ 手牌上限'],
   ['tarot', '给一张随机塔罗'],
   ['planet', '给一张随机星球'],
+  ['levelup', '升级打出的牌型'],
+  ['joker', '给一张随机小丑牌'],
 ];
 /* 常用效果预设：点一下就把整套效果行填好（仍然不用写代码） */
 const MK_PRESETS = [
@@ -6013,8 +6020,24 @@ const MK_PRESETS = [
   ['打出同花时 +$5', [{ when: 'hand', cond: 'hand', condVal: 'Flush', eff: 'dollars', val: 5 }]],
 ];
 const MK_RARITY = [[1, '普通'], [2, '罕见'], [3, '稀有'], [4, '传奇']];
+/* 常见图集的中文说明（图集名本身是游戏里的键，没法翻译，这里给"它是什么"） */
+const MK_ATLAS_CN = {
+  Joker: '小丑牌', centers: '中心图集（塔罗 / 星球 / 强化 / 牌背…）', Tarot: '塔罗牌', Planet: '星球牌',
+  Spectral: '幽灵牌', Voucher: '优惠券', Booster: '补充包', tags: '标签', stickers: '贴纸',
+  blind_chips: '盲注筹码', cards_1: '扑克牌面（标准）', cards_2: '扑克牌面（高对比）',
+  Enhancers: '强化牌底纹', Edition: '版本', ui_1: '界面素材', ui_2: '界面素材（高对比）',
+  shop_sign: '商店招牌', chips: '筹码', money: '金额', '8BitDeck': '扑克牌面',
+};
+/** 图集下拉里显示的文案：中文说明 + 原始名 */
+function mkAtlasLabel (name) { return (MK_ATLAS_CN[name] ? MK_ATLAS_CN[name] + '（' + name + '）' : name) }
+/** 图片格式说明（放在上传那一行下面） */
+const MK_IMG_TIP = '支持 PNG / JPG / WebP / GIF / APNG；**动图会自动拆帧**（最多 24 帧），导出成横向帧序列 sheet.png，并在图集声明里写上 frames。';
 const MK_SUITS = [['Hearts', '红桃'], ['Diamonds', '方片'], ['Spades', '黑桃'], ['Clubs', '梅花']];
 const MK_RANKS = [['2', '2'], ['3', '3'], ['4', '4'], ['5', '5'], ['6', '6'], ['7', '7'], ['8', '8'], ['9', '9'], ['10', '10'], ['Jack', 'J'], ['Queen', 'Q'], ['King', 'K'], ['Ace', 'A']];
+const MK_ENH = [['', '不限'], ['m_bonus', '奖励牌'], ['m_mult', '倍率牌'], ['m_wild', '万能牌'], ['m_glass', '玻璃牌'],
+  ['m_steel', '钢铁牌'], ['m_stone', '石头牌'], ['m_gold', '黄金牌'], ['m_lucky', '幸运牌']];
+const MK_EDITION = [['', '不限'], ['e_foil', '闪箔'], ['e_holo', '镭射'], ['e_polychrome', '多彩'], ['e_negative', '负片']];
+const MK_SEAL = [['', '不限'], ['Red', '红蜡封'], ['Blue', '蓝蜡封'], ['Gold', '金蜡封'], ['Purple', '紫蜡封']];
 const MK_USE = [['dollars', '给一笔钱'], ['chips', '本手 +筹码'], ['mult', '本手 +倍率'],
   ['handsize', '手牌上限 +N'], ['tarot', '给一张随机塔罗'], ['planet', '给一张随机星球'],
   ['none', '什么都不做（占位）']];
@@ -6026,14 +6049,14 @@ const MK = {
   modId: 'mymod', modName: '我的 Mod', author: 'me', version: '1.0.0', desc: '由图鉴 Mod 制作器生成',
   prefix: 'mymod',
   key: 'alpha',
-  art: { atlas: 'Joker', pos: { x: 0, y: 0 }, upload: null, uploadName: '' },
+  art: { atlas: 'Joker', pos: { x: 0, y: 0 }, upload: null, uploadName: '', frames: null, animated: false },
   rarity: 1, cost: 4, order: 100, weight: 1,
   eternal: true, perishable: true, blueprint: true,
   nameZh: '阿尔法', nameEn: 'Alpha', textZh: '', textEn: '',
   effects: [{ when: 'card', cond: 'suit', condVal: 'Hearts', eff: 'chips', val: 50 }],
   useKind: 'dollars', useVal: 4, set: 'Tarot',
   /* 悬浮立绘（传奇牌那种飘在半空的画）：开了就多导一张 soul.png，并在 Lua 里写 soul_pos */
-  soul: { on: false, atlas: 'Joker', pos: { x: 0, y: 2 }, upload: null, uploadName: '' },
+  soul: { on: false, atlas: 'Joker', pos: { x: 0, y: 2 }, upload: null, uploadName: '', frames: null, animated: false },
   advanced: false, lua: null, luaDirty: false, config: '',
   cloneFrom: '',
 };
@@ -6059,7 +6082,40 @@ function mkAtlasName () {
   return a ? a.file : null;
 }
 /** 贴图源画到一张 71×95（或 2 倍）的画布上：从图集里裁一格，或用户上传的图 */
-function mkArtCanvas (scale) {
+/** 一帧画到 ctx 的指定位置（上传的图 / 图集里的一格） */
+function mkDrawSource (ctx, scale, dx, dy, src) {
+  const w = CARD_W * scale, h = CARD_H * scale;
+  const a = D.atlases[src.atlas];
+  if (src.upload) {
+    const im = src.upload;
+    const r = Math.min(w / im.width, h / im.height);
+    const iw = im.width * r, ih = im.height * r;
+    ctx.drawImage(im, dx + (w - iw) / 2, dy + (h - ih) / 2, iw, ih);
+    return;
+  }
+  if (!a) return;
+  const im2 = IMG[a.file];
+  const sc = a.scale || 1;
+  const sx = src.pos.x * a.px * sc, sy = src.pos.y * a.py * sc, sw = a.px * sc, sh = a.py * sc;
+  try { ctx.drawImage(im2, sx, sy, sw, sh, dx, dy, w, h) } catch (e) { /* 图还没解码完 */ }
+}
+/** 主体 / 立绘的一帧或整套帧序列（动图时横向铺开，正是原版图集的排法） */
+function mkSheetCanvas (scale, which) {
+  const src = which === 'soul' ? MK.soul : MK.art;
+  const frames = (src.frames && src.frames.length) ? src.frames : 1;
+  const cv = newCanvas(Math.round(CARD_W * scale * frames), Math.round(CARD_H * scale));
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  for (let i = 0; i < frames; i++) {
+    const one = src.frames && src.frames.length ? src.frames[i] : null;
+    if (one) mkDrawSource(ctx, scale, i * CARD_W * scale, 0, { atlas: src.atlas, pos: src.pos, upload: one });
+    else mkDrawSource(ctx, scale, i * CARD_W * scale, 0, src);
+  }
+  return cv;
+}
+function mkArtCanvas (scale) { return mkSheetCanvas(scale, 'art') }
+function mkSoulSheetCanvas (scale) { return mkSheetCanvas(scale, 'soul') }
+function mkOldArtCanvas (scale) {
   const px = CARD_W * scale, py = CARD_H * scale;
   const cv = newCanvas(Math.round(px), Math.round(py));
   const ctx = cv.getContext('2d');
@@ -6079,6 +6135,35 @@ function mkArtCanvas (scale) {
   return cv;
 }
 /** 预览：原版卡图（中心框 + 贴图），和合成台一样的方式 */
+/** 读一张图：静态返回 1 帧，GIF / APNG / 动图 WebP 用 ImageDecoder 拆帧（最多 24 帧） */
+async function mkReadImage (file) {
+  const url = URL.createObjectURL(file);
+  try {
+    if (typeof ImageDecoder !== 'undefined' && /gif|webp|apng|png$/i.test(file.type)) {
+      try {
+        const dec = new ImageDecoder({ data: await file.arrayBuffer(), type: file.type || 'image/png' });
+        await dec.completed;
+        const total = Math.min(dec.tracks.selectedTrack ? dec.tracks.selectedTrack.frameCount : 1, 24);
+        if (total > 1) {
+          const frames = [];
+          for (let i = 0; i < total; i++) {
+            const r = await dec.decode({ frameIndex: i });
+            const bmp = r.image;
+            const cv = newCanvas(bmp.displayWidth || bmp.codedWidth, bmp.displayHeight || bmp.codedHeight);
+            cv.getContext("2d").drawImage(bmp, 0, 0);
+            frames.push(cv);
+            bmp.close && bmp.close();
+          }
+          URL.revokeObjectURL(url);
+          return { frames, cover: frames[0] };
+        }
+      } catch (e) { /* 不是动图或解码器不认，退回静态 */ }
+    }
+    const im = await new Promise((res, rej) => { const i2 = new Image(); i2.onload = () => res(i2); i2.onerror = rej; i2.src = url });
+    URL.revokeObjectURL(url);
+    return { frames: [im], cover: im };
+  } catch (e) { URL.revokeObjectURL(url); return null }
+}
 /** 悬浮立绘的图：和主体用同一套取图方式，只是图集/坐标换成 soul 那一份 */
 function mkSoulCanvas (scale) {
   const keep = MK.art;
@@ -6087,9 +6172,34 @@ function mkSoulCanvas (scale) {
   MK.art = keep;
   return cv;
 }
+/** 预览：有上传（或动图）时直接画那张图/那一帧；否则用原版图集那一格 */
 function mkPreviewCanvas () {
+  if (MK.art.upload || (MK.art.frames && MK.art.frames.length)) {
+    const i = MK.art.frames && MK.art.frames.length ? (mkFrame % MK.art.frames.length) : 0;
+    const f = (MK.art.frames && MK.art.frames.length) ? MK.art.frames[i] : MK.art.upload;
+    const cv = newCanvas(CARD_W * 2, CARD_H * 2);
+    mkDrawSource(cv.getContext('2d'), 2, 0, 0, { atlas: MK.art.atlas, pos: MK.art.pos, upload: f });
+    return cv;
+  }
   const spec = { standalone: { atlas: MK.art.atlas, pos: MK.art.pos } };
   try { return compose(spec, 2) } catch (e) { return mkArtCanvas(2) }
+}
+let mkFrame = 0;
+let mkAnimTimer = null;
+/** 预览里的动图：6fps 换帧（只在有帧序列时跑，开销就是一次 drawImage） */
+function mkStartAnim () {
+  if (mkAnimTimer) return;
+  mkAnimTimer = setInterval(() => {
+    const box = document.querySelector('.mkpvbox');
+    if (!box || !box.isConnected) { clearInterval(mkAnimTimer); mkAnimTimer = null; return }
+    const total = (MK.art.frames && MK.art.frames.length) || 1;
+    if (total < 2) return;
+    mkFrame = (mkFrame + 1) % total;
+    const old = box.querySelector("canvas");
+    const cv = mkPreviewCanvas();
+    cv.style.width = '142px'; cv.style.height = '190px';
+    if (old) box.replaceChild(cv, old); else box.appendChild(cv);
+  }, 160);
 }
 function mkCondSnippet (e) {
   const v = e.condVal;
@@ -6101,6 +6211,9 @@ function mkCondSnippet (e) {
   if (e.cond === 'enh') return "context.other_card.config.center.key == '" + (v || 'm_bonus') + "'";
   if (e.cond === 'even') return 'context.other_card:get_id() <= 10 and context.other_card:get_id() % 2 == 0';
   if (e.cond === 'odd') return '(context.other_card:get_id() % 2 == 1 or context.other_card:get_id() == 14)';
+  if (e.cond === 'edition') return "context.other_card.edition and context.other_card.edition.key == '" + (v || 'e_foil') + "'";
+  if (e.cond === 'seal') return "context.other_card.seal == '" + (v || 'Red') + "'";
+  if (e.cond === 'deckcount') return '#G.playing_cards >= ' + (v || 40);
   return '';
 }
 /** 一行效果 → Lua 片段 */
@@ -6115,7 +6228,9 @@ function mkEffectLua (e) {
               : e.eff === 'handsize' ? 'h_size = ' + (val || 1)
                 : e.eff === 'tarot' ? "create_card('Tarot', G.play)"
                   : e.eff === 'planet' ? "create_card('Planet', G.play)"
-                    : 'repetitions = ' + (val || 1);
+                    : e.eff === 'levelup' ? 'level_up = true'
+                      : e.eff === 'joker' ? "create_card('Joker', G.play)"
+                        : 'repetitions = ' + (val || 1);
   const cond = mkCondSnippet(e);
   const lines = [];
   if (e.when === 'card') {
@@ -6162,9 +6277,12 @@ function mkCondText (e) {
   if (e.cond === 'face') return '人头牌（J/Q/K）';
   if (e.cond === 'hand') return '「' + (handCN({ name: v }) || v) + '」';
   if (e.cond === 'count') return '这一手至少 ' + (v || 5) + ' 张';
-  if (e.cond === 'enh') return '「' + (v || 'm_bonus') + '」强化';
+  if (e.cond === 'enh') return '「' + ((MK_ENH.filter((x) => x[0] === v)[0] || [v, v])[1]) + '」强化';
   if (e.cond === 'even') return '偶数点数';
   if (e.cond === 'odd') return '奇数点数';
+  if (e.cond === 'edition') return '「' + ((MK_EDITION.filter((x) => x[0] === v)[0] || [v, v])[1]) + '」版本';
+  if (e.cond === 'seal') return '「' + ((MK_SEAL.filter((x) => x[0] === v)[0] || [v, v])[1]) + '」';
+  if (e.cond === 'deckcount') return '牌堆里至少 ' + (v || 40) + ' 张';
   return '';
 }
 function mkEffText (e) {
@@ -6178,6 +6296,8 @@ function mkEffText (e) {
   if (e.eff === 'handsize') return '手牌上限 +' + (val || 1);
   if (e.eff === 'tarot') return '给一张随机塔罗';
   if (e.eff === 'planet') return '给一张随机星球';
+  if (e.eff === 'levelup') return '升级打出的牌型';
+  if (e.eff === 'joker') return '给一张随机小丑牌';
   return '再多结算 ' + (val || 1) + ' 次';
 }
 function mkWhenText (e) {
@@ -6214,6 +6334,7 @@ function mkLua () {
   L.push("    path = 'sheet.png',");
   L.push('    px = ' + CARD_W + ',');
   L.push('    py = ' + CARD_H);
+  if (MK.art.frames && MK.art.frames.length) L.push('    frames = ' + MK.art.frames.length + ',   -- 动图：横向帧序列');
   L.push('}');
   if (MK.type === 'Joker' && MK.soul.on) {
     L.push('');
@@ -6222,6 +6343,7 @@ function mkLua () {
     L.push("    path = 'soul.png',");
     L.push('    px = ' + CARD_W + ',');
     L.push('    py = ' + CARD_H);
+    if (MK.soul.frames && MK.soul.frames.length) L.push('    frames = ' + MK.soul.frames.length + ',   -- 动图：横向帧序列');
     L.push('}');
   }
   L.push('');
@@ -6320,13 +6442,13 @@ async function mkBuildFiles () {
   const files = [];
   files.push({ name: 'manifest.json', data: TE.encode(mkManifest()) });
   files.push({ name: MK.modId + '.lua', data: TE.encode(mkLua()) });
-  const one = await canvasBytes(mkArtCanvas(1));
-  const two = await canvasBytes(mkArtCanvas(2));
+  const one = await canvasBytes(mkSheetCanvas(1, 'art'));
+  const two = await canvasBytes(mkSheetCanvas(2, 'art'));
   files.push({ name: 'assets/1x/sheet.png', data: one });
   files.push({ name: 'assets/2x/sheet.png', data: two });
   if (MK.type === 'Joker' && MK.soul.on) {
-    files.push({ name: 'assets/1x/soul.png', data: await canvasBytes(mkSoulCanvas(1)) });
-    files.push({ name: 'assets/2x/soul.png', data: await canvasBytes(mkSoulCanvas(2)) });
+    files.push({ name: 'assets/1x/soul.png', data: await canvasBytes(mkSheetCanvas(1, 'soul')) });
+    files.push({ name: 'assets/2x/soul.png', data: await canvasBytes(mkSheetCanvas(2, 'soul')) });
   }
   return files;
 }
@@ -6405,11 +6527,17 @@ function viewMaker (root) {
     }
     b.appendChild(chips);
     const clone = document.createElement('div'); clone.className = 'mkrow';
-    const modItems = (typeof ITEMS !== 'undefined' ? ITEMS : []).filter((i) => i.source);
-    clone.innerHTML = '<label class="mkwide">照已导入 mod 的条目做一个' +
+    const pickable = ['Joker', 'Consumable', 'Voucher', 'Booster', 'Deck', 'Enhancement', 'Edition', 'Seal', 'Tag', 'Blind'];
+    const allItems = (typeof ITEMS !== 'undefined' ? ITEMS : []).filter((i) => pickable.indexOf(i.cat) >= 0);
+    const vanilla = allItems.filter((i) => !i.source);
+    const modGroups = {};
+    allItems.filter((i) => i.source).forEach((i) => { (modGroups[i.source] = modGroups[i.source] || []).push(i) });
+    clone.innerHTML = '<label class="mkwide">照现成的牌做一个（原版 + 已导入的 mod 全都在这里）' +
       '<select class="tbtn" id="mkClone"><option value="">（不复制，自己从头做）</option>' +
-      modItems.slice(0, 400).map((i) => '<option value="' + i.id + '">' + esc((i.sourceName || i.source) + ' · ' + nm(i)) + '</option>').join('') +
-      '</select></label><div class="hint">选一个已导入的条目：贴图、配置、文案会先复制过来，再按你的想法改。</div>';
+      '<optgroup label="原版 Balatro（' + vanilla.length + '）">' + vanilla.map((i) => '<option value="' + i.id + '">' + esc(i.cat + ' · ' + nm(i)) + '</option>').join('') + '</optgroup>' +
+      Object.keys(modGroups).map((k) => '<optgroup label="' + esc((modGroups[k][0].sourceName || k)) + '（' + modGroups[k].length + '）">' +
+        modGroups[k].map((i) => '<option value="' + i.id + '">' + esc(i.cat + ' · ' + nm(i)) + '</option>').join('') + '</optgroup>').join('') +
+      '</select></label><div class="hint">选一张现成的牌：类型、贴图、稀有度 / 价格 / 权重、中英文文案、config 与能反解出来的效果都会先复制过来，然后你可以逐项改（这就是「全方位修改」）。</div>';
     b.appendChild(clone);
     right.appendChild(sec('① 做什么', b, 'type').box);
   }
@@ -6419,9 +6547,10 @@ function viewMaker (root) {
     const b = document.createElement('div');
     const atlasNames = Object.keys(D.atlases);
     b.innerHTML = '<div class="mkrow"><label>从哪个图集取图<select class="tbtn" id="mkAtlas">' +
-      atlasNames.map((n) => '<option value="' + n + '"' + (MK.art.atlas === n ? ' selected' : '') + '>' + n + '</option>').join('') +
+      atlasNames.map((n) => '<option value="' + n + '"' + (MK.art.atlas === n ? ' selected' : '') + '>' + mkAtlasLabel(n) + '</option>').join('') +
       '</select></label>' +
       '<label class="mkfile">或上传自己的图<input type="file" id="mkUpload" accept="image/*"></label></div>' +
+      '<div class="hint">' + MK_IMG_TIP + '</div>' +
       '<div class="hint" id="mkArtHint"></div>' +
       '<div class="mkartgrid" id="mkArtGrid"></div>';
     if (MK.type === 'Joker') {
@@ -6447,10 +6576,14 @@ function viewMaker (root) {
         MK_WHEN.map((w) => '<option value="' + w[0] + '"' + (e.when === w[0] ? ' selected' : '') + '>' + w[1] + '</option>').join('') + '</select>';
       const cond = '<span class="mkword">且</span><select class="tbtn" data-fx="' + i + '" data-f="cond">' +
         MK_COND.map((c) => '<option value="' + c[0] + '"' + (e.cond === c[0] ? ' selected' : '') + '>' + c[1] + '</option>').join('') + '</select>';
-      const condVal = e.cond === 'suit' ? '<select class="tbtn" data-fx="' + i + '" data-f="condVal">' + MK_SUITS.map((s) => '<option value="' + s[0] + '"' + (e.condVal === s[0] ? ' selected' : '') + '>' + s[1] + '</option>').join('') + '</select>'
+      const mkOpts = (list) => list.map((s) => '<option value="' + s[0] + '"' + (e.condVal === s[0] ? ' selected' : '') + '>' + s[1] + '</option>').join('');
+      const condVal = e.cond === 'suit' ? '<select class="tbtn" data-fx="' + i + '" data-f="condVal">' + mkOpts(MK_SUITS) + '</select>'
+        : e.cond === 'enh' ? '<select class="tbtn" data-fx="' + i + '" data-f="condVal">' + mkOpts(MK_ENH) + '</select>'
+          : e.cond === 'edition' ? '<select class="tbtn" data-fx="' + i + '" data-f="condVal">' + mkOpts(MK_EDITION) + '</select>'
+            : e.cond === 'seal' ? '<select class="tbtn" data-fx="' + i + '" data-f="condVal">' + mkOpts(MK_SEAL) + '</select>'
         : e.cond === 'rank' ? '<select class="tbtn" data-fx="' + i + '" data-f="condVal">' + MK_RANKS.map((r) => '<option value="' + r[0] + '"' + (e.condVal === r[0] ? ' selected' : '') + '>' + r[1] + '</option>').join('') + '</select>'
           : e.cond === 'hand' ? '<select class="tbtn" data-fx="' + i + '" data-f="condVal">' + D.hands.slice().sort((x, y) => (y.order || 0) - (x.order || 0)).map((h) => '<option value="' + h.name + '"' + (e.condVal === h.name ? ' selected' : '') + '>' + handCN(h) + '</option>').join('') + '</select>'
-            : (e.cond === 'count' ? '<input class="tbtn" type="number" min="1" max="5" data-fx="' + i + '" data-f="condVal" value="' + (e.condVal || 5) + '">' : '');
+            : ((e.cond === 'count' || e.cond === 'deckcount') ? '<input class="tbtn" type="number" min="1" max="99" data-fx="' + i + '" data-f="condVal" value="' + (e.condVal || (e.cond === 'count' ? 5 : 40)) + '">' : '');
       const eff = '<span class="mkword">则给</span><select class="tbtn" data-fx="' + i + '" data-f="eff">' +
         MK_EFF.map((x) => '<option value="' + x[0] + '"' + (e.eff === x[0] ? ' selected' : '') + '>' + x[1] + '</option>').join('') + '</select>';
       const val = '<input class="tbtn mkn" type="number" step="0.5" data-fx="' + i + '" data-f="val" value="' + e.val + '">';
@@ -6560,12 +6693,27 @@ function viewMaker (root) {
     const cols = a.cols || Math.max(1, Math.floor((a.w / (a.px * (a.scale || 1))) || 1));
     const rows = a.rows || Math.max(1, Math.floor((a.h / (a.py * (a.scale || 1))) || 1));
     const total = Math.min(cols * rows, 240);
+    const a2 = a;
+    const paint = (cell, x, y) => {
+      if (cell.__painted) return;
+      cell.__painted = true;
+      const s2 = a2.scale || 1;
+      const cv2 = newCanvas(34, 46);
+      const c2 = cv2.getContext("2d");
+      c2.imageSmoothingEnabled = false;
+      const im = IMG[a2.file];
+      const sw = a2.px * s2, sh = a2.py * s2;
+      const r = Math.min(cv2.width / sw, cv2.height / sh);
+      try { c2.drawImage(im, x * sw, y * sh, sw, sh, (cv2.width - sw * r) / 2, (cv2.height - sh * r) / 2, sw * r, sh * r) } catch (e) { /* 图没解码完 */ }
+      cell.appendChild(cv2);
+    };
     for (let i = 0; i < total; i++) {
       const x = i % cols, y = Math.floor(i / cols);
       const cell = document.createElement('button');
       cell.className = 'mkcell' + (MK.art.pos.x === x && MK.art.pos.y === y && !MK.art.upload ? ' on' : '');
       cell.title = 'x=' + x + ' y=' + y;
-      cell.onclick = () => mkSet({ art: { atlas: MK.art.atlas, pos: { x, y }, upload: null, uploadName: '' } });
+      cell.onclick = () => mkSet({ art: { atlas: MK.art.atlas, pos: { x, y }, upload: null, uploadName: '', frames: null, animated: false } });
+      if (IO) { cell._paint = () => paint(cell, x, y); IO.observe(cell) } else paint(cell, x, y);
       grid.appendChild(cell);
     }
     const hint = q('#mkArtHint');
@@ -6574,12 +6722,14 @@ function viewMaker (root) {
   const atlasSel = q('#mkAtlas');
   if (atlasSel) atlasSel.onchange = () => mkSet({ art: Object.assign({}, MK.art, { atlas: atlasSel.value, pos: { x: 0, y: 0 }, upload: null }) });
   const up = q('#mkUpload');
-  if (up) up.onchange = (e) => {
+  if (up) up.onchange = async (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
-    const im = new Image();
-    im.onload = () => mkSet({ art: { atlas: MK.art.atlas, pos: MK.art.pos, upload: im, uploadName: f.name } });
-    im.src = URL.createObjectURL(f);
+    const info = await mkReadImage(f);
+    if (!info) { status("这张图读不了（浏览器不支持这个格式）"); return }
+    mkSet({ art: Object.assign({}, MK.art, { upload: info.frames[0] || info.cover, frames: info.frames.length > 1 ? info.frames : null, animated: info.frames.length > 1, uploadName: f.name }) });
+    status('已使用「' + f.name + '」' + (info.frames.length > 1 ? '（动图，拆出 ' + info.frames.length + ' 帧，导出会铺成横向帧序列）' : '（静态图）'));
+    if (info.frames.length > 1) mkStartAnim();
   };
   const sz = q('#mkSize');
   if (sz) sz.onchange = () => mkSet({});
@@ -6600,6 +6750,10 @@ function viewMaker (root) {
       if (f === 'cond' && el.value === 'rank') list2[i].condVal = 'King';
       if (f === 'cond' && el.value === 'hand') list2[i].condVal = D.hands[0] && D.hands[0].name;
       if (f === 'cond' && el.value === 'count') list2[i].condVal = 5;
+      if (f === 'cond' && el.value === 'enh') list2[i].condVal = 'm_bonus';
+      if (f === 'cond' && el.value === 'edition') list2[i].condVal = 'e_foil';
+      if (f === 'cond' && el.value === 'seal') list2[i].condVal = 'Red';
+      if (f === 'cond' && el.value === 'deckcount') list2[i].condVal = 40;
       mkSet({ effects: list2 });
     });
   });
@@ -6624,8 +6778,24 @@ function viewMaker (root) {
     if (cfg.extra && typeof cfg.extra === 'object') { push('card', 'chips', cfg.extra.chips); push('card', 'mult', cfg.extra.mult); push('card', 'xmult', cfg.extra.x_mult) }
     else { push('card', 'chips', typeof cfg.extra === 'number' ? 0 : 0) }
     const zh = (it.text && it.text.zh_CN) || [];
+    /* 规则反解：把原版规则里的 chips / mult / x_mult 变成可编辑的效果行（认不出的留给配置 JSON） */
+    const rule = (typeof JOKER_RULES !== 'undefined' && JOKER_RULES.rules ? JOKER_RULES.rules : []).find((r) => r.n === it.name) || null;
+    if (rule && rule.e) {
+      const kindOf = (f) => (/^x_mult|^Xmult_mod/.test(f) ? 'xmult' : /^mult|^t_mult|^mult_mod/.test(f) ? 'mult' : /^chips|^chip_mod|^t_chips/.test(f) ? 'chips' : /dollars/.test(f) ? 'dollars' : null);
+      const seenK = {};
+      rule.e.forEach((ex) => {
+        const f = ex.split('=')[0]; const k = kindOf(f);
+        if (!k || seenK[k]) return;
+        const cfgV = (it.config && it.config.extra && (it.config.extra[f] || it.config.extra.chips || it.config.extra.mult || it.config.extra.x_mult)) || it.config[f];
+        const num = typeof cfgV === 'number' ? cfgV : (k === 'xmult' ? 1.5 : k === 'dollars' ? 1 : 4);
+        seenK[k] = true;
+        effects.push({ when: rule.r === 'individual' ? 'card' : (rule.r === 'repetition' ? 'repetition' : 'hand'), cond: '', condVal: '', eff: k, val: num });
+      });
+    }
     mkSet({
       cloneFrom: it.id, type: it.cat === 'Joker' ? 'Joker' : (it.cat === 'Consumable' ? 'Consumable' : it.cat),
+      rarity: it.rarity || MK.rarity, cost: it.cost || MK.cost, order: it.order || MK.order, weight: it.weight || MK.weight,
+      eternal: it.eternal_compat !== false, perishable: it.perishable_compat !== false, blueprint: it.blueprint_compat !== false,
       key: 'my' + String(it.key || it.id).replace(/^[a-z]+_/, ''),
       art: { atlas: it.atlas || MK.art.atlas, pos: it.pos || { x: 0, y: 0 }, upload: null, uploadName: '' },
       nameZh: nm(it, 'zh_CN'), nameEn: nm(it, 'en-us'), textZh: zh.join(' '), textEn: ((it.text && it.text['en-us']) || []).join(' '),
