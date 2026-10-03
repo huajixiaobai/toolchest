@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "b26eeb98";
+window.__APP_BUILD__ = "b8caa103";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
