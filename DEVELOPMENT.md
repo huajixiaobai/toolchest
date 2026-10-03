@@ -469,6 +469,11 @@ node bundle.js
   ```
 - 实测（真浏览器）：`mkGif` → `framesInLua: true`、`animTable: 1`、`fpsInLua: true`、`atlasSyntaxOk: true`（表里每行逗号都对）；`mkApng` 同样；`mkGifSoul`（只上传立绘动图）→ `animTables: 1`、`fpsCount: 1`，也就是**立绘那个图集**被标成了动图（主体没上传所以仍是静态）。另外给这套自检加了**反证**：把一段漏逗号的坏样本喂给同一个判断，必须返回 false，`syntaxCheckSelfTest: true` —— 否则这个检查等于没做。
 
+- **同一轮里出的一次事故（记下来，因为它是「静默失效」那种）**：我用 PowerShell 的 `Set-Content` 改 `.gitignore` 时把它写成了**非 UTF-8**。git 读不出里面的规则，而且**不报任何错** —— 规则就是安静地失效了。紧接着的 `git add -A` 于是把两棵本该被忽略的目录扫进了公开仓库：`local/`（「自己用」的构建，含 2.1 MB 打包图集 + 1.2 MB 数据）和 `.work/third-party/smods/`（整份 Steamodded 源码，197 个文件）。
+- 处理：`.gitignore` 从最后一个合法版本恢复（只保留必要规则；**以后改文件一律用编辑工具，不再用 shell 重定向**）；`local/` 与 `.work/third-party/` 已从版本库移除（18 + 197 个文件），固定夹具 `.work/verify/astral/`、`.work/verify/testmod/` 保留（它们本来就该在库里）；顺带把上一轮误删的夹具也恢复了。
+- 防复发：新增 `.work/verify/check-repo-boundary.js`（查 `.gitignore` 是不是合法 UTF-8 + 关键规则还在不在 + 有没有「本该忽略却被跟踪」的文件 + 可疑素材与大文件兜底，并带一条反证：非法 UTF-8 的样本必须被抓到），并装成 **pre-commit 钩子**（`.work/hooks/pre-commit`）。实测：把 `.gitignore` 故意写坏后提交，提交被**拦住**（HEAD 没变）；恢复后自检通过。
+- **还没做的（需要你点头）**：那批文件仍在**历史**里 —— 提交 `4098115` 的树中含 2.1 MB 图集与第三方源码，而且已经推上 GitHub。清掉历史要改写已发布的提交再强制推送，属于破坏性操作，我不替你做决定。
+
 **第四十五轮（APNG 也真的能动了；动图 WebP 说清为什么不能）**
 - APNG 原来和 GIF 一样指望内核的 `ImageDecoder`。这一轮先测清楚：**无头 Chrome 154 和「有界面的」Chrome 154 都没有这个接口**（`hasImageDecoder: false`，而 `DecompressionStream` 有）——所以这不是无头环境的限制，而是这个内核版本就没有，用户平时用的浏览器同样拆不了。
 - 于是自己写 APNG 解析（`.work/apngdec.js`，纯计算，唯一外部依赖是「解 zlib」，由调用方注入：浏览器给 `DecompressionStream('deflate')`，Node 给 `zlib.inflateSync`）：块解析（IHDR / acTL / fcTL / fdAT / PLTE / tRNS）+ PNG 滤波反解（None/Sub/Up/Average/Paeth）+ 逐帧合成（子矩形、dispose 0/1/2、blend 0/1）。8 位全支持，1/2/4 位的灰度与调色板也支持（upng-js 默认就产出 4 位调色板 APNG）；16 位与隔行扫描**不装懂**，直接返回 null 让调用方走静态那条路。

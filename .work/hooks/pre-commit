@@ -1,0 +1,13 @@
+#!/bin/sh
+# 提交前跑一遍仓库边界自检。
+# 为什么：第四十六轮改 .gitignore 时把它写成了非 UTF-8，git 读不出规则但**不会报错**，
+# 紧接着的 git add -A 就把带游戏素材的 local/ 构建和整份 Steamodded 源码扫进了公开仓库。
+# 这道钩子就是为了让这种事发生在提交之前。
+# 安装：cp .work/hooks/pre-commit .git/hooks/pre-commit
+node .work/verify/check-repo-boundary.js
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "❌ 仓库边界自检没过，提交已中止（游戏素材/第三方源码不该进仓库）。"
+  echo "   确实要跳过就 git commit --no-verify，但请先确认自己在做什么。"
+  exit 1
+fi
