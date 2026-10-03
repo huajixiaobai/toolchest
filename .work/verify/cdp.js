@@ -3106,6 +3106,38 @@ const SCENARIOS = {
     ];
     r.errors=window.__V.errors.length;
     return r })()`,
+  /* Mod 制作器：做一张小丑牌 → 打包 → 用图鉴自己的解析器再导入一遍（端到端） */
+  modMaker: `(async()=>{
+    const B=window.__BALATRO__; const S=B.state; const r={}; await __V.wait(1400);
+    const q=(s)=>document.querySelector(s); const qa=(s)=>[].slice.call(document.querySelectorAll(s));
+    S.tab='maker'; B.render(); await __V.wait(900);
+    r.view={ hasView:!!q('.maker'), sections:qa('.mkright .opt').length, cells:qa('#mkArtGrid .mkcell').length, hasLua:!!q('#mkLua'), buttons:qa('.mkbtnrow .btn').map(function(b){return b.textContent.trim()}) };
+    B.maker.state.effects=[{when:'card',cond:'suit',condVal:'Hearts',eff:'chips',val:50}];
+    B.maker.state.nameZh='阿尔法'; B.maker.state.nameEn='Alpha'; B.maker.state.key='alpha';
+    B.maker.state.textZh=''; B.maker.state.textEn='';
+    const lua=B.maker.lua();
+    r.lua={ isJoker:lua.indexOf('SMODS.Joker')>=0, hasCalc:lua.indexOf('calculate_joker')>=0,
+      hasAtlas:lua.indexOf('SMODS.Atlas')>=0, hasSuit:lua.indexOf('Hearts')>=0,
+      hasChips:lua.indexOf('chips = 50')>=0, hasLoc:lua.indexOf('阿尔法')>=0, bytes:lua.length };
+    const man=JSON.parse(B.maker.manifest());
+    r.manifest={ id:man.id, main:man.main_file, deps:(man.dependencies||[]).length };
+    const files=await B.maker.files();
+    r.files=files.map(function(f){return f.name+'('+f.data.length+'B)'});
+    const before=B.items.length;
+    const res=await B.importZipBuffer(B.zipStore(files), B.maker.state.modId);
+    await __V.wait(900);
+    r.imported={ ok:res&&res.ok!==false, items:res&&res.mod?res.mod.items:null, atlases:res&&res.mod?res.mod.atlases:null,
+      warnings:res&&res.mod?res.mod.warnings:null, total:B.items.length, delta:B.items.length-before };
+    const mine=B.items.filter(function(i){return i.source===B.maker.state.modId});
+    r.newItem=mine.length?{ id:mine[0].id, name:mine[0].i18n&&mine[0].i18n.zh_CN, cat:mine[0].cat, atlas:mine[0].atlas, pos:mine[0].pos, text:((mine[0].text&&mine[0].text.zh_CN)||[]).join(' ') }:null;
+    /* 截图：制作器整页（数字看不出界面长啥样） */
+    S.tab='maker'; B.render(); await __V.wait(900);
+    const SUF3 = innerWidth < 600 ? '-ph' : (innerWidth < 1000 ? '-tab' : '');
+    r.__hover=[
+      { at:'#mkArtGrid .mkcell', name:'mkHover', ms:500, shot:'ui-maker'+SUF3, clip:'.maker' },
+    ];
+    r.errors=window.__V.errors.length;
+    return r })()`,
   /* 逐步播放（动画已删）：只检查步骤推进、数字变化与各机型的空间 */
   playStep: `(async()=>{
     const B=window.__BALATRO__; const S=B.state; const r={}; await __V.wait(1400);
@@ -3884,6 +3916,7 @@ async function main () {
   if (SCENARIOS.uxAudit && !SCENARIOS.uxAuditMobile) { SCENARIOS.uxAuditMobile = SCENARIOS.uxAudit; SCENARIOS.uxAuditTablet = SCENARIOS.uxAudit }
   if (SCENARIOS.blindPick && !SCENARIOS.blindPickMobile) { SCENARIOS.blindPickMobile = SCENARIOS.blindPick; SCENARIOS.blindPickTablet = SCENARIOS.blindPick }
   if (SCENARIOS.playStep && !SCENARIOS.playStepMobile) { SCENARIOS.playStepMobile = SCENARIOS.playStep; SCENARIOS.playStepTablet = SCENARIOS.playStep }
+  if (SCENARIOS.modMaker && !SCENARIOS.modMakerMobile) { SCENARIOS.modMakerMobile = SCENARIOS.modMaker; SCENARIOS.modMakerTablet = SCENARIOS.modMaker }
   if (SCENARIOS.demoLayout && !SCENARIOS.demoLayoutMobile) SCENARIOS.demoLayoutMobile = SCENARIOS.demoLayout
   if (SCENARIOS.scoreCalc && !SCENARIOS.scoreCalcMobile) SCENARIOS.scoreCalcMobile = SCENARIOS.scoreCalc
   if (SCENARIOS.scoreNewPreset && !SCENARIOS.scoreNewPresetMobile) SCENARIOS.scoreNewPresetMobile = SCENARIOS.scoreNewPreset
@@ -3977,12 +4010,12 @@ async function main () {
       await c.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 560, deviceScaleFactor: 1, mobile: false })
       LongMode = true
     }
-    if (name === 'uxAuditTablet' || name === 'blindPickTablet' || name === 'playStepTablet') {
+    if (name === 'uxAuditTablet' || name === 'blindPickTablet' || name === 'playStepTablet' || name === 'modMakerTablet') {
       /* iPad Air 竖屏 / 常见安卓平板：触摸 + 无悬停，最能暴露"只能鼠标用"的交互 */
       await c.send('Emulation.setDeviceMetricsOverride', { width: 834, height: 1112, deviceScaleFactor: 2, mobile: true })
       await c.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {})
       MobileMode = true
-    } else if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile' || name === 'scoreCalcMobile' || name === 'scoreNewPresetMobile' || name === 'scorePickOpenMobilePhone' || name === 'scorePickScrollMobile' || name === 'scoreUi2Phone' || name === 'bootMobile' || name === 'uiFixMobile' || name === 'uxAuditMobile' || name === 'blindPickMobile' || name === 'animAuditMobile' || name === 'playStepMobile') {
+    } else if (name === 'forgePhone' || name === 'mobile' || name === 'bootPhone' || name === 'demoRectMobile' || name === 'demoLayoutMobile' || name === 'scoreCalcMobile' || name === 'scoreNewPresetMobile' || name === 'scorePickOpenMobilePhone' || name === 'scorePickScrollMobile' || name === 'scoreUi2Phone' || name === 'bootMobile' || name === 'uiFixMobile' || name === 'uxAuditMobile' || name === 'blindPickMobile' || name === 'animAuditMobile' || name === 'playStepMobile' || name === 'modMakerMobile') {
       // emulate a phone viewport (bootPhone tests the start screen visitors land on)
       await c.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
       await c.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {})
