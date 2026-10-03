@@ -3141,7 +3141,7 @@ const SCENARIOS = {
     /* 预览信息卡必须随类型变（换类型不能永远是同一段文本） */
     r.perType={};
     for (const ty of ['Joker','Blind','Booster','Back','Tag','Enhancement','Consumable']) {
-      B.maker.state.type=ty;
+      B.maker.typeChip ? B.maker.typeChip(ty) : (B.maker.state.type=ty);   /* 走界面那条路：点类型胶囊 */
       if (ty==='Blind' && !B.maker.state.t.boss_mult) B.maker.state.t={ boss_min:1, boss_max:10, blind_mult:2, blind_dollars:5, debuff_suit:'Spades', debuff_face:false };
       if (ty==='Booster' && !B.maker.state.t.kind) B.maker.state.t={ kind:'Arcana', choose:1, extra:3, cost:4 };
       if (ty==='Back' && !B.maker.state.t.hand_size) B.maker.state.t={ hand_size:8, hands:4, discards:3, dollars:4, joker_slot:5, consumable_slot:2 };

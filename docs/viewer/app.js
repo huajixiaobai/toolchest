@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "7dc91951";
+window.__APP_BUILD__ = "c786e464";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -6592,7 +6592,7 @@ function init () {
     mods: MODS, importModZip, importModFiles, importBatch, importZipBuffer, filesFromDrop, removeMod, sourceItems,
     modImport: window.__MODIMPORT__, categoryLabel,
     /* Mod 制作器：状态 / 生成的 Lua / manifest / 要打包的文件（脚本与控制台都能用） */
-    maker: { state: MK, lua: () => mkLua(), manifest: () => mkManifest(), files: () => mkBuildFiles(), types: MK_TYPES, when: MK_WHEN, eff: MK_EFF,
+    maker: { typeChip: (ty) => { mkSet({ type: ty }) }, state: MK, lua: () => mkLua(), manifest: () => mkManifest(), files: () => mkBuildFiles(), types: MK_TYPES, when: MK_WHEN, eff: MK_EFF,
       presets: MK_PRESETS, cond: MK_COND, readImage: mkReadImage, sheet: (scale, which) => mkSheetCanvas(scale, which || "art"),
       atlasLabel: mkAtlasLabel },   /* 脚本/控制台都能用：读图（含动图拆帧）、取帧序列画布 */
     // --- 得分计算器（脚本化测试与自用都方便）---
@@ -6773,6 +6773,16 @@ const MK = {
 };
 
 function mkType () { return MK_TYPES.filter((t) => t[0] === MK.type)[0] || MK_TYPES[0] }
+/** 每种类型的默认名字与默认 key：换类型时若还没自己改过就一起换（不然永远是"阿尔法"） */
+const MK_DEFAULT_NAME = {
+  Joker: ['阿尔法', 'alpha'], Consumable: ['测试塔罗', 'testcard'], Voucher: ['测试优惠券', 'testvoucher'],
+  Booster: ['测试补充包', 'testpack'], Back: ['测试牌组', 'testdeck'], Enhanced: ['测试强化', 'testenh'],
+  Edition: ['测试版本', 'testedition'], Seal: ['测试蜡封', 'testseal'], Tag: ['测试标签', 'testtag'], Blind: ['测试盲注', 'testblind'],
+};
+/** 预览里那句占位文案：小丑牌提示去选预设，其它类型提示专属设置还没填 */
+function mkPlaceholderText () {
+  return MK.type === 'Joker' ? mkPlaceholderText() : '（这个类型还有专属设置没填）';
+}
 /** 类型专属设置的当前值 → 一行行读得懂的说明（盲注：底注 1–10 / 需求 ×2 / 削弱梅花…） */
 function mkTypeSummaryLines () {
   const defs = MK_TYPE_FIELDS[MK.type];
@@ -6790,6 +6800,12 @@ function mkTypeSummaryLines () {
 /** 盲注那种"底注 1–10"要连起来读更顺 */
 function mkTypeSummaryText () {
   const lines = mkTypeSummaryLines();
+  if (MK.type === 'Consumable') {
+    const set = (MK_SETS.filter((x) => x[0] === MK.set)[0] || ['', '消耗品'])[1];
+    const use = (MK_USE.filter((x) => x[0] === MK.useKind)[0] || ['', ''])[1];
+    return ['属于：' + set, '使用时：' + use + (MK.useKind === 'none' ? '' : '（' + MK.useVal + '）'), '价格 $' + MK.cost];
+  }
+  if (MK.type === 'Seal') return ['蜡封本身没有数值字段：它的效果由「拿它做了什么」决定（原版逻辑）', '外观取自贴图'];
   if (MK.type === 'Blind') {
     const t2 = MK.t;
     const min = t2.boss_min !== undefined ? t2.boss_min : 1, max = t2.boss_max !== undefined ? t2.boss_max : 10;
@@ -6798,16 +6814,27 @@ function mkTypeSummaryText () {
   }
   return lines;
 }
-/** 预览卡上的小标签：小丑牌是稀有度/价格/立绘，其它类型给类型专属摘要 */
+/** 预览卡上的小标签（按类型给） */
 function mkTag () {
   const bits = [];
+  const t = MK.t || {};
   if (MK.type === 'Joker') {
-    bits.push(...MK_RARITY.filter((r) => r[0] === MK.rarity).map((r) => r[1]));
+    bits.push((MK_RARITY.filter((r) => r[0] === MK.rarity)[0] || ['', '普通'])[1]);
     bits.push('$' + MK.cost);
     if (MK.soul.on) bits.push('有立绘');
-  } else if (MK.type === 'Consumable' || MK.type === 'Voucher' || MK.type === 'Booster') {
-    if (MK.type === 'Consumable') bits.push((MK_SETS.filter((x) => x[0] === MK.set)[0] || ['', '消耗品'])[1]);
-    bits.push('$' + (MK.type === 'Booster' ? (MK.t.cost || 4) : MK.cost));
+  } else if (MK.type === 'Consumable') {
+    bits.push((MK_SETS.filter((x) => x[0] === MK.set)[0] || ['', '消耗品'])[1]);
+    bits.push('$' + MK.cost);
+  } else if (MK.type === 'Booster') {
+    const kinds = [['Arcana', '秘术包'], ['Celestial', '天界包'], ['Standard', '标准包'], ['Buffoon', '小丑包'], ['Spectral', '幽灵包']];
+    bits.push((kinds.filter((x) => x[0] === t.kind)[0] || ['', '补充包'])[1]);
+    bits.push('选 ' + (t.choose || 1) + ' / 给 ' + (t.extra || 3));
+    bits.push('$' + (t.cost || 4));
+  } else if (MK.type === 'Voucher') {
+    bits.push('$' + MK.cost);
+  } else if (MK.type === 'Blind') {
+    bits.push('底注 ' + (t.boss_min || 1) + '–' + (t.boss_max || 10));
+    bits.push('需求 ×' + (t.blind_mult || 2));
   } else bits.push(mkType()[1]);
   return bits.map((b) => '<i class="mktag">' + esc(String(b)) + '</i>').join('');
 }
@@ -7371,7 +7398,19 @@ function mkRefreshLuaAndPreview () {
   if (line) line.innerHTML = '<b>' + esc(MK.nameZh || MK.key) + '</b> · ' + esc(mkType()[1]) +
     '<br>' + esc(mkAutoText('zh') || '（还没有效果）');
 }
-function mkSet (patch) { Object.assign(MK, patch); if (patch && ('type' in patch || 'key' in patch || 'art' in patch || 'effects' in patch)) MK.luaDirty = false; mkRedraw() }
+/** 换类型时：名字 / key 若还是"上一个类型的默认值"，就一起换成新类型的默认值 */
+function mkApplyTypeDefaults (prevType) {
+  const prev = MK_DEFAULT_NAME[prevType] || null;
+  const next = MK_DEFAULT_NAME[MK.type] || null;
+  if (!next) return;
+  if (!MK.nameZh || (prev && MK.nameZh === prev[0])) MK.nameZh = next[0];
+  if (!MK.key || (prev && MK.key === prev[1])) MK.key = next[1];
+  if (!MK.nameEn || (prev && MK.nameEn === prev[0])) MK.nameEn = next[0];
+}
+function mkSet (patch) {
+  const prevType = MK.type;
+  Object.assign(MK, patch);
+  if (patch && patch.type && patch.type !== prevType) mkApplyTypeDefaults(prevType); if (patch && ('type' in patch || 'key' in patch || 'art' in patch || 'effects' in patch)) MK.luaDirty = false; mkRedraw() }
 let mkRedraw = () => { render() };
 
 /* ---------------------------------------------------------------- 视图 */
@@ -7414,7 +7453,7 @@ function viewMaker (root) {
   pv.appendChild(pvBox);
   const pvLine = document.createElement('div'); pvLine.className = 'mkpvline';
   pvLine.innerHTML = '<div class="mkpvname"><b>' + esc(MK.nameZh || MK.key) + '</b>' + mkTag() + '</div>' +
-    '<div class="mkpvfx">' + esc(mkAutoText('zh') || '（还没有效果 —— 到右边第 ② 段选一个预设）') + '</div>';
+    '<div class="mkpvfx">' + esc(mkAutoText('zh') || mkPlaceholderText()) + '</div>';
   pv.appendChild(pvLine);
   left.appendChild(pv);
 
@@ -7670,7 +7709,7 @@ function viewMaker (root) {
     const d = q('#mkDesc'); if (d) d.innerHTML = mkDescHtml();
     const line = q('.mkpvline');
     if (line) line.innerHTML = '<div class="mkpvname"><b>' + esc(MK.nameZh || MK.key) + '</b>' + mkTag() + '</div>' +
-      '<div class="mkpvfx">' + esc(mkAutoText('zh') || '（还没有效果 —— 到右边第 ② 段选一个预设）') + '</div>';
+      '<div class="mkpvfx">' + esc(mkAutoText('zh') || mkPlaceholderText()) + '</div>';
     if (!MK.luaDirty) { const ta2 = q('#mkLua'); if (ta2) ta2.value = mkLua() }
   };
   MKEL.refresh = refresh;
