@@ -52,3 +52,7 @@ desktop.ini
 
 # 从游戏源码里逆出来的 UI 规范（含大段 Lua 摘录）—— 只在本机当参考，不进公开仓库
 .work/specs/
+
+# ̽��ű��õ���ʱ Chrome �û�Ŀ¼ / GIF ������Ե�ͼƬ���
+.work/tmp-probe-*/
+.work/verify/gifdump/
