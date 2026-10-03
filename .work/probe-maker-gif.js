@@ -68,6 +68,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
         const st=B.maker.state.art, so=B.maker.state.soul;
         window.__P.art={frames:st.frames?st.frames.length:0,name:st.uploadName,delay:st.delay||0};
         window.__P.soul={frames:so.frames?so.frames.length:0,name:so.uploadName,delay:so.delay||0};
+        const stEl=document.querySelector('#mkStatus'); window.__P.status=stEl?stEl.textContent:'';
         mark('已拆帧 art='+window.__P.art.frames+' soul='+window.__P.soul.frames);
         const hash=()=>{ const cv=document.querySelector('.mkpvbox canvas'); if(!cv) return null; const d=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data; let h=0; for(let i=0;i<d.length;i+=97) h=(h*31+d[i])>>>0; return h };
         const h1=hash(); await new Promise(r=>setTimeout(r,450)); const h2=hash();
@@ -92,7 +93,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
           const cv=document.createElement('canvas'); cv.width=im.width; cv.height=im.height;
           const cx=cv.getContext('2d'); cx.drawImage(im,0,0);
           const d=cx.getImageData(0,0,im.width,im.height).data;
-          const cells=[]; const cw=Math.round(im.width/24);
+          const cells=[]; const nf=Math.max(1, (B.maker.state.art.frames?B.maker.state.art.frames.length:1), (B.maker.state.soul.frames?B.maker.state.soul.frames.length:1));
+          const cw=Math.round(im.width/nf);
           for (let c=0;c<Math.max(1,Math.round(im.width/cw));c++){ let n=0; for(let y=0;y<im.height;y++) for(let x=0;x<cw;x++){ const o=(y*im.width+c*cw+x)*4; if(d[o+3]>0) n++ } cells.push(n) }
           window.__P.exportedCells=cells; window.__P.exportedSize=im.width+'x'+im.height;
           URL.revokeObjectURL(url);

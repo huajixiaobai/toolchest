@@ -6484,6 +6484,245 @@ function mkGifFrames (bytes, max) {
     return { frames: mkFramesToCanvases(g), delay: g[0].delay, total: g.length };
   } catch (e) { return null }
 }
+/* ---------------------------------------------------------------- APNG 帧解析
+ * 和 gifdec.js 一样：纯计算，不碰 canvas / DOM；唯一的外部依赖是「解 zlib」这一步，
+ * 由调用方注入（浏览器用 DecompressionStream('deflate')，Node 用 zlib.inflateSync）。
+ * 为什么不用内核的 ImageDecoder：实测这台机器的 Chrome 根本没有这个接口，
+ * APNG 上传就只会拿到第一帧、看着像"不支持动图"。
+ *
+ * 支持：8 位色深的 colorType 0/2/3/4/6（灰/真彩/调色板/灰+透明/真彩+透明）、
+ *      PLTE 与 tRNS、逐帧子矩形、dispose（0 不处理 / 1 抹成透明 / 2 还原上一帧）、
+ *      blend（0 覆盖 / 1 alpha 叠加）。
+ * 不支持：16 位色深、隔行扫描（Adam7）—— 这两种直接返回 null，让调用方回退到「按第一帧用」。
+ * 返回 [{ rgba: Uint8ClampedArray(w*h*4), width, height, delay }]，最多 maxFrames 帧；
+ * 不是 APNG / 解不出来时返回 null。 */
+function apngDecodeFrames (bytes, maxFrames, inflate) {
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
+  const SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+  if (u8.length < 20) return Promise.resolve(null)
+  for (let i = 0; i < 8; i++) if (u8[i] !== SIG[i]) return Promise.resolve(null)
+
+  let p = 8
+  const u32 = (o) => ((u8[o] << 24) | (u8[o + 1] << 16) | (u8[o + 2] << 8) | u8[o + 3]) >>> 0
+  const u16 = (o) => (u8[o] << 8) | u8[o + 1]
+  const rd16 = (b, o) => (b[o] << 8) | b[o + 1]
+  const rd32 = (b, o) => ((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]) >>> 0
+
+  let ihdr = null
+  let plte = null
+  let trns = null
+  let declaredFrames = 0
+  const frames = []
+  const idat = []
+  let seenIdat = false
+  let firstCtlBeforeIdat = false
+
+  while (p + 8 <= u8.length) {
+    const len = u32(p)
+    const type = String.fromCharCode(u8[p + 4], u8[p + 5], u8[p + 6], u8[p + 7])
+    const data = u8.subarray(p + 8, p + 8 + len)
+    p += 12 + len                                  /* 长度 + 类型 + 数据 + CRC */
+    if (type === 'IHDR') {
+      if (data.length < 13) return Promise.resolve(null)
+      ihdr = {
+        w: rd32(data, 0), h: rd32(data, 4),
+        bitDepth: data[8], colorType: data[9],
+        compression: data[10], filter: data[11], interlace: data[12],
+      }
+    } else if (type === 'acTL') {
+      declaredFrames = rd32(data, 0)
+    } else if (type === 'PLTE') {
+      plte = data
+    } else if (type === 'tRNS') {
+      trns = data
+    } else if (type === 'fcTL') {
+      if (data.length < 26) return Promise.resolve(null)
+      const ctl = {
+        seq: rd32(data, 0), w: rd32(data, 4), h: rd32(data, 8), x: rd32(data, 12), y: rd32(data, 16),
+        dNum: rd16(data, 20), dDen: rd16(data, 22), dispose: data[24], blend: data[25],
+      }
+      frames.push({ ctl: ctl, chunks: [] })
+      if (!seenIdat && frames.length === 1) firstCtlBeforeIdat = true
+    } else if (type === 'fdAT') {
+      if (!frames.length || data.length < 4) return Promise.resolve(null)
+      frames[frames.length - 1].chunks.push(data.subarray(4))
+    } else if (type === 'IDAT') {
+      idat.push(data)
+      seenIdat = true
+    } else if (type === 'IEND') {
+      break
+    }
+  }
+
+  if (!ihdr) return Promise.resolve(null)
+  /* 没有 acTL / 只有一个 fcTL → 就是普通 PNG，交给调用方走静态那条路 */
+  if (!declaredFrames || frames.length < 2) return Promise.resolve(null)
+  const depth = ihdr.bitDepth
+  /* 8 位全支持；1/2/4 位只有「灰度」与「调色板」是合法组合（真彩/带 alpha 只能是 8 或 16 位）。
+     upng-js 这类工具默认就会产出 4 位调色板 APNG，所以这几种必须认。 */
+  const depthOk = depth === 8 || ((ihdr.colorType === 0 || ihdr.colorType === 3) && (depth === 1 || depth === 2 || depth === 4))
+  if (!depthOk || ihdr.interlace !== 0) return Promise.resolve(null)   /* 16 位 / 隔行：不装懂 */
+  if (ihdr.colorType === 3 && !plte) return Promise.resolve(null)
+
+  const chanOf = (ct) => (ct === 0 ? 1 : ct === 2 ? 3 : ct === 3 ? 1 : ct === 4 ? 2 : 4)
+  const chan = chanOf(ihdr.colorType)
+  if (!chan) return Promise.resolve(null)
+  const bitsPerPx = chan * depth
+  const strideOf = (w) => Math.ceil(w * bitsPerPx / 8)      /* 一行多少字节（1/2/4 位是打包的） */
+  const filterBpp = Math.max(1, Math.ceil(bitsPerPx / 8))   /* 滤波按字节算，最少 1 */
+  /* 第一帧的数据放在 IDAT 里（标准写法）；有些工具会把 IDAT 当静态图、不给它 fdAT，
+     所以只要第一帧自己没有 fdAT 数据，就用 IDAT —— 两种写法都能读 */
+  if (frames[0].chunks.length === 0 && idat.length) frames[0].chunks = idat
+
+  const W = ihdr.w; const H = ihdr.h
+  const limit = Math.max(1, Math.min(frames.length, maxFrames || 24))
+
+  const unfilter = (raw, w, h) => {
+    const stride = strideOf(w)
+    if (!raw || raw.length < (stride + 1) * h) return null
+    const out = new Uint8Array(stride * h)
+    let prev = null
+    for (let y = 0; y < h; y++) {
+      const ft = raw[y * (stride + 1)]
+      const off = y * (stride + 1) + 1
+      const row = out.subarray(y * stride, (y + 1) * stride)
+      for (let x = 0; x < stride; x++) {
+        const a = x >= filterBpp ? row[x - filterBpp] : 0
+        const b = prev ? prev[x] : 0
+        const c = (prev && x >= filterBpp) ? prev[x - filterBpp] : 0
+        let v = raw[off + x]
+        if (ft === 0) { /* 原样 */ } else if (ft === 1) { v = (v + a) & 255 } else if (ft === 2) { v = (v + b) & 255 } else if (ft === 3) {
+          v = (v + ((a + b) >> 1)) & 255
+        } else if (ft === 4) {
+          const pp = a + b - c
+          const pa = Math.abs(pp - a); const pb = Math.abs(pp - b); const pc = Math.abs(pp - c)
+          v = (v + ((pa <= pb && pa <= pc) ? a : (pb <= pc ? b : c))) & 255
+        } else { return null }
+        row[x] = v
+      }
+      prev = row
+    }
+    return out
+  }
+
+  /** 取第 i 个样本：8 位直接取字节，1/2/4 位是打包的（每字节高位在前） */
+  const sample = (rows, i) => {
+    if (depth === 8) return rows[i]
+    const perByte = 8 / depth
+    const byte = rows[Math.floor(i / perByte)]
+    const shift = 8 - depth * ((i % perByte) + 1)
+    return (byte >> shift) & ((1 << depth) - 1)
+  }
+  const toGray = (v) => (depth === 8 ? v : Math.round(v * 255 / ((1 << depth) - 1)))
+
+  /** 行序样本 → RGBA（按 colorType / 调色板展开） */
+  const toRGBA = (rows, w, h) => {
+    const rgba = new Uint8ClampedArray(w * h * 4)
+    for (let i = 0; i < w * h; i++) {
+      const o = i * 4
+      if (ihdr.colorType === 6) {
+        rgba[o] = rows[i * 4]; rgba[o + 1] = rows[i * 4 + 1]; rgba[o + 2] = rows[i * 4 + 2]; rgba[o + 3] = rows[i * 4 + 3]
+      } else if (ihdr.colorType === 2) {
+        rgba[o] = rows[i * 3]; rgba[o + 1] = rows[i * 3 + 1]; rgba[o + 2] = rows[i * 3 + 2]; rgba[o + 3] = 255
+      } else if (ihdr.colorType === 0) {
+        const g = toGray(sample(rows, i)); rgba[o] = g; rgba[o + 1] = g; rgba[o + 2] = g; rgba[o + 3] = 255
+      } else if (ihdr.colorType === 4) {
+        const g = rows[i * 2]; rgba[o] = g; rgba[o + 1] = g; rgba[o + 2] = g; rgba[o + 3] = rows[i * 2 + 1]
+      } else {
+        const idx = sample(rows, i)
+        rgba[o] = plte[idx * 3]; rgba[o + 1] = plte[idx * 3 + 1]; rgba[o + 2] = plte[idx * 3 + 2]
+        rgba[o + 3] = (trns && idx < trns.length) ? trns[idx] : 255
+      }
+    }
+    return rgba
+  }
+
+  /** 把一帧画到画布上（blend 1 = alpha 叠加，其余按覆盖） */
+  const drawInto = (canvas, ctl, px, blend) => {
+    for (let y = 0; y < ctl.h; y++) {
+      const dy = ctl.y + y
+      if (dy < 0 || dy >= H) continue
+      for (let x = 0; x < ctl.w; x++) {
+        const dx = ctl.x + x
+        if (dx < 0 || dx >= W) continue
+        const s = (y * ctl.w + x) * 4
+        const t = (dy * W + dx) * 4
+        const sa = px[s + 3]
+        if (blend === 1 && sa !== 255) {
+          if (sa === 0) continue
+          const da = canvas[t + 3]
+          if (da === 0) {
+            canvas[t] = px[s]; canvas[t + 1] = px[s + 1]; canvas[t + 2] = px[s + 2]; canvas[t + 3] = sa
+          } else {
+            const sf = sa / 255; const df = da / 255 * (1 - sf)
+            const af = sf + df
+            canvas[t] = Math.round((px[s] * sf + canvas[t] * df) / af)
+            canvas[t + 1] = Math.round((px[s + 1] * sf + canvas[t + 1] * df) / af)
+            canvas[t + 2] = Math.round((px[s + 2] * sf + canvas[t + 2] * df) / af)
+            canvas[t + 3] = Math.round(af * 255)
+          }
+        } else {
+          canvas[t] = px[s]; canvas[t + 1] = px[s + 1]; canvas[t + 2] = px[s + 2]; canvas[t + 3] = sa
+        }
+      }
+    }
+  }
+  const clearRect = (canvas, ctl) => {
+    for (let y = 0; y < ctl.h; y++) {
+      const dy = ctl.y + y
+      if (dy < 0 || dy >= H) continue
+      for (let x = 0; x < ctl.w; x++) {
+        const dx = ctl.x + x
+        if (dx < 0 || dx >= W) continue
+        const t = (dy * W + dx) * 4
+        canvas[t] = 0; canvas[t + 1] = 0; canvas[t + 2] = 0; canvas[t + 3] = 0
+      }
+    }
+  }
+
+  const out = []
+  let canvas = new Uint8ClampedArray(W * H * 4)
+  let chain = Promise.resolve()
+  for (let i = 0; i < limit; i++) {
+    const f = frames[i]
+    chain = chain.then(() => {
+      const parts = f.chunks
+      let total = 0
+      for (const c of parts) total += c.length
+      const z = new Uint8Array(total)
+      let off = 0
+      for (const c of parts) { z.set(c, off); off += c.length }
+      return Promise.resolve(inflate(z)).then((raw) => {
+        const rows = unfilter(raw, f.ctl.w, f.ctl.h)
+        if (!rows) throw new Error('第 ' + (i + 1) + ' 帧的像素数据解不开')
+        const px = toRGBA(rows, f.ctl.w, f.ctl.h)
+        const keep = f.ctl.dispose === 2 ? canvas.slice() : null
+        const den = f.ctl.dDen || 100
+        const delay = Math.max(10, Math.min(2000, Math.round(f.ctl.dNum * 1000 / den) || 80))
+        drawInto(canvas, f.ctl, px, i === 0 ? 0 : f.ctl.blend)
+        out.push({ rgba: canvas.slice(), width: W, height: H, delay: delay })
+        if (f.ctl.dispose === 1) clearRect(canvas, f.ctl)
+        else if (f.ctl.dispose === 2 && keep) canvas = keep
+      })
+    })
+  }
+  return chain.then(() => (out.length ? out : null), () => (out.length ? out : null))
+}
+
+/** 浏览器端解 zlib（APNG 每一帧的数据都是一条独立的 zlib 流） */
+async function mkInflateZlib (u8) {
+  if (typeof DecompressionStream === "undefined") throw new Error("这个浏览器没有 DecompressionStream，拆不了 APNG");
+  const stream = new Blob([u8]).stream().pipeThrough(new DecompressionStream("deflate"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+/** APNG 字节 → { frames: [canvas], delay }；静态 PNG / 解不出来返回 null */
+async function mkApngFrames (bytes, max) {
+  try {
+    const g = await apngDecodeFrames(bytes, max || 24, mkInflateZlib);
+    if (!g || !g.length) return null;
+    return { frames: mkFramesToCanvases(g), delay: g[0].delay, total: g.length };
+  } catch (e) { return null }
+}
 async function mkReadImage (file) {
   const url = URL.createObjectURL(file);
   try {
@@ -6494,8 +6733,15 @@ async function mkReadImage (file) {
       if (g && g.frames.length > 1) { URL.revokeObjectURL(url); return { frames: g.frames, cover: g.frames[0], delay: g.delay, gif: true } }
       if (g && g.frames.length === 1) { URL.revokeObjectURL(url); return { frames: g.frames, cover: g.frames[0], delay: g.delay, gif: true, single: true } }
     }
-    /* ② APNG / 动图 WebP：这两种得靠内核的 ImageDecoder，有就用 */
-    if (typeof ImageDecoder !== 'undefined' && /webp|apng|png$/i.test(file.type)) {
+    /* ② APNG：也自己解（acTL / fcTL / fdAT + 帧合成）；普通 PNG 会返回 null，照旧走静态那条路 */
+    const isPng = /png/i.test(file.type || '') || /\.png$/i.test(file.name || '');
+    if (isPng) {
+      const a = await mkApngFrames(new Uint8Array(await file.arrayBuffer()), 24);
+      if (a && a.frames.length > 1) { URL.revokeObjectURL(url); return { frames: a.frames, cover: a.frames[0], delay: a.delay, apng: true } }
+      if (a && a.frames.length === 1) { URL.revokeObjectURL(url); return { frames: a.frames, cover: a.frames[0], delay: a.delay, apng: true, single: true } }
+    }
+    /* ③ 动图 WebP：这个只能靠内核的 ImageDecoder（没有它就只能按第一帧用，界面上会说实话） */
+    if (typeof ImageDecoder !== 'undefined' && /webp$/i.test(file.type)) {
       try {
         const dec = new ImageDecoder({ data: await file.arrayBuffer(), type: file.type || 'image/png' });
         await dec.completed;
@@ -6714,21 +6960,24 @@ function mkLua () {
   L.push('-- ' + MK.modName + ' · 由图鉴「Mod 制作器」生成');
   L.push('-- 直接放：%AppData%/Balatro/Mods/' + MK.modId + '/');
   L.push('');
+  /* 图集：动图要写全三样（atlas_table / frames / fps），字段之间的逗号统一在这里拼，避免手写续行漏逗号 */
+  const atlasLines = (key, file, frames, delay) => {
+    const rows = [['key', "'" + key + "'"], ['path', "'" + file + "'"], ['px', String(CARD_W)], ['py', String(CARD_H)]];
+    if (frames > 1) {
+      const fps = delay ? Math.max(1, Math.min(60, Math.round(1000 / delay))) : 10;
+      rows.push(['atlas_table', "'ANIMATION_ATLAS'", '动图必须写这一行：不写就算静态图集，帧数会被忽略']);
+      rows.push(['frames', String(frames), '动图：横向帧序列']);
+      rows.push(['fps', String(fps), delay ? '每帧 ' + delay + 'ms' : '']);
+    }
+    return rows.map((r, i) => '    ' + r[0] + ' = ' + r[1] + (i < rows.length - 1 ? ',' : '') + (r[2] ? '   -- ' + r[2] : ''));
+  };
   L.push('SMODS.Atlas {');
-  L.push("    key = 'sheet',");
-  L.push("    path = 'sheet.png',");
-  L.push('    px = ' + CARD_W + ',');
-  L.push('    py = ' + CARD_H);
-  if (MK.art.frames && MK.art.frames.length) L.push('    frames = ' + MK.art.frames.length + ',   -- 动图：横向帧序列');
+  for (const line of atlasLines('sheet', 'sheet.png', (MK.art.frames && MK.art.frames.length) || 1, MK.art.delay)) L.push(line);
   L.push('}');
   if (MK.type === 'Joker' && MK.soul.on) {
     L.push('');
     L.push('SMODS.Atlas {');
-    L.push("    key = 'soul',");
-    L.push("    path = 'soul.png',");
-    L.push('    px = ' + CARD_W + ',');
-    L.push('    py = ' + CARD_H);
-    if (MK.soul.frames && MK.soul.frames.length) L.push('    frames = ' + MK.soul.frames.length + ',   -- 动图：横向帧序列');
+    for (const line of atlasLines('soul', 'soul.png', (MK.soul.frames && MK.soul.frames.length) || 1, MK.soul.delay)) L.push(line);
     L.push('}');
   }
   L.push('');
@@ -7320,7 +7569,9 @@ function viewMaker (root) {
       status('已使用「' + f.name + '」：动图拆出 ' + info.frames.length + ' 帧（每帧 ' + (info.delay || '?') + 'ms），预览按这个节奏逐帧播放，导出会铺成横向帧序列、Lua 里写 frames = ' + info.frames.length + '。', 'ok');
       mkStartAnim(info.delay);
     } else if (info.gif) status('已使用「' + f.name + '」：这是一个只有 1 帧的 GIF，按静态图用。');
-    else status('已使用「' + f.name + '」（单帧）。GIF 一定能拆帧；APNG / 动图 WebP 要看这个浏览器给不给拆。');
+    else if (info.apng) status('已使用「' + f.name + '」：这个 PNG 里只有 1 帧，按静态图用。');
+    else if (/webp/i.test(f.type || '') || /\.webp$/i.test(f.name || '')) status('已使用「' + f.name + '」（单帧）。动图 WebP 拆帧要靠浏览器内核，这个环境给不了 —— GIF 和 APNG 都能拆。');
+    else status('已使用「' + f.name + '」（单帧，按静态图用）。');
   };
   const so = q('#mkSoulOn');
   if (so) so.onchange = () => { mkSet({ soul: Object.assign({}, MK.soul, { on: so.checked }) }); if (so.checked && (MK.soul.frames || []).length > 1) mkStartAnim() };

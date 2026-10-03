@@ -3124,7 +3124,39 @@ const SCENARIOS = {
     const png=files.filter(function(f){return f.name==="assets/2x/sheet.png"})[0];
     r.sheetWidth=png?(png.data[16]*16777216+png.data[17]*65536+png.data[18]*256+png.data[19]):0;
     r.expectWidth=142*Math.max(1,r.frames);
-    r.framesInLua=B.maker.lua().indexOf("frames = "+r.frames)>=0;
+    const lua=B.maker.lua();
+    r.framesInLua=lua.indexOf("frames = "+r.frames)>=0;
+    /* 动图三件套必须齐：atlas_table / frames / fps（Steamodded 里 Atlas 默认是 ASSET_ATLAS 静态图集） */
+    r.animTable=lua.split("atlas_table = 'ANIMATION_ATLAS'").length-1;
+    r.fpsInLua=lua.indexOf("fps = ")>=0;
+    /* 表构造语法自检（本机没有 Lua 解释器）：Atlas 块里除最后一行外都要以逗号收尾，注释先去掉。
+       这里刻意不用正则 —— 场景字符串是模板字符串，\\n / \\s 会被吃掉。 */
+    r.atlasSyntaxOk=(function(){
+      const NL=String.fromCharCode(10);
+      const start=lua.indexOf("SMODS.Atlas {");
+      if(start<0) return false;
+      const body=lua.slice(start+13);   /* "SMODS.Atlas {" 正好 13 个字符 */
+      const end=body.indexOf(NL+"}");
+      if(end<0) return false;
+      const lines=body.slice(0,end).split(NL).map(function(t){
+        const c=t.indexOf("--"); return (c>=0?t.slice(0,c):t).trim()
+      }).filter(function(t){return t.length>0});
+      if(lines.length<5) return false;
+      for(let i=0;i<lines.length;i++){
+        const hasComma=lines[i].charAt(lines[i].length-1)===",";
+        if(i===lines.length-1){ if(hasComma) return false } else if(!hasComma) return false
+      }
+      return true })();
+    r.atlasLines=(function(){ const NL=String.fromCharCode(10); const start=lua.indexOf("SMODS.Atlas {"); const body=lua.slice(start+13); const end=body.indexOf(NL+"}");
+      return end<0?[]:body.slice(0,end).split(NL).map(function(t){return t.trim()}).filter(Boolean) })();
+    /* 反证：拿一段「漏逗号」的坏样本喂给同一套判断，必须报 false —— 检查器不能是永远为真的空壳 */
+    r.syntaxCheckSelfTest=(function(){
+      const NL=String.fromCharCode(10);
+      const broken=["key = 'sheet',","py = 95","frames = 24,"].join(NL);
+      const lines=broken.split(NL);
+      let ok=true;
+      for(let i=0;i<lines.length;i++){ const c=lines[i].charAt(lines[i].length-1)===","; if(i===lines.length-1){ if(c) ok=false } else if(!c) ok=false }
+      return ok===false })();
     r.errors=window.__V.errors.length;
     return r })()`,
   /* 同一张 GIF 交给「悬浮立绘」自己的上传口：拆帧 / 预览会动 / assets/1x/soul.png 铺成帧条 */
@@ -3146,6 +3178,9 @@ const SCENARIOS = {
     const lua=B.maker.lua();
     r.soulInLua=lua.indexOf("key = 'soul'")>=0;
     r.soulFramesInLua=lua.indexOf("frames = "+r.frames)>=0;
+    /* 主体 + 立绘两个图集都要标成动图（ANIMATION_ATLAS），且都要有 fps */
+    r.animTables=lua.split("atlas_table = 'ANIMATION_ATLAS'").length-1;
+    r.fpsCount=lua.split("fps = ").length-1;
     r.errors=window.__V.errors.length;
     return r })()`,
   modMaker: `(async()=>{
@@ -4017,6 +4052,8 @@ async function main () {
   if (SCENARIOS.scoreUi2 && !SCENARIOS.scoreUi2Mobile) { SCENARIOS.scoreUi2Mobile = SCENARIOS.scoreUi2; SCENARIOS.scoreUi2Phone = SCENARIOS.scoreUi2 }
   if (SCENARIOS.scorePickOpen && !SCENARIOS.scorePickOpenMobile) { SCENARIOS.scorePickOpenMobile = SCENARIOS.scorePickOpen; SCENARIOS.scorePickOpenMobilePhone = SCENARIOS.scorePickOpen }
   const want = process.argv.slice(2)
+  if (SCENARIOS.mkGif && !SCENARIOS.mkApng) SCENARIOS.mkApng = SCENARIOS.mkGif
+  if (SCENARIOS.mkGif && !SCENARIOS.mkGifSoul) SCENARIOS.mkGifSoul = SCENARIOS.mkGif
   const list = want.length ? want : Object.keys(SCENARIOS)
   const profile = path.join(__dirname, '..', 'chromeprofile-cdp')
   fs.mkdirSync(profile, { recursive: true })
@@ -4171,14 +4208,16 @@ async function main () {
       await c.eval(HELPERS)
       console.log('             第二次访问：直接重载，不该再出现选择界面')
     }
-    if (name === 'mkGif' || name === 'mkGifSoul') {
+    if (name === 'mkGif' || name === 'mkGifSoul' || name === 'mkApng') {
       /* 走的就是访客点在「上传自己的图」上那条路：真的把文件交给 input */
       await c.send('Page.navigate', { url: PAGE }).catch(() => {})
       await sleep(2200)
       await c.eval(HELPERS)
       await c.eval("(()=>{const B=window.__BALATRO__; B.state.tab='maker'; B.render(); return 1})()")
       await sleep(1200)
-      const gif = process.env.MK_GIF || 'C:/Users/18878/Desktop/2ab90f8671834c56befd349c4ba69b81.gif'
+      const gif = name === 'mkApng'
+        ? (process.env.MK_APNG || path.join(__dirname, 'gifdump', 'apng-sample.png'))
+        : (process.env.MK_GIF || 'C:/Users/18878/Desktop/2ab90f8671834c56befd349c4ba69b81.gif')
       const sel = name === 'mkGifSoul' ? '#mkSoulUp' : '#mkUpload'
       if (!fs.existsSync(gif)) console.log('❌ 找不到测试用的 GIF: ' + gif)
       else console.log('             把 ' + path.basename(gif) + ' 交给 ' + sel + '（' + (fs.statSync(gif).size / 1024).toFixed(0) + ' KB）')

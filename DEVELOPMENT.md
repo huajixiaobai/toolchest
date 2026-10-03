@@ -449,6 +449,46 @@ node bundle.js
 
 ## 九、更新记录
 
+**第四十六轮（把动图的 Lua 修对：少了 `atlas_table` 游戏里根本不会动；还漏了逗号）**
+- 上一轮已经能看到「导出带 `frames = N`」，但我一直没**对着 Steamodded 的源码核**这一行 —— 这一轮核了，本机正好装着 `smods-1.0.0-beta-1606b`，项目里也留了一份 `.work/third-party/smods`：
+  - `lsp_def/classes/atlas.lua`：`atlas_table` 的取值 `ASSET_ATLAS` = 静态图集、**`ANIMATION_ATLAS` = 动画精灵**；另有 `frames = 动画帧数`、`fps = 帧率（默认 10 或 G.ANIMATION_FPS）`。
+  - `src/game_object.lua`：`SMODS.Atlas` 的默认值就是 `atlas_table = 'ASSET_ATLAS'`。
+  - 结论：**光写 `frames` 不算动图** —— 图集仍会被当成静态图集，帧数被忽略，游戏里不会动。必须写 `atlas_table = 'ANIMATION_ATLAS'`（`fps` 可选，按每帧毫秒换算）。
+- 第二个错：字段之间的**逗号漏了**。原先是先输出 `py = 95`（行尾没有逗号），再往下一行插 `frames = N,`，而 Lua 的表构造要求字段之间必须有逗号 —— 展开来就是 `{ py = 95 frames = 24 }`，这是**语法错误，mod 加载时就会报错**。两处都是从「字符串里有没有 frames」这种检查里看不出来的，所以这次改成按「字段行 + 逗号（最后一行不带）」统一拼，并在浏览器场景里加了一条结构性自检（本机没有 Lua 解释器，只能做结构级检查，这点如实说明）。
+- 现在导出的是：
+  ```
+  SMODS.Atlas {
+      key = 'sheet',
+      path = 'sheet.png',
+      px = 71,
+      py = 95,
+      atlas_table = 'ANIMATION_ATLAS',   -- 动图必须写这一行：不写就算静态图集，帧数会被忽略
+      frames = 24,   -- 动图：横向帧序列
+      fps = 25,   -- 每帧 40ms
+  }
+  ```
+- 实测（真浏览器）：`mkGif` → `framesInLua: true`、`animTable: 1`、`fpsInLua: true`、`atlasSyntaxOk: true`（表里每行逗号都对）；`mkApng` 同样；`mkGifSoul`（只上传立绘动图）→ `animTables: 1`、`fpsCount: 1`，也就是**立绘那个图集**被标成了动图（主体没上传所以仍是静态）。另外给这套自检加了**反证**：把一段漏逗号的坏样本喂给同一个判断，必须返回 false，`syntaxCheckSelfTest: true` —— 否则这个检查等于没做。
+
+**第四十五轮（APNG 也真的能动了；动图 WebP 说清为什么不能）**
+- APNG 原来和 GIF 一样指望内核的 `ImageDecoder`。这一轮先测清楚：**无头 Chrome 154 和「有界面的」Chrome 154 都没有这个接口**（`hasImageDecoder: false`，而 `DecompressionStream` 有）——所以这不是无头环境的限制，而是这个内核版本就没有，用户平时用的浏览器同样拆不了。
+- 于是自己写 APNG 解析（`.work/apngdec.js`，纯计算，唯一外部依赖是「解 zlib」，由调用方注入：浏览器给 `DecompressionStream('deflate')`，Node 给 `zlib.inflateSync`）：块解析（IHDR / acTL / fcTL / fdAT / PLTE / tRNS）+ PNG 滤波反解（None/Sub/Up/Average/Paeth）+ 逐帧合成（子矩形、dispose 0/1/2、blend 0/1）。8 位全支持，1/2/4 位的灰度与调色板也支持（upng-js 默认就产出 4 位调色板 APNG）；16 位与隔行扫描**不装懂**，直接返回 null 让调用方走静态那条路。
+- 测试（`.work/verify/apngdec-test.js`，纯 Node）：
+  | 检查项 | 结果 |
+  | --- | --- |
+  | 手工构造的 6×3 APNG（子矩形 + dispose=1 + blend=1） | 4 帧；子矩形只改那一块、dispose 只抹那一块、半透明白叠在红上 = `(255,128,128,255)`、延时 `100,100,200,10` 全对 |
+  | 用 **upng-js（独立实现）** 造无损 RGBA 的 APNG | 4 帧，与 UPNG 自己的解码结果 **1024 字节逐字节相同**，且就是原图 |
+  | 同上但用 4 位调色板（`位深=4 色型=3`） | 4 帧，与 UPNG 解码结果逐字节相同 —— 这一条第一次是失败的，正是它暴露出我只支持 8 位 |
+  | 单帧 PNG / 垃圾数据 | 都返回 null（不抢静态路径） |
+- 接进产物（`mkReadImage`：GIF → 自研解析；PNG → 自研 APNG 解析；WebP → 仍交给内核），端到端实测（真浏览器、真把文件交给 `#mkUpload` / `#mkSoulUp`）：
+  | 项 | 主体上传 | 悬浮立绘上传 |
+  | --- | --- | --- |
+  | 帧数 / 延时 | 5 帧 / 60ms | 5 帧 / 60ms |
+  | 预览 | 三次抓帧哈希全不同 | 三次抓帧哈希全不同 |
+  | 导出帧条 | 1x `355×95`、2x `710×190` | 1x `355×95`、2x `710×190` |
+  | 把导出的图集读回来逐格数 | 5 格都有内容且各不相同（6166 / 6250 / 6278 / 6310 / 6342） | 同上 |
+  | 控制台报错 | 0 | 0 |
+- **动图 WebP：明确做不到，并且在界面上说实话。** 内核实测没有 `ImageDecoder`（无头、有界面都没有），而这台机器上没有任何能造动图 WebP 的编码器，所以我也**没有真的用动图 WebP 测过**。做法是：上传 `.webp` 时界面直接说明「动图 WebP 拆帧要靠浏览器内核，这个环境给不了 —— GIF 和 APNG 都能拆」（用真实生成的静态 WebP 验证过这条提示：状态栏确实这么显示）。静态 WebP 照旧能用（1 帧，导出图集里有内容）。
+
 **第四十四轮（动图真的能用了：自研 GIF 解码器修好并接进产物；顺带修掉「导出永远卡住」）**
 - 起因：上一轮把动图拆帧写成靠内核的 `ImageDecoder`，而实测这台机器上的 Chrome **`typeof ImageDecoder === 'undefined'`**（无头环境根本没有这个接口）—— 上传 GIF 只拿到 1 帧，预览不动、导出也不是帧序列。也就是说：**动图功能一直等于没有**。这一点是探针脚本实测出来的，不是猜的（`.work/probe-gif.js`：`hasImageDecoder: false`，而 `OffscreenCanvas` 的 2d 是好的）。
 - 做法：把 GIF89a 解析写成**不碰 canvas / DOM 的纯计算函数**（`.work/gifdec.js`）—— 同一份代码在 Node 里跑回归测试、在浏览器里跑真流程。GIF 先走它；APNG / 动图 WebP 仍优先用 `ImageDecoder`（有就用，没有就按第一帧用，并在界面上说清）。
