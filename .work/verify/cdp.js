@@ -3158,6 +3158,12 @@ const SCENARIOS = {
     /* 预设库点一下要能填好效果行 */
     { const p=qa('.mkpreset')[0]; if(p){ p.click(); await __V.wait(600) } }
     r.afterPreset={ effects:B.maker.state.effects.length, first:B.maker.state.effects[0] };
+    /* 点第一条效果的 ✕：以前这里会 Maximum call stack size exceeded */
+    B.maker.state.effects=[{when:'card',cond:'',condVal:'',eff:'chips',val:10},{when:'hand',cond:'',condVal:'',eff:'mult',val:2}];
+    B.render(); await __V.wait(500);
+    const xb=q('.mkfx [data-del]');
+    if (xb) { xb.click(); await __V.wait(700) }
+    r.delFirst={ hadButton:!!xb, left:B.maker.state.effects.length, stillOk:!!q('.maker'), noErrorText:(q('#content')?q('#content').textContent.indexOf('出错')<0:false) };
     /* 动图：页面内自己编一个 3 帧 GIF，再走上传那条路读它 */
     try {
       const frames=[];

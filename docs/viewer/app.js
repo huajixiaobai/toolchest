@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "c786e464";
+window.__APP_BUILD__ = "a9c6ef43";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -6419,7 +6419,13 @@ function render () {
   else if (S.tab === 'atlas') viewAtlas(content);
   else if (S.tab === 'hands') viewHands(content);
   else if (S.tab === 'score') viewScore(content);
-  else if (S.tab === 'maker') { try { viewMaker(content) } catch (e) { content.innerHTML = '<div class="hint">Mod 制作器出错：' + esc(e.message) + '</div>' } }
+  else if (S.tab === 'maker') {
+    try { viewMaker(content) } catch (e) {
+      console.error('[Mod 制作器] 渲染出错:', (e && e.stack) || e);
+      content.innerHTML = '<div class="hint">Mod 制作器出错：' + esc(e.message) +
+        '<br><br>' + esc(String((e && e.stack) || '').split('\n').slice(0, 6).join('\n')) + '</div>';
+    }
+  }
   else if (S.tab === 'shaders') viewShaders(content);
   else if (S.tab === 'data') viewData(content);
   else if (S.tab === 'mods') viewMods(content);
@@ -7713,7 +7719,14 @@ function viewMaker (root) {
     if (!MK.luaDirty) { const ta2 = q('#mkLua'); if (ta2) ta2.value = mkLua() }
   };
   MKEL.refresh = refresh;
-  const redraw = () => render();
+  /* 重入保护：render() 里如果再触发一次 render（点某些按钮时会发生），直接返回，
+     否则会一路递归到爆栈（用户报告：点第一条效果的 ✕ 就 Maximum call stack size exceeded） */
+  let redrawing = false;
+  const redraw = () => {
+    if (redrawing) return;
+    redrawing = true;
+    try { render() } finally { redrawing = false }
+  };
   MKEL.redraw = redraw;
 
   /* 基本输入 */
