@@ -56,3 +56,7 @@ desktop.ini
 # 探针脚本用的临时 Chrome 用户目录 / GIF 解码测试的图片输出
 .work/tmp-probe-*/
 .work/verify/gifdump/
+
+# 解码测试用的样例图（每次跑脚本都会重新生成）
+.work/verify/*.png
+.work/verify/*.webp
