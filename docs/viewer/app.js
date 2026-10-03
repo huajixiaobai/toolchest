@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "2f403c20";
+window.__APP_BUILD__ = "7dc91951";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -6773,7 +6773,44 @@ const MK = {
 };
 
 function mkType () { return MK_TYPES.filter((t) => t[0] === MK.type)[0] || MK_TYPES[0] }
-/** 预览卡上的小标签：稀有度 + 价格（只有小丑牌/消耗品有） */
+/** 类型专属设置的当前值 → 一行行读得懂的说明（盲注：底注 1–10 / 需求 ×2 / 削弱梅花…） */
+function mkTypeSummaryLines () {
+  const defs = MK_TYPE_FIELDS[MK.type];
+  if (!defs) return [];
+  const out = [];
+  defs.forEach((f) => {
+    const key = f[0], label = f[1], kind = f[2], opt = f[3];
+    const v = MK.t[key] !== undefined ? MK.t[key] : opt;
+    if (kind === 'bool') { if (v) out.push(label); return }
+    if (kind === 'sel') { const o = (opt || []).filter((x) => x[0] === v)[0]; out.push(label + '：' + (o ? o[1] : v)); return }
+    if (kind === 'num') { out.push(label + ' ' + v); return }
+  });
+  return out;
+}
+/** 盲注那种"底注 1–10"要连起来读更顺 */
+function mkTypeSummaryText () {
+  const lines = mkTypeSummaryLines();
+  if (MK.type === 'Blind') {
+    const t2 = MK.t;
+    const min = t2.boss_min !== undefined ? t2.boss_min : 1, max = t2.boss_max !== undefined ? t2.boss_max : 10;
+    const rest = lines.filter((x) => x.indexOf('起始底注') < 0 && x.indexOf('结束底注') < 0);
+    return ['在底注 ' + min + '–' + max + ' 出现'].concat(rest);
+  }
+  return lines;
+}
+/** 预览卡上的小标签：小丑牌是稀有度/价格/立绘，其它类型给类型专属摘要 */
+function mkTag () {
+  const bits = [];
+  if (MK.type === 'Joker') {
+    bits.push(...MK_RARITY.filter((r) => r[0] === MK.rarity).map((r) => r[1]));
+    bits.push('$' + MK.cost);
+    if (MK.soul.on) bits.push('有立绘');
+  } else if (MK.type === 'Consumable' || MK.type === 'Voucher' || MK.type === 'Booster') {
+    if (MK.type === 'Consumable') bits.push((MK_SETS.filter((x) => x[0] === MK.set)[0] || ['', '消耗品'])[1]);
+    bits.push('$' + (MK.type === 'Booster' ? (MK.t.cost || 4) : MK.cost));
+  } else bits.push(mkType()[1]);
+  return bits.map((b) => '<i class="mktag">' + esc(String(b)) + '</i>').join('');
+}
 function mkTag () {
   const bits = [];
   if (MK.type === 'Joker') bits.push(...MK_RARITY.filter((r) => r[0] === MK.rarity).map((r) => r[1]));
@@ -6803,6 +6840,7 @@ function mkClosestVanilla () {
 }
 /** 「游戏里会显示成」：一行一条效果，数字按效果分色（和游戏里那套配色一致） */
 function mkDescHtml () {
+  if (MK.type !== 'Joker') return mkTypeDescHtml();
   if (!MK.effects.length) return "<span class=\"mkdim\">（还没有效果）</span>";
   const colour = { chips: "#009dff", mult: "#fe5f55", xmult: "#f3b958", dollars: "#4bc292", reps: "#a782d1" };
   const lines = MK.effects.map((e) => {
@@ -6819,6 +6857,12 @@ function mkDescHtml () {
   });
   const twin = mkClosestVanilla();
   return lines.join("<br>") + (twin ? "<br><span class=\"mkdim\">（和原版「" + esc(twin.name) + "」的效果相同）</span>" : "");
+}
+/** 非小丑牌类型：描述就是类型专属设置那几行 */
+function mkTypeDescHtml () {
+  const lines = mkTypeSummaryText();
+  if (!lines.length) return '<span class="mkdim">（这个类型还没有专属设置）</span>';
+  return lines.map((x) => '· ' + esc(x)).join('<br>');
 }
 /** 顶部那一行实时摘要 */
 function mkSummaryHtml () {
@@ -7072,6 +7116,10 @@ function mkWhenText (e) {
 }
 /** 描述文字：按选的效果自动拼（也可以手改） */
 function mkAutoText (lang) {
+  if (MK.type !== 'Joker') {
+    const lines = mkTypeSummaryText();
+    return lines.join(lang === 'zh' ? '；' : '; ');
+  }
   const parts = MK.effects.map((e) => {
     const c = mkCondText(e);
     let s = '';
@@ -7648,7 +7696,8 @@ function viewMaker (root) {
     const ev = (el.tagName === 'SELECT' || el.type === 'checkbox') ? 'change' : 'input';
     el.addEventListener(ev, () => {
       MK.t[k] = el.type === 'checkbox' ? el.checked : (el.type === 'number' ? Number(el.value) || 0 : el.value);
-      refresh();
+      /* 名称行的胶囊与描述都跟类型设置有关，所以整块刷新一次（不是只刷 Lua） */
+      redraw();
     });
   });
   const luaEl = q('#mkLua'); if (luaEl) luaEl.addEventListener('input', () => { MK.lua = luaEl.value; MK.luaDirty = true });

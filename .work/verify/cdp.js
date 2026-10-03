@@ -3138,6 +3138,21 @@ const SCENARIOS = {
       const sec=(el)=>{ let p=el; while(p && !p.classList.contains('opt')) p=p.parentElement; return p };
       return sec(c)===sec(a3) })(),
     r.soulControls={ on:!!q('#mkSoulOn'), atlas:!!q('#mkSoulAtlas'), up:!!q('#mkSoulUp'), pick:!!q('#mkSoulPick') },
+    /* 预览信息卡必须随类型变（换类型不能永远是同一段文本） */
+    r.perType={};
+    for (const ty of ['Joker','Blind','Booster','Back','Tag','Enhancement','Consumable']) {
+      B.maker.state.type=ty;
+      if (ty==='Blind' && !B.maker.state.t.boss_mult) B.maker.state.t={ boss_min:1, boss_max:10, blind_mult:2, blind_dollars:5, debuff_suit:'Spades', debuff_face:false };
+      if (ty==='Booster' && !B.maker.state.t.kind) B.maker.state.t={ kind:'Arcana', choose:1, extra:3, cost:4 };
+      if (ty==='Back' && !B.maker.state.t.hand_size) B.maker.state.t={ hand_size:8, hands:4, discards:3, dollars:4, joker_slot:5, consumable_slot:2 };
+      if (ty==='Tag' && !B.maker.state.t.tag_kind) B.maker.state.t={ tag_kind:'dollars', tag_val:5 };
+      if (ty==='Enhancement' ) B.maker.state.t={ chips:30, mult:4 };
+      if (ty==='Consumable' && !B.maker.state.set) B.maker.state.set='Tarot';
+      B.render(); await __V.wait(500);
+      r.perType[ty]={ tag:(q('.mkpvname')||{}).textContent||'', fx:((q('.mkpvfx')||{}).textContent||'').slice(0,70), desc:((q('#mkDesc')||{}).textContent||'').slice(0,60) };
+    }
+    B.maker.state.type='Joker'; B.render(); await __V.wait(400);
+    r.perTypeDistinct=Object.keys(r.perType).map((k)=>r.perType[k].fx).filter((v,i,a)=>a.indexOf(v)===i).length,
     r.thumbs={ cells:qa('#mkArtGrid .mkcell').length, painted:qa('#mkArtGrid .mkcell canvas').length,
       presets:qa('.mkpreset').length, typeChips:qa('.mkhchip').length, header:!!q('.mkhead'), summary:(q('#mkSum')||{}).textContent ? true : false };
     /* 预设库点一下要能填好效果行 */
