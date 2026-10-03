@@ -5711,6 +5711,15 @@ function scRefreshNumbers (host) {
 let detailTimer = null;
 function render () {
   SUIT_HC = !!(S.forge && S.forge.variants);   /* 高对比开关同时决定花色文字用 SO_1 还是 SO_2 */
+  /* 重建 DOM 会让滚动条跳回顶部 —— 记下来再还原，点选项时就不会「跳变」了 */
+  const keepScroll = (sel) => { const el = document.querySelector(sel); return el ? el.scrollTop : 0 };
+  const prevScroll = { content: keepScroll('#content'), sidebar: keepScroll('#sidebar'), page: window.scrollY || 0 };
+  const restoreScroll = () => {
+    const c = document.querySelector('#content'); if (c) c.scrollTop = prevScroll.content;
+    const sb = document.querySelector('#sidebar'); if (sb) sb.scrollTop = prevScroll.sidebar;
+    if (prevScroll.page && !document.querySelector('#content')) window.scrollTo(0, prevScroll.page);
+  };
+  requestAnimationFrame(restoreScroll);   /* 下一帧还原：不用管 render() 在哪一行结束 */
   if (detailTimer) { clearInterval(detailTimer); detailTimer = null; }
   stopAnim();
   S.anim.t = S.phase;
@@ -6044,6 +6053,21 @@ const MK_USE = [['dollars', '给一笔钱'], ['chips', '本手 +筹码'], ['mult
 const MK_SETS = [['Tarot', '塔罗'], ['Planet', '星球'], ['Spectral', '幽灵']];
 const MK_USE_ANY_TYPE = false;   /* 非小丑牌类型也允许挑牌组 */
 
+/* 每种类型"专属"要填的东西（都在界面上，不用猜）：键 / 标签 / 类型 / 选项 / 默认值 */
+const MK_TYPE_FIELDS = {
+  Blind: [['boss_min', '起始底注', 'num', 1], ['boss_max', '结束底注', 'num', 10], ['blind_mult', '盲注需求倍数', 'num', 2],
+    ['blind_dollars', '奖励金钱', 'num', 5], ['debuff_suit', '削弱哪个花色', 'sel', [['', '不削弱'], ['Spades', '黑桃'], ['Hearts', '红桃'], ['Clubs', '梅花'], ['Diamonds', '方片']]],
+    ['debuff_face', '削弱人头牌', 'bool', false]],
+  Booster: [['kind', '包的类型', 'sel', [['Arcana', '秘术（塔罗）'], ['Celestial', '天界（星球）'], ['Standard', '标准（扑克）'], ['Buffoon', '小丑'], ['Spectral', '幽灵']]],
+    ['choose', '可选几张', 'num', 1], ['extra', '给几张牌', 'num', 3], ['cost', '价格', 'num', 4]],
+  Back: [['hand_size', '手牌上限', 'num', 8], ['hands', '出牌次数', 'num', 4], ['discards', '弃牌次数', 'num', 3],
+    ['dollars', '起始金钱', 'num', 4], ['joker_slot', '小丑栏位', 'num', 5], ['consumable_slot', '消耗品栏位', 'num', 2]],
+  Voucher: [['voucher_kind', '效果', 'sel', [['none', '占位（自己在高级里补）'], ['dollars', '立刻给钱'], ['handsize', '手牌上限 +1'], ['discards', '弃牌次数 +1'], ['slot', '小丑栏位 +1']]], ['voucher_val', '数值', 'num', 10]],
+  Tag: [['tag_kind', '触发时', 'sel', [['dollars', '给一笔钱'], ['tarot', '给一张塔罗'], ['planet', '给一张星球'], ['reroll', '免费重掷']]], ['tag_val', '数值', 'num', 5]],
+  Enhanced: [['chips', '固定 +筹码', 'num', 30], ['mult', '固定 +倍率', 'num', 4]],
+  Edition: [['chips', '固定 +筹码', 'num', 0], ['mult', '固定 +倍率', 'num', 0], ['xmult', '×倍率', 'num', 1.5]],
+  Seal: [['seal_note', '蜡封没有数值字段 —— 它的效果由玩家拿它做什么决定', 'text', '']],
+};
 const MK = {
   type: 'Joker',
   modId: 'mymod', modName: '我的 Mod', author: 'me', version: '1.0.0', desc: '由图鉴 Mod 制作器生成',
@@ -6057,7 +6081,7 @@ const MK = {
   useKind: 'dollars', useVal: 4, set: 'Tarot',
   /* 悬浮立绘（传奇牌那种飘在半空的画）：开了就多导一张 soul.png，并在 Lua 里写 soul_pos */
   soul: { on: false, atlas: 'Joker', pos: { x: 0, y: 2 }, upload: null, uploadName: '', frames: null, animated: false },
-  advanced: false, lua: null, luaDirty: false, config: '',
+  advanced: false, lua: null, luaDirty: false, config: '', t: {},
   cloneFrom: '',
 };
 
@@ -6069,6 +6093,45 @@ function mkTag () {
   bits.push('$' + MK.cost);
   if (MK.soul.on && MK.type === 'Joker') bits.push('有立绘');
   return bits.map((b) => '<i class="mktag">' + b + '</i>').join('');
+}
+/** 和哪张原版牌的效果一样（只有一条效果时给个参照，用户一眼知道自己在做什么） */
+function mkClosestVanilla () {
+  if (MK.effects.length !== 1) return null;
+  const e = MK.effects[0];
+  const want = e.eff === "chips" ? /chip/ : e.eff === "mult" ? /mult$/ : e.eff === "xmult" ? /xmult/i : null;
+  if (!want) return null;
+  const val = Number(e.val) || 0;
+  const rules = (typeof JOKER_RULES !== "undefined" && JOKER_RULES.rules) || [];
+  for (const it of ITEMS) {
+    if (it.cat !== "Joker") continue;
+    const r = rules.filter((x) => x.n === it.name)[0];
+    if (!r || !r.e || r.k === "manual") continue;
+    const hit = r.e.some((ex) => want.test(ex.split("=")[0]));
+    if (!hit) continue;
+    const cfg = it.config || {};
+    const nums = [cfg.extra && cfg.extra.chips, cfg.extra && cfg.extra.mult, cfg.extra && cfg.extra.x_mult, cfg.chip_mod, cfg.mult_mod, cfg.Xmult_mod, typeof cfg.extra === "number" ? cfg.extra : null];
+    if (nums.some((v) => typeof v === "number" && Math.abs(v - val) < 1e-6)) return { name: nm(it, "zh_CN"), id: it.id };
+  }
+  return null;
+}
+/** 「游戏里会显示成」：一行一条效果，数字按效果分色（和游戏里那套配色一致） */
+function mkDescHtml () {
+  if (!MK.effects.length) return "<span class=\"mkdim\">（还没有效果）</span>";
+  const colour = { chips: "#009dff", mult: "#fe5f55", xmult: "#f3b958", dollars: "#4bc292", reps: "#a782d1" };
+  const lines = MK.effects.map((e) => {
+    const c = mkCondText(e);
+    let head = "";
+    if (e.when === "card") head = "每张" + (c || "打出的") + "牌";
+    else if (e.when === "hand") head = "打出这一手" + (c ? "（" + c + "）" : "");
+    else if (e.when === "held") head = "留在手里的" + (c || "每张") + "牌";
+    else if (e.when === "repetition") head = (c || "打出的牌") + "再结算一次";
+    else if (e.when === "discard") head = "每次弃牌";
+    else if (e.when === "independent") head = "每张牌独立结算时";
+    else if (e.when === "sell") head = "这张牌被卖掉时";
+    return head + " " + "<b style=\"color:" + (colour[e.eff] || "#fff") + "\">" + esc(mkEffText(e)) + "</b>";
+  });
+  const twin = mkClosestVanilla();
+  return lines.join("<br>") + (twin ? "<br><span class=\"mkdim\">（和原版「" + esc(twin.name) + "」的效果相同）</span>" : "");
 }
 /** 顶部那一行实时摘要 */
 function mkSummaryHtml () {
@@ -6408,12 +6471,108 @@ function mkLua () {
     else L.push('        -- 想做点什么就改这里');
     L.push('    end');
     L.push('}');
+  } else if (MK.type === 'Blind') {
+    const t2 = MK.t;
+    L.push('SMODS.Blind {');
+    L.push("    key = '" + key + "',");
+    L.push.apply(L, loc);
+    L.push('    boss = { min = ' + (t2.boss_min || 1) + ', max = ' + (t2.boss_max || 10) + ' },');
+    L.push('    mult = ' + (t2.blind_mult || 2) + ',');
+    L.push('    dollars = ' + (t2.blind_dollars || 5) + ',');
+    L.push('    atlas = \'sheet\',');
+    L.push('    pos = { x = 0, y = 0 },');
+    const db = [];
+    if (t2.debuff_suit) db.push("suit = '" + t2.debuff_suit + "'");
+    if (t2.debuff_face) db.push("is_face = 'face'");
+    L.push('    debuff = { ' + db.join(', ') + ' },   -- 声明式削弱：图鉴与本页都会按它算');
+    L.push('    loc_debuff_text = { \'\' },');
+    L.push('    unlocked = true,');
+    L.push('    discovered = true');
+    L.push('}');
+  } else if (MK.type === 'Booster') {
+    const t2 = MK.t;
+    L.push('SMODS.Booster {');
+    L.push("    key = '" + key + "',");
+    L.push.apply(L, loc);
+    L.push("    kind = '" + (t2.kind || 'Arcana') + "',");
+    L.push('    config = { choose = ' + (t2.choose || 1) + ', extra = ' + (t2.extra || 3) + ' },');
+    L.push('    cost = ' + (t2.cost || 4) + ',');
+    L.push("    atlas = 'sheet',");
+    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    unlocked = true,');
+    L.push('    discovered = true');
+    L.push('}');
+  } else if (MK.type === 'Back') {
+    const t2 = MK.t;
+    L.push('SMODS.Back {');
+    L.push("    key = '" + key + "',");
+    L.push.apply(L, loc);
+    L.push('    config = {');
+    L.push('        hand_size = ' + (t2.hand_size || 8) + ',');
+    L.push('        hands = ' + (t2.hands || 4) + ',');
+    L.push('        discards = ' + (t2.discards || 3) + ',');
+    L.push('        dollars = ' + (t2.dollars || 4) + ',');
+    L.push('        joker_slot = ' + (t2.joker_slot || 5) + ',');
+    L.push('        consumable_slot = ' + (t2.consumable_slot || 2));
+    L.push('    },');
+    L.push("    atlas = 'sheet',");
+    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    unlocked = true,');
+    L.push('    discovered = true');
+    L.push('}');
+  } else if (MK.type === 'Tag') {
+    const t2 = MK.t;
+    L.push('SMODS.Tag {');
+    L.push("    key = '" + key + "',");
+    L.push.apply(L, loc);
+    L.push("    atlas = 'sheet',");
+    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    config = { ' + (t2.tag_kind || 'dollars') + ' = ' + (t2.tag_val || 5) + ' },');
+    L.push('    apply = function(self, tag, context)');
+    L.push('        if context.type == \'immediate\' then');
+    if ((t2.tag_kind || 'dollars') === 'dollars') L.push('            ease_dollars(' + (t2.tag_val || 5) + ')');
+    else if ((t2.tag_kind || '') === 'tarot' || (t2.tag_kind || '') === 'planet') L.push("            local c = create_card('" + (t2.tag_kind === 'tarot' ? 'Tarot' : 'Planet') + "', G.play); c:add_to_deck(); G.consumeables:emplace(c)");
+    else L.push('            G.GAME.round_resets.free_rerolls = (G.GAME.round_resets.free_rerolls or 0) + ' + (t2.tag_val || 1));
+    L.push('            tag:yep(\'+\', G.C.GOLD)');
+    L.push('            return true');
+    L.push('        end');
+    L.push('    end');
+    L.push('}');
+  } else if (MK.type === 'Enhanced' || MK.type === 'Edition') {
+    const t2 = MK.t;
+    L.push('SMODS.' + (MK.type === 'Enhanced' ? 'Enhancement' : 'Edition') + ' {');
+    L.push("    key = '" + key + "',");
+    L.push.apply(L, loc);
+    L.push('    config = { ' + ['chips', 'mult', 'xmult'].filter((k) => Number(t2[k])).map((k) => (k === 'xmult' ? 'x_mult' : k) + ' = ' + t2[k]).join(', ') + ' },');
+    L.push("    atlas = 'sheet',");
+    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    unlocked = true,');
+    L.push('    discovered = true');
+    L.push('}');
+  } else if (MK.type === 'Seal') {
+    L.push('-- 蜡封本身没有数值字段：它的效果写在卡牌被它影响时的逻辑里');
+    L.push('SMODS.Seal {');
+    L.push("    key = '" + key + "',");
+    L.push.apply(L, loc);
+    L.push("    atlas = 'sheet',");
+    L.push('    pos = { x = 0, y = 0 }');
+    L.push('}');
   } else {
     const cls = t[2];
     L.push('SMODS.' + cls + ' {');
     L.push("    key = '" + key + "',");
     L.push.apply(L, loc);
-    if (MK.type === 'Voucher') L.push('    cost = ' + MK.cost + ',');
+    if (MK.type === 'Voucher') {
+      L.push('    cost = ' + MK.cost + ',');
+      const t2 = MK.t;
+      L.push('    redeem = function(self, card)');
+      if ((t2.voucher_kind || 'none') === 'dollars') L.push('        ease_dollars(' + (t2.voucher_val || 10) + ')');
+      else if ((t2.voucher_kind || '') === 'handsize') L.push('        G.hand:change_size(1)');
+      else if ((t2.voucher_kind || '') === 'discards') L.push('        G.GAME.round_resets.discards = G.GAME.round_resets.discards + 1');
+      else if ((t2.voucher_kind || '') === 'slot') L.push('        G.jokers.config.card_limit = (G.jokers.config.card_limit or 5) + 1');
+      else L.push('        -- 想做点什么就改这里');
+      L.push('    end,');
+    }
     L.push("    atlas = 'sheet',");
     L.push('    pos = { x = 0, y = 0 },');
     if (MK.type === 'Booster') L.push('    config = { extra = 3, choose = 1 },');
@@ -6539,7 +6698,9 @@ function viewMaker (root) {
         modGroups[k].map((i) => '<option value="' + i.id + '">' + esc(i.cat + ' · ' + nm(i)) + '</option>').join('') + '</optgroup>').join('') +
       '</select></label><div class="hint">选一张现成的牌：类型、贴图、稀有度 / 价格 / 权重、中英文文案、config 与能反解出来的效果都会先复制过来，然后你可以逐项改（这就是「全方位修改」）。</div>';
     b.appendChild(clone);
-    right.appendChild(sec('① 做什么', b, 'type').box);
+    const secType = sec('① 做什么（也决定预览长什么样）', b, 'type');
+    right.appendChild(secType.box);
+    window.__mkTypeBody = secType.body;   /* 「长什么样」并进这一段 */
   }
 
   /* ② 长什么样 */
@@ -6558,7 +6719,46 @@ function viewMaker (root) {
       b.lastChild.innerHTML = '<label class="mkck"><input type="checkbox" id="mkSoulOn"' + (MK.soul.on ? ' checked' : '') + '>再给一张「悬浮立绘」（传奇牌那种飘在半空的画）</label>' +
         '<div class="hint">开了之后会多导一张 soul.png，并写上 soul_pos —— 现在用的是主体那张图，等导出来你可以替换 assets/1x/soul.png。</div>';
     }
-    right.appendChild(sec('② 长什么样', b, 'art').box);
+    /* 类型专属字段（盲注的底注与削弱、补充包的张数、牌组的起手配置…） */
+    if (MK_TYPE_FIELDS[MK.type]) {
+      const box = document.createElement('div'); box.className = 'mktfields';
+      box.innerHTML = '<div class="mklabel">这个类型专属的设置</div><div class="mkrow" id="mkTFields"></div>';
+      (window.__mkTypeBody || right).appendChild(box);
+      const wrap = box.querySelector('#mkTFields');
+      MK_TYPE_FIELDS[MK.type].forEach((f) => {
+        const [key, label, kind, opt] = f;
+        const cur = MK.t[key] !== undefined ? MK.t[key] : opt;
+        const lab = document.createElement('label');
+        lab.innerHTML = '<span>' + label + '</span>';
+        if (kind === 'num') {
+          const inp = document.createElement('input'); inp.className = 'tbtn mkn'; inp.type = 'number'; inp.step = '0.5'; inp.value = cur;
+          inp.oninput = () => { MK.t[key] = Number(inp.value) || 0; mkRefreshLuaAndPreview(); const d = document.querySelector('#mkDesc'); if (d) d.innerHTML = mkDescHtml() };
+          lab.appendChild(inp);
+        } else if (kind === 'bool') {
+          const inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = !!cur;
+          inp.onchange = () => { MK.t[key] = inp.checked; mkRefreshLuaAndPreview(); const d = document.querySelector('#mkDesc'); if (d) d.innerHTML = mkDescHtml() };
+          lab.classList.add('mkck'); lab.appendChild(inp);
+        } else if (kind === 'sel') {
+          const sel2 = document.createElement('select'); sel2.className = 'tbtn';
+          sel2.innerHTML = opt.map((o) => '<option value="' + o[0] + '"' + (cur === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('');
+          sel2.onchange = () => { MK.t[key] = sel2.value; mkRefreshLuaAndPreview() };
+          lab.appendChild(sel2);
+        } else {
+          const p = document.createElement('span'); p.className = 'hint'; p.textContent = opt;
+          lab.classList.add('mkwide'); lab.appendChild(p);
+        }
+        wrap.appendChild(lab);
+      });
+    }
+    right.appendChild((function () {
+      const box = document.createElement('div');
+      box.className = 'mkartwrap';
+      box.innerHTML = '<div class="mklabel">贴图（点格子换图，或上传自己的图）</div>';
+      box.appendChild(b);
+      const host = window.__mkTypeBody || right;
+      host.appendChild(box);
+      return document.createElement('span');
+    })());
   }
 
   /* ③ 它做什么（预设式） */
@@ -6592,6 +6792,9 @@ function viewMaker (root) {
       list.appendChild(row);
     });
     b.appendChild(list);
+    const descBox = document.createElement('div'); descBox.className = 'mkdescbox';
+    descBox.innerHTML = '<div class="mklabel">游戏里会显示成（跟着上面的选择实时变）</div><div class="mkdesc" id="mkDesc">' + mkDescHtml() + '</div>';
+    b.appendChild(descBox);
     const addRow = document.createElement('div'); addRow.className = 'mkbtnrow';
     addRow.innerHTML = '<button class="btn" id="mkAddFx">＋ 加一条效果</button>' +
       '<button class="btn" id="mkAutoText">按上面的效果生成描述</button>';
@@ -6672,6 +6875,7 @@ function viewMaker (root) {
       /* 文本框：只刷新 Lua 与预览那一行 */
       mkRefreshLuaAndPreview();
       const sum = document.querySelector('#mkSum'); if (sum) sum.innerHTML = mkSummaryHtml();
+      const d = document.querySelector('#mkDesc'); if (d) d.innerHTML = mkDescHtml();
     });
   });
   qa('[data-mkflag]').forEach((el) => el.addEventListener('change', () => mkSet({ [el.dataset.mkflag]: el.checked })));
@@ -6726,10 +6930,19 @@ function viewMaker (root) {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
     const info = await mkReadImage(f);
-    if (!info) { status("这张图读不了（浏览器不支持这个格式）"); return }
-    mkSet({ art: Object.assign({}, MK.art, { upload: info.frames[0] || info.cover, frames: info.frames.length > 1 ? info.frames : null, animated: info.frames.length > 1, uploadName: f.name }) });
-    status('已使用「' + f.name + '」' + (info.frames.length > 1 ? '（动图，拆出 ' + info.frames.length + ' 帧，导出会铺成横向帧序列）' : '（静态图）'));
-    if (info.frames.length > 1) mkStartAnim();
+    if (!info) { status('这张图读不了（浏览器不支持这个格式）'); return }
+    const multi = info.frames.length > 1;
+    mkSet({ art: Object.assign({}, MK.art, { upload: info.frames[0] || info.cover, frames: multi ? info.frames : null, animated: multi, uploadName: f.name }) });
+    if (multi) {
+      status('已使用「' + f.name + '」：动图，拆出 ' + info.frames.length + ' 帧，预览会逐帧播放，导出会铺成横向帧序列。', 'ok');
+      mkStartAnim();
+    } else {
+      /* 拆不出多帧时如实说明：可能是这个浏览器/内核没有 ImageDecoder（无头环境常见），也可能是文件本身只有一帧 */
+      const why = (typeof ImageDecoder === 'undefined')
+        ? '这个浏览器没有 ImageDecoder（动图拆帧需要它，Chrome / Edge 新版本都有）'
+        : '这个内核没能从文件里读出多帧';
+      status('已使用「' + f.name + '」，但它只有一帧：' + why + '。先用静态图也能做，换最新版 Chrome / Edge 再上传就会动。');
+    }
   };
   const sz = q('#mkSize');
   if (sz) sz.onchange = () => mkSet({});
@@ -6835,6 +7048,8 @@ function viewMaker (root) {
     else status('这个浏览器不给剪贴板权限，请手动选中文本框复制。')
   };
   { const sum = document.querySelector('#mkSum'); if (sum) sum.innerHTML = mkSummaryHtml() }
+  /* 重建 DOM 会把之前的定时器挂空（它挂在旧节点上会自杀），所以每渲染一次都要重新起 */
+  if (MK.art.frames && MK.art.frames.length > 1) { if (mkAnimTimer) { clearInterval(mkAnimTimer); mkAnimTimer = null } mkStartAnim() }
   mkRedraw = () => render();
 }
 

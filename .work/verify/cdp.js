@@ -3106,7 +3106,27 @@ const SCENARIOS = {
     ];
     r.errors=window.__V.errors.length;
     return r })()`,
-  /* Mod 制作器：做一张小丑牌 → 打包 → 用图鉴自己的解析器再导入一遍（端到端） */
+  /* 真实 GIF 上传：拆帧 → 预览会动 → 导出横向帧序列（driver 会把桌面那张 gif 塞进 #mkUpload） */
+  mkGif: `(async()=>{
+    const B=window.__BALATRO__; const S=B.state; const r={}; await __V.wait(1600);
+    S.tab='maker'; B.render(); await __V.wait(900);
+    r.hasInput=!!document.querySelector('#mkUpload');
+    const before=B.maker.state.art && B.maker.state.art.frames ? B.maker.state.art.frames.length : 0;
+    for (let i=0;i<60 && (!B.maker.state.art.frames);i++) await __V.wait(200);
+    const st=B.maker.state.art;
+    r.frames=st.frames?st.frames.length:0; r.name=st.uploadName; r.animated=!!st.animated;
+    /* 预览是否真的在动：隔 400ms 抓两次画布像素哈希 */
+    const hash=()=>{ const cv=document.querySelector(".mkpvbox canvas"); if(!cv) return null; const c2=cv.getContext("2d");
+      const d=c2.getImageData(0,0,cv.width,cv.height).data; let h=0; for(let i=0;i<d.length;i+=97) h=(h*31+d[i])>>>0; return h };
+    const h1=hash(); await __V.wait(400); const h2=hash(); await __V.wait(400); const h3=hash();
+    r.previewChanges=(h1!==h2)||(h2!==h3); r.hashes=[h1,h2,h3];
+    const files=await B.maker.files();
+    const png=files.filter(function(f){return f.name==="assets/2x/sheet.png"})[0];
+    r.sheetWidth=png?(png.data[16]*16777216+png.data[17]*65536+png.data[18]*256+png.data[19]):0;
+    r.expectWidth=142*Math.max(1,r.frames);
+    r.framesInLua=B.maker.lua().indexOf("frames = "+r.frames)>=0;
+    r.errors=window.__V.errors.length;
+    return r })()`,
   modMaker: `(async()=>{
     const B=window.__BALATRO__; const S=B.state; const r={}; await __V.wait(1400);
     const q=(s)=>document.querySelector(s); const qa=(s)=>[].slice.call(document.querySelectorAll(s));
@@ -4103,6 +4123,21 @@ async function main () {
       await sleep(1500)
       await c.eval(HELPERS)
       console.log('             第二次访问：直接重载，不该再出现选择界面')
+    }
+    if (name === 'mkGif') {
+      /* 走的就是访客点在「上传自己的图」上那条路：真的把文件交给 input */
+      await c.send('Page.navigate', { url: PAGE }).catch(() => {})
+      await sleep(2200)
+      await c.eval(HELPERS)
+      await c.eval("(()=>{const B=window.__BALATRO__; B.state.tab='maker'; B.render(); return 1})()")
+      await sleep(1200)
+      const gif = process.env.MK_GIF || 'C:/Users/18878/Desktop/2ab90f8671834c56befd349c4ba69b81.gif'
+      if (!fs.existsSync(gif)) console.log('❌ 找不到测试用的 GIF: ' + gif)
+      else console.log('             把 ' + path.basename(gif) + ' 交给 #mkUpload（' + (fs.statSync(gif).size / 1024).toFixed(0) + ' KB）')
+      const doc0 = await c.send('DOM.getDocument', { depth: -1 })
+      const inp0 = await c.send('DOM.querySelector', { nodeId: doc0.root.nodeId, selector: '#mkUpload' })
+      if (inp0 && inp0.nodeId && fs.existsSync(gif)) await c.send('DOM.setFileInputFiles', { files: [gif], nodeId: inp0.nodeId })
+      await sleep(1500)
     }
     if (name === 'liveBoot' || name === 'siteFontLive') {
       // the viewer lives at /viewer/ and boots only after a file is picked
