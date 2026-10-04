@@ -3447,6 +3447,26 @@ const SCENARIOS = {
     if (wEl) { const before2=B.maker.lua(); wEl.value="2"; fire(wEl,"input"); await __V.wait(400);
       r.perTypeEdit.push({ type:"Joker", key:"weight(data-mk)", changed:B.maker.lua()!==before2, inLua:B.maker.lua().indexOf("weight = 2")>=0 }); }
     r.perTypeEditSummary=(r.perTypeEdit||[]).map(function(x){ return x.type+"."+x.key+(x.noInput?"(没有这个输入框)":(x.changed?" 改了":" 没变")+(x.inLua?" 进Lua":" 没进Lua")) }).join("  ||  ");
+    /* 按类型断言：克隆之后，该类型的专属字段真的出现在产物 Lua 里 */
+    r.typeLuaChecks=[];
+    const TLUA=[
+      ["Joker","Joker",["cost = 2","rarity = 1"]],
+      ["Consumable","Tarot",["max_highlighted = "] ],
+      ["Consumable","Planet",["hand_type = 'Pair'","max_highlighted = "] ],
+      ["Booster","Booster",["kind = 'Arcana'","choose = 1"]],
+      ["Blind","Blind",["mult = 1","dollars = 3"]],
+      ["Voucher","Voucher",["cost = 10"]]
+    ];
+    for (const c of TLUA) {
+      const ids=B.maker.itemsByCat(c[1]);
+      if(!ids.length){ r.typeLuaChecks.push({type:c[0],cat:c[1],noItems:true}); continue }
+      B.maker.select(0); B.maker.typeChip(c[0]); await __V.wait(220);
+      B.maker.applyClone(ids[0]); await __V.wait(400);
+      const lua=B.maker.lua();
+      const miss=c[2].filter(function(frag){ return lua.indexOf(frag)<0 });
+      r.typeLuaChecks.push({ type:c[0], cat:c[1], want:c[2].length, missing:miss });
+    }
+    r.typeLuaChecksSummary=(r.typeLuaChecks||[]).map(function(x){ return x.type+"/"+x.cat+(x.noItems?"(没有原版条目)":(x.missing.length?(" 缺:"+x.missing.join("+")):" 全在")) }).join("  ||  ");
     r.sealFieldIsText=(function(){ B.maker.typeChip("Seal"); const el=q('[data-mkt="seal_note"]'); return !!el })();
     r.errText=document.body.innerText.indexOf("出错")>=0;
     /* 前置要求说明块：必须在，而且链接 / 关键提醒都得在 */
