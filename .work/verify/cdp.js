@@ -3438,6 +3438,8 @@ const SCENARIOS = {
     r.previewByTypeSummary=r.previewByType.map(function(x){ return x.cat+"@"+x.atlas+" "+x.pos }).join("  ||  ");
     /* ⑤ 扫描所有控件：改一次，Lua 或预览必须有反应 */
     r.deadControls=[]; r.controlsChecked=0;
+    /* 整包签名：Lua + manifest + 预览画布 */
+    const sig=()=>B.maker.lua()+'|'+B.maker.manifest()+'|'+pvHash();
     const pvHash=()=>{ const cv=q(".mkpvbox canvas"); if(!cv) return null; const d=cv.getContext("2d").getImageData(0,0,cv.width,cv.height).data; let h=0; for(let i=0;i<d.length;i+=97) h=(h*31+d[i])>>>0; return h };
     const labelOf=(el)=>{ const f=el.closest?el.closest("label"):null; const t=f?(f.textContent||"").replace(/\s+/g," ").trim().slice(0,28):""; return (el.dataset.mk||el.dataset.mkt||el.dataset.mkp||el.dataset.mkflag||el.id||el.tagName)+"("+t+")" };
     const controls=[];
@@ -3446,7 +3448,7 @@ const SCENARIOS = {
     ["mkType0"].forEach(function(){});
     for (const el of controls) {
       if (el.type === "file") continue;
-      const beforeLua=B.maker.lua(), beforePv=pvHash();
+      const beforeSig=sig();
       let acted=false;
       if (el.tagName === "SELECT") {
         if (el.options.length > 1) { el.selectedIndex = (el.selectedIndex + 1) % el.options.length; el.dispatchEvent(new Event("change",{bubbles:true})); acted=true }
@@ -3455,9 +3457,9 @@ const SCENARIOS = {
       else { el.value = String(el.value||"") + "x"; el.dispatchEvent(new Event("input",{bubbles:true})); acted=true }
       if (!acted) continue;
       await __V.wait(260);
-      const afterLua=B.maker.lua(), afterPv=pvHash();
+      const afterSig=sig();
       r.controlsChecked++;
-      if (afterLua === beforeLua && afterPv === beforePv) r.deadControls.push(labelOf(el));
+      if (afterSig === beforeSig) r.deadControls.push(labelOf(el));
     }
     r.deadControlsSummary = r.deadControls.length ? r.deadControls.join(" ; ") : "没有死的控件";
     r.cloneSummary=(r.cloneByType||[]).map(function(x){ return (x.cat||"?")+"→"+(x.typeAfter||"?")+" 专属"+x.tKeys+" 效果"+x.effects+" cost进Lua:"+(x.luaHasCost?"是":"否")+" "+String(x.tSample||"") }).join("  ||  ");
