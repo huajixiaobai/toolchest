@@ -3425,10 +3425,15 @@ const SCENARIOS = {
     r.cloneSummary=(r.cloneByType||[]).map(function(x){ return (x.cat||"?")+"→"+(x.typeAfter||"?")+" 专属"+x.tKeys+" 效果"+x.effects+" cost进Lua:"+(x.luaHasCost?"是":"否")+" "+String(x.tSample||"") }).join("  ||  ");
     r.perTypeEdit=[];
     /* ③ 的验证：每种类型改一个专属字段，Lua 必须跟着变 */
-    const TEDIT=[["Blind","blind_mult","9"],["Booster","choose","3"],["Back","hand_size","9"],["Voucher","voucher_val","42"]];
+    const TEDIT=[["Blind","blind_mult","9",null],["Booster","choose","3",null],["Back","hand_size","9",null],
+      ["Voucher","voucher_val","42",["voucher_kind","dollars"]],["Tag","tag_val","7",null],
+      ["Enhanced","chips","33",null],["Edition","xmult","2.5",null],["Seal","seal_val","5",null],
+      ["Consumable","max_highlighted","3",null],["Joker","weight","2",null]];
     for (const te of TEDIT) {
       const ty=te[0], key=te[1], val=te[2];
       B.maker.select(0); B.maker.typeChip(ty); await __V.wait(250);
+      /* 有的类型要先选"效果"才会用到数值（优惠券就是这样），按需先走一步 */
+      if (te[3]) { const pre=q('[data-mkt="'+te[3][0]+'"]'); if (pre) { pre.value=te[3][1]; fire(pre,"change"); await __V.wait(300) } }
       const inp=q('[data-mkt="'+key+'"]');
       if(!inp){ r.perTypeEdit.push({type:ty,key:key,noInput:true}); continue }
       const before=B.maker.lua();
