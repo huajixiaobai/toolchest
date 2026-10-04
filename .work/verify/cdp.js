@@ -3436,6 +3436,30 @@ const SCENARIOS = {
     }
     r.previewDistinct=new Set(r.previewByType.map(function(x){return x.hash})).size;
     r.previewByTypeSummary=r.previewByType.map(function(x){ return x.cat+"@"+x.atlas+" "+x.pos }).join("  ||  ");
+    /* ⑤ 扫描所有控件：改一次，Lua 或预览必须有反应 */
+    r.deadControls=[]; r.controlsChecked=0;
+    const pvHash=()=>{ const cv=q(".mkpvbox canvas"); if(!cv) return null; const d=cv.getContext("2d").getImageData(0,0,cv.width,cv.height).data; let h=0; for(let i=0;i<d.length;i+=97) h=(h*31+d[i])>>>0; return h };
+    const labelOf=(el)=>{ const f=el.closest?el.closest("label"):null; const t=f?(f.textContent||"").replace(/\s+/g," ").trim().slice(0,28):""; return (el.dataset.mk||el.dataset.mkt||el.dataset.mkp||el.dataset.mkflag||el.id||el.tagName)+"("+t+")" };
+    const controls=[];
+    qa("[data-mk],[data-mkt],[data-mkp],[data-mkflag]").forEach(function(el){ const ty=(el.type||"").toLowerCase();
+      if(el.tagName==="SELECT"||el.tagName==="INPUT") controls.push(el) });
+    ["mkType0"].forEach(function(){});
+    for (const el of controls) {
+      if (el.type === "file") continue;
+      const beforeLua=B.maker.lua(), beforePv=pvHash();
+      let acted=false;
+      if (el.tagName === "SELECT") {
+        if (el.options.length > 1) { el.selectedIndex = (el.selectedIndex + 1) % el.options.length; el.dispatchEvent(new Event("change",{bubbles:true})); acted=true }
+      } else if (el.type === "checkbox") { el.checked = !el.checked; el.dispatchEvent(new Event("change",{bubbles:true})); acted=true }
+      else if (el.type === "number") { el.value = String((Number(el.value)||0) + 3); el.dispatchEvent(new Event("input",{bubbles:true})); acted=true }
+      else { el.value = String(el.value||"") + "x"; el.dispatchEvent(new Event("input",{bubbles:true})); acted=true }
+      if (!acted) continue;
+      await __V.wait(260);
+      const afterLua=B.maker.lua(), afterPv=pvHash();
+      r.controlsChecked++;
+      if (afterLua === beforeLua && afterPv === beforePv) r.deadControls.push(labelOf(el));
+    }
+    r.deadControlsSummary = r.deadControls.length ? r.deadControls.join(" ; ") : "没有死的控件";
     r.cloneSummary=(r.cloneByType||[]).map(function(x){ return (x.cat||"?")+"→"+(x.typeAfter||"?")+" 专属"+x.tKeys+" 效果"+x.effects+" cost进Lua:"+(x.luaHasCost?"是":"否")+" "+String(x.tSample||"") }).join("  ||  ");
     r.perTypeEdit=[];
     /* ③ 的验证：每种类型改一个专属字段，Lua 必须跟着变 */
