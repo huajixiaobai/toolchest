@@ -3437,7 +3437,7 @@ const SCENARIOS = {
     r.previewDistinct=new Set(r.previewByType.map(function(x){return x.hash})).size;
     r.previewByTypeSummary=r.previewByType.map(function(x){ return x.cat+"@"+x.atlas+" "+x.pos }).join("  ||  ");
     /* ⑤ 扫描所有控件：改一次，Lua 或预览必须有反应 */
-    r.deadControls=[]; r.controlsChecked=0;
+    r.deadOld=[]; r.controlsOldChecked=0;
     /* 整包签名：Lua + manifest + 预览画布 */
     const sig=()=>B.maker.lua()+'|'+B.maker.manifest()+'|'+pvHash();
     const pvHash=()=>{ const cv=q(".mkpvbox canvas"); if(!cv) return null; const d=cv.getContext("2d").getImageData(0,0,cv.width,cv.height).data; let h=0; for(let i=0;i<d.length;i+=97) h=(h*31+d[i])>>>0; return h };
@@ -3458,10 +3458,42 @@ const SCENARIOS = {
       if (!acted) continue;
       await __V.wait(260);
       const afterSig=sig();
-      r.controlsChecked++;
-      if (afterSig === beforeSig) r.deadControls.push(labelOf(el));
+      r.controlsOldChecked++;
+      if (afterSig === beforeSig) r.deadOld.push(labelOf(el));
+    }
+    /* 新扫描：每步重新查元素 + 断言编辑落到状态 */
+    r.deadControls=[]; r.controlsChecked=0; r.controlsUntested=[];
+    const SPECS=[["[data-mk]","mk"],["[data-mkt]","mkt"],["[data-mkp]","mkp"],["[data-mkflag]","mkflag"]];
+    for (const spec of SPECS) {
+      const total0=qa(spec[0]).length;
+      for (let idx=0; idx<total0; idx++) {
+        const before=sig();
+        const el=qa(spec[0])[idx];
+        if(!el){ r.controlsUntested.push(spec[1]+"["+idx+"] 元素已消失"); continue }
+        const key=el.dataset.mk||el.dataset.mkt||el.dataset.mkp||el.dataset.mkflag;
+        if(!key) continue;
+        let newVal=null;
+        if (el.tagName==="SELECT") { if(el.options.length<2) continue; el.selectedIndex=(el.selectedIndex+1)%el.options.length; el.dispatchEvent(new Event("change",{bubbles:true})); newVal=el.value }
+        else if (el.type==="checkbox") { el.checked=!el.checked; el.dispatchEvent(new Event("change",{bubbles:true})); newVal=el.checked }
+        else if (el.type==="number") { newVal=String((Number(el.value)||0)+3); el.value=newVal; el.dispatchEvent(new Event("input",{bubbles:true})) }
+        else { newVal=String(el.value||"")+"x"; el.value=newVal; el.dispatchEvent(new Event("input",{bubbles:true})) }
+        await __V.wait(280);
+        const st=B.maker.state, pr=B.maker.project;
+        let landed=true;
+        if (spec[1]==="mkp") landed=(String(pr[key])===String(newVal));
+        else if (spec[1]==="mkflag") landed=(!!st[key]===!!newVal);
+        else if (spec[1]==="mkt") landed=(String(((st.t||{})[key]))===String(newVal));
+        else if (typeof st[key]!=="undefined") landed=(String(st[key])===String(newVal));
+        r.controlsChecked++;
+        const after=sig();
+        if (after===before) {
+          if (landed) r.deadControls.push(labelOf(el));
+          else r.controlsUntested.push(labelOf(el)+"（编辑没落地）");
+        }
+      }
     }
     r.deadControlsSummary = r.deadControls.length ? r.deadControls.join(" ; ") : "没有死的控件";
+    r.controlsUntestedSummary = r.controlsUntested.length ? r.controlsUntested.join(" ; ") : "全部测到了";
     /* 定点探针：工程字段（modId）为什么被算成"没反应" */
     {
       const mB=B.maker.manifest();
