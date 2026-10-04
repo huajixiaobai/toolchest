@@ -3379,10 +3379,31 @@ const SCENARIOS = {
     const rarEl=q('[data-mk="rarity"]'); rarEl.value="3"; fire(rarEl,"change"); await __V.wait(350);
     const lua3=B.maker.lua(); r.editRarity=lua3.indexOf("rarity = 3")>=0;
     const cells2=qa(".mkcell:not(.on)");
+    r.cellCount=cells2.length;
+    r.artTargetNow=(typeof artTarget!=="undefined")?artTarget:"(取不到)";
     const posBefore=JSON.stringify(B.maker.state.art.pos);
     if(cells2.length){ cells2[cells2.length-1].dispatchEvent(new MouseEvent("click",{bubbles:true,shiftKey:true})); await __V.wait(400) }
-    const luaArt=B.maker.lua();
-    r.editArt=(JSON.stringify(B.maker.state.art.pos)!==posBefore) && (luaArt.indexOf("pos = { x = "+B.maker.state.art.pos.x)>=0);
+    /* 说明：这里**不用**合成事件派发点击 —— 实测 dispatchEvent(new MouseEvent(...)) 到不了格子的处理器（
+       和之前「合成 hover 不触发 CSS」是同一类坑），走 onclick 这条路才是真的验到逻辑 */
+    r.editArtSynthetic=(JSON.stringify(B.maker.state.art.pos)!==posBefore);
+    /* 点法二：直接调 onclick 并带 shiftKey */
+    if(cells2.length){
+      const posB2=JSON.stringify(B.maker.state.art.pos);
+      try { cells2[cells2.length-2>=0?cells2.length-2:0].onclick({shiftKey:true}) } catch(e){ r.onclickErr=String(e&&e.message||e) }
+      await __V.wait(400);
+      const posAfter2=B.maker.state.art.pos;
+      const luaAfter2=B.maker.lua();
+      r.editArtViaOnclick=(JSON.stringify(posAfter2)!==posB2);
+      r.editArtInLua=luaAfter2.indexOf("pos = { x = "+posAfter2.x+", y = "+posAfter2.y+" }")>=0;
+      r.posNow=JSON.stringify(B.maker.state.art.pos);
+    }
+    /* 点法三：不带 shift 点一个格子（应当触发「照这张牌做」） */
+    {
+      const c3=qa(".mkcell")[qa(".mkcell").length-1];
+      const luaB3=B.maker.lua();
+      if(c3){ c3.onclick({shiftKey:false}); await __V.wait(400) }
+      r.plainClickDidSomething=(B.maker.lua()!==luaB3);
+    }
     r.stillCloned=B.maker.state.cloneFrom;
     r.errText=document.body.innerText.indexOf("出错")>=0;
     /* 前置要求说明块：必须在，而且链接 / 关键提醒都得在 */
