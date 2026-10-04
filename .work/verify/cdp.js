@@ -3505,7 +3505,10 @@ const SCENARIOS = {
         s1:s1, s2:s2, stateNow:B.maker.project.modId,
         manHead:B.maker.manifest().slice(0,50), luaHead:B.maker.lua().slice(0,50) };
     }
-    r.deadControlsSummary = r.deadControls.length ? r.deadControls.join(" ; ") : "没有死的控件";
+    /* 参考名单，不是结论：连续三轮证明它会假阳性（modId 实测明明改变 Lua+manifest 却被标记）。
+       可信结论以定向断言为准：perTypeEditSummary / typeLuaChecks / cloneSummary。 */
+    r.scanAdvisory_dead = r.deadControls.length ? r.deadControls.join(" ; ") : "（参考名单为空）";
+    r.scanAdvisory_note = "参考用：含已知假阳性，不作为结论";
     r.controlsUntestedSummary = r.controlsUntested.length ? r.controlsUntested.join(" ; ") : "全部测到了";
     /* 定点探针：工程字段（modId）为什么被算成"没反应" */
     {
