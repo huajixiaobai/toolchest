@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "23410828";
+window.__APP_BUILD__ = "d9e63dbe";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -6609,7 +6609,7 @@ function init () {
     modImport: window.__MODIMPORT__, categoryLabel,
     /* Mod 制作器：状态 / 生成的 Lua / manifest / 要打包的文件（脚本与控制台都能用） */
     maker: { typeChip: (ty) => { mkSet({ type: ty }) }, get state () { return MK },   /* 必须是 getter：MK 会被重新指向 */ lua: () => mkLua(), manifest: () => mkManifest(), files: () => mkBuildFiles(), types: MK_TYPES, when: MK_WHEN, eff: MK_EFF, motion: MK_MOTION, delays: () => mkFrameDelays(MK.art), animArgs: () => mkAnimArgs(MK.art),
-      project: MKR, addItem: mkAddItem, dupItem: mkDupItem, delItem: mkDelItem, moveItem: mkMoveItem, select: mkSelect, grouped: mkGrouped,
+      project: MKR, addItem: mkAddItem, applyClone: (id) => (typeof MKEL !== 'undefined' && MKEL && MKEL.applyClone) ? MKEL.applyClone(id) : null,   /* 暴露管道未接通时返回 null，不抛异常 */ itemsByCat: (cat) => ITEMS.filter((i) => i.cat === cat).map((i) => i.id), dupItem: mkDupItem, delItem: mkDelItem, moveItem: mkMoveItem, select: mkSelect, grouped: mkGrouped,
       projectJSON: mkProjectJSON, applyProject: mkApplyProject, restoreImages: mkRestoreImages, saveProject: mkSaveProject, loadProject: mkLoadProject,
       presets: MK_PRESETS, cond: MK_COND, readImage: mkReadImage, sheet: (scale, which) => mkSheetCanvas(scale, which || "art"),
       atlasLabel: mkAtlasLabel },   /* 脚本/控制台都能用：读图（含动图拆帧）、取帧序列画布 */
@@ -7995,7 +7995,7 @@ function mkItemLua () {
     L.push('    rarity = ' + MK.rarity + ',');
     L.push('    cost = ' + MK.cost + ',');
     L.push("    atlas = 'sheet_" + slug + "',");
-    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
     L.push('    order = ' + MK.order + ',');
     L.push('    weight = ' + MK.weight + ',');
     L.push('    eternal_compat = ' + (MK.eternal ? 'true' : 'false') + ',');
@@ -8023,7 +8023,7 @@ function mkItemLua () {
     L.push('    config = { extra = { value = ' + (Number(MK.useVal) || 0) + ' } },');
     L.push('    cost = ' + MK.cost + ',');
     L.push("    atlas = 'sheet_" + slug + "',");
-    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
     L.push('    can_use = function(self, card) return true end,');
     L.push('    use = function(self, card, area, copier)');
     if (MK.useKind === 'dollars') L.push('        ease_dollars(' + (Number(MK.useVal) || 0) + ')');
@@ -8043,7 +8043,7 @@ function mkItemLua () {
     L.push('    mult = ' + (t2.blind_mult || 2) + ',');
     L.push('    dollars = ' + (t2.blind_dollars || 5) + ',');
     L.push('    atlas = \'sheet_' + slug + '\',');
-    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
     const db = [];
     if (t2.debuff_suit) db.push("suit = '" + t2.debuff_suit + "'");
     if (t2.debuff_face) db.push("is_face = 'face'");
@@ -8061,7 +8061,7 @@ function mkItemLua () {
     L.push('    config = { choose = ' + (t2.choose || 1) + ', extra = ' + (t2.extra || 3) + ' },');
     L.push('    cost = ' + (t2.cost || 4) + ',');
     L.push("    atlas = 'sheet_" + slug + "',");
-    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
     L.push('    unlocked = true,');
     L.push('    discovered = true');
     L.push('}');
@@ -8079,7 +8079,7 @@ function mkItemLua () {
     L.push('        consumable_slot = ' + (t2.consumable_slot || 2));
     L.push('    },');
     L.push("    atlas = 'sheet_" + slug + "',");
-    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
     L.push('    unlocked = true,');
     L.push('    discovered = true');
     L.push('}');
@@ -8089,7 +8089,7 @@ function mkItemLua () {
     L.push("    key = '" + key + "',");
     L.push.apply(L, loc);
     L.push("    atlas = 'sheet_" + slug + "',");
-    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
     L.push('    config = { ' + (t2.tag_kind || 'dollars') + ' = ' + (t2.tag_val || 5) + ' },');
     L.push('    apply = function(self, tag, context)');
     L.push('        if context.type == \'immediate\' then');
@@ -8108,7 +8108,7 @@ function mkItemLua () {
     L.push.apply(L, loc);
     L.push('    config = { ' + ['chips', 'mult', 'xmult'].filter((k) => Number(t2[k])).map((k) => (k === 'xmult' ? 'x_mult' : k) + ' = ' + t2[k]).join(', ') + ' },');
     L.push("    atlas = 'sheet_" + slug + "',");
-    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
     L.push('    unlocked = true,');
     L.push('    discovered = true');
     L.push('}');
@@ -8118,7 +8118,7 @@ function mkItemLua () {
     L.push("    key = '" + key + "',");
     L.push.apply(L, loc);
     L.push("    atlas = 'sheet_" + slug + "',");
-    L.push('    pos = { x = 0, y = 0 }');
+    L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
     L.push('}');
   } else {
     const cls = t[2];
@@ -8137,7 +8137,7 @@ function mkItemLua () {
       L.push('    end,');
     }
     L.push("    atlas = 'sheet_" + slug + "',");
-    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
     if (MK.type === 'Booster') L.push('    config = { extra = 3, choose = 1 },');
     if (MK.type === 'Blind') L.push('    boss = { min = 1, max = 10 },');
     L.push('    unlocked = true,');
@@ -8507,8 +8507,8 @@ function mkItemAtCell (atlas, x, y) {
         cell.onclick = (e) => {
           if (artTarget === 'soul') { mkSet({ soul: Object.assign({}, MK.soul, { atlas: MK.art.atlas, pos: { x, y }, upload: null, uploadName: '', frames: null }) }); return }
           if (mate && !e.shiftKey) {
-            const cnt = mkApplyCloneFrom(mate.id);
-            status('已照「' + nm(mate, 'zh_CN') + '」做了一份：图、名字、原文、数值都进来了' + (cnt ? '（' + cnt + ' 条效果）' : '（这张牌的效果没法自动拆成数值，原文已放进描述，请自己挑一条效果）') + ' —— 想只换图就按住 Shift 点同一格。', 'ok');
+            const rr2 = mkApplyCloneFrom(mate.id);
+            status('已照「' + nm(mate, 'zh_CN') + '」做了一份：图、名字、原文、数值都进来了（' + rr2.effects + ' 条效果 / ' + rr2.tKeys + ' 项专属设置）' + (rr2.effects ? '' : '，这张牌的效果没法自动拆成数值，请在「它做什么」里挑一条') + ' —— 想只换图就按住 Shift 点同一格。', 'ok');
             return;
           }
           mkSet({ art: { atlas: MK.art.atlas, pos: { x, y }, upload: null, uploadName: '', frames: null, animated: false, weights: null, gen: null, delays: null, speed: 1 } });
@@ -8855,6 +8855,7 @@ function mkApplyCloneFrom (id) {
   const cond2 = SUIT_CN2[suitRaw2] ? 'suit' : '';
   const condVal2 = cond2 ? SUIT_CN2[suitRaw2] : '';
   const push2 = (when, kind, v) => { if (v) effects.push({ when: when, cond: cond2, condVal: condVal2, eff: kind, val: v }) };
+  const typeOut = it.cat === 'Joker' ? 'Joker' : (it.cat === 'Consumable' ? 'Consumable' : it.cat);
   push2('hand', 'chips', cfg.t_chips); push2('hand', 'mult', cfg.t_mult); push2('hand', 'xmult', cfg.x_mult);
   if (cfg.extra && typeof cfg.extra === 'object') {
     push2('card', 'chips', cfg.extra.chips); push2('card', 'mult', cfg.extra.mult); push2('card', 'xmult', cfg.extra.x_mult);
@@ -8873,18 +8874,55 @@ function mkApplyCloneFrom (id) {
       effects.push({ when: rule2.r === 'individual' ? 'card' : (rule2.r === 'repetition' ? 'repetition' : 'hand'), cond: cond2, condVal: condVal2, eff: kind2, val: num2 });
     });
   }
+  /* ② 把这张牌的专属内容搬进 MK.t（该类型的字段组直接读它）—— 能读到才搬，读不到留默认，不编 */
+  const t2 = Object.assign({}, MK.t);
+  const cfgx = Object.assign({}, (it.config || {}), ((it.config && it.config.extra) || {}));
+  const rawx = it.raw || {};
+  let setOut = MK.set;
+  if (it.cat === 'Tarot' || it.cat === 'Planet' || it.cat === 'Spectral') setOut = it.cat;
+  if (typeOut === 'Blind') {
+    const boss = rawx.boss || (it.config && it.config.boss) || {};
+    if (typeof boss.min === 'number') t2.boss_min = boss.min;
+    if (typeof boss.max === 'number') t2.boss_max = boss.max;
+    if (typeof cfgx.mult === 'number') t2.blind_mult = cfgx.mult;
+    if (typeof cfgx.dollars === 'number') t2.blind_dollars = cfgx.dollars;
+    const db = (it.config && it.config.debuff) || rawx.debuff || {};
+    if (db && db.suit) t2.debuff_suit = db.suit;
+    if (db && db.is_face) t2.debuff_face = true;
+  } else if (typeOut === 'Booster') {
+    const kk = rawx.kind || cfgx.kind;
+    if (kk) t2.kind = kk;
+    if (typeof cfgx.choose === 'number') t2.choose = cfgx.choose;
+    if (typeof cfgx.extra === 'number') t2.extra = cfgx.extra;
+  } else if (typeOut === 'Back') {
+    ['hand_size', 'hands', 'discards', 'dollars', 'joker_slot', 'consumable_slot', 'joker_slots'].forEach((k) => {
+      const v = (typeof cfgx[k] === 'number') ? cfgx[k] : (typeof rawx[k] === 'number' ? rawx[k] : null);
+      if (typeof v === 'number') t2[(k === 'joker_slots' ? 'joker_slot' : k)] = v;
+    });
+  } else if (typeOut === 'Voucher') {
+    if (typeof cfgx.voucher_val === 'number') t2.voucher_val = cfgx.voucher_val;
+  }
+  /* 兜底：config 里的数字 / 字符串 / 开关，同名键原样搬进 t（UI 里同名键会直接显示出来） */
+  Object.keys(cfgx).forEach((k) => {
+    const v = cfgx[k];
+    if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') { if (t2[k] === undefined) t2[k] = v }
+  });
+  const tCount = Object.keys(t2).length;
   const zh2 = (it.text && it.text.zh_CN) || [];
   mkSet({
     cloneFrom: it.id,
-    type: it.cat === 'Joker' ? 'Joker' : (it.cat === 'Consumable' ? 'Consumable' : it.cat),
+    type: typeOut,
     key: mkUniqueKey('my' + String(it.key || it.id).replace(/^[a-z]+_/, '')),
     art: { atlas: it.atlas || MK.art.atlas, pos: it.pos || { x: 0, y: 0 }, upload: null, uploadName: '', frames: null, animated: false, weights: null, gen: null, delays: null, speed: 1 },
     nameZh: nm(it, 'zh_CN'), nameEn: nm(it, 'en-us'), textZh: zh2.join(' '), textEn: ((it.text && it.text['en-US']) || (it.text && it.text['en-us']) || []).join(' '),
     rarity: it.rarity || MK.rarity, cost: it.cost || MK.cost, order: it.order || MK.order, weight: it.weight || MK.weight,
     effects: effects.length ? effects : MK.effects,
+    set: setOut,
+    t: t2,
   });
-  return effects.length ? effects.length : 0;
+  return { effects: effects.length, tKeys: tCount };
 }
+  MKEL.applyClone = mkApplyCloneFrom;   /* 函数定义在 viewMaker 里，从这里挂到模块级对象上给外部用 */
   const cs = q('#mkClone');
   if (cs) cs.onchange = () => {
     const it = BY_ID[cs.value];

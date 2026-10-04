@@ -3405,6 +3405,21 @@ const SCENARIOS = {
       r.plainClickDidSomething=(B.maker.lua()!==luaB3);
     }
     r.stillCloned=B.maker.state.cloneFrom;
+    /* ② 克隆要把专属内容搬过来：每种类型都真的选一张原版牌试 */
+    r.cloneByType=[];
+    const TYPES2=[["Joker","Joker"],["Consumable","Tarot"],["Consumable","Planet"],["Voucher","Voucher"],["Booster","Booster"],["Back","Back"],["Blind","Blind"],["Tag","Tag"]];
+    for (const pair of TYPES2) {
+      const ty=pair[0], cat=pair[1];
+      const ids=B.maker.itemsByCat(cat);
+      if(!ids.length){ r.cloneByType.push({type:ty,cat:cat,none:true}); continue }
+      B.maker.select(0); B.maker.typeChip(ty); await __V.wait(200);
+      const res=B.maker.applyClone(ids[0]); await __V.wait(400);
+      const st=B.maker.state;
+      const lua=B.maker.lua();
+      r.cloneByType.push({ type:ty, cat:cat, id:ids[0], effects:res?res.effects:null, tKeys:res?res.tKeys:null,
+        tSample:JSON.stringify(st.t).slice(0,120), nameZh:st.nameZh, cost:st.cost,
+        luaHasCost:lua.indexOf("cost = "+st.cost)>=0 });
+    }
     r.errText=document.body.innerText.indexOf("出错")>=0;
     /* 前置要求说明块：必须在，而且链接 / 关键提醒都得在 */
     const need=q("#mkNeedLoader");
