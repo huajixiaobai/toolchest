@@ -3365,6 +3365,15 @@ const SCENARIOS = {
     r.switch={ cur:B.maker.project.cur, luaChanged:B.maker.lua()!==luaBefore, nameChanged:(q('[data-mk="nameZh"]')||{}).value!==nameBefore,
       nameNow:(q('[data-mk="nameZh"]')||{}).value, pvLine:(q(".mkpvline")||{}).innerText||"", pvChanged:((q(".mkpvline")||{}).innerText||"")!==pvBefore };
     r.errText=document.body.innerText.indexOf("出错")>=0;
+    /* 前置要求说明块：必须在，而且链接 / 关键提醒都得在 */
+    const need=q("#mkNeedLoader");
+    r.needBox=!!need;
+    const nt=need?need.innerText:"";
+    r.needMentions={ lovely:nt.indexOf("Lovely")>=0, smods:nt.indexOf("Steamodded")>=0,
+      link:nt.indexOf("github.com/Steamodded/smods")>=0,
+      unzip:nt.indexOf("解压")>=0, noZip:nt.indexOf("别把 zip 直接丢进去")>=0, log:nt.indexOf("lovely")>=0 && nt.indexOf("log")>=0, restart:nt.indexOf("重启游戏")>=0 };
+    r.needHrefs=need?[].slice.call(need.querySelectorAll("a")).map(function(a){return a.getAttribute("href")}):[];
+    r.needLinksOk=r.needHrefs.indexOf("https://github.com/Steamodded/smods")>=0 && r.needHrefs.indexOf("https://github.com/Steamopollys/Steamodded/wiki")>=0;
     r.errors=window.__V.errors.length;
     return r })()`,
   modMaker: `(async()=>{

@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "2cbebb0e";
+window.__APP_BUILD__ = "d23a9da8";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -6792,6 +6792,9 @@ let MK = {
 
 /** 一个 mod 工程：工程级字段 + 条目列表。MK 永远指向 items[cur]，也就是「正在编辑的那一条」。 */
 const MK_PROJ_KEY = 'balatro.maker.project.v1';
+/* 给界面用的路径提示（网页读不到你的硬盘，这只是通用位置说明） */
+const GAME_DIR_HINT = '%SteamLibrary%\\steamapps\\common\\Balatro（Steam 里右键游戏 → 管理 → 浏览本地文件）';
+const MODS_DIR_HINT = '%AppData%\\Balatro\\Mods（把这一串粘到资源管理器地址栏就能打开）';
 const MKR = {
   modId: MK.modId, modName: MK.modName, author: MK.author, version: MK.version, prefix: MK.prefix, desc: MK.desc,
   items: [MK], cur: 0, v: 1,
@@ -8361,6 +8364,21 @@ function viewMaker (root) {
       inp.click();
     }, 'mkImpJson'));
     body.appendChild(jrow);
+    /* 用之前必须知道的：加载器是前置条件，页面自己没法替你装（网页读不到你的硬盘） */
+    const need = document.createElement('div'); need.className = 'mkneed'; need.id = 'mkNeedLoader';
+    need.innerHTML = '<b>⚠ 想让它真的进游戏，需要先装两样东西（本页只负责生成 mod，装加载器得你自己动手）</b>' +
+      '<ol>' +
+      '<li><b>Lovely Injector</b>（注入器）——把它的 <code>version.dll</code> 放进游戏根目录（和 <code>Balatro.exe</code> 同一个文件夹）。你机器上装的是 <b>Lovely 0.9.0</b>，位置在 <code>' + esc(GAME_DIR_HINT) + '</code>。</li>' +
+      '<li><b>Steamodded</b>（mod 框架，本页生成的 Lua 全靠它的 <code>SMODS.*</code> 接口）——解压后把整个 <code>smods</code> 文件夹放进 mod 目录。官网/下载：<a href="https://github.com/Steamodded/smods" target="_blank" rel="noopener">github.com/Steamodded/smods</a>，说明与教程：<a href="https://github.com/Steamopollys/Steamodded/wiki" target="_blank" rel="noopener">Steamodded Wiki</a>，遇到问题问人：<a href="https://discord.gg/kU8cqCqwy3" target="_blank" rel="noopener">Discord</a>。</li>' +
+      '<li>mod 目录（Lovely 就看这里）：<code>%AppData%\\Balatro\\Mods</code>，本机就是 <code>' + esc(MODS_DIR_HINT) + '</code>。</li>' +
+      '</ol>' +
+      '<b>装 mod 的正确步骤</b>：点上面的「下载 mod zip」→ <b>解压</b> → 把解压出来的<b>文件夹</b>整个放进 mod 目录 → <b>重启游戏</b>。' +
+      '<br><b>别把 zip 直接丢进去</b>：Steamodded 只认文件夹。放进 zip 游戏里会毫无反应，日志里只有一句 <code>No mod root found in zip</code>。' +
+      '<br><b>出问题先看日志</b>：<code>%AppData%\\Balatro\\Mods\\lovely\\log\\</code> 里最新的那个 <code>.log</code>。' +
+      '常见两条：<code>No mod root found in zip</code> = 你把 zip 放进去没解压；<code>Valid JSON file found</code> = 框架认了这个 mod（正常）。' +
+      '<br><b>改完 mod 要重启游戏</b>才会重新加载。' +
+      '<br><span class="mkneedtip">说明：原版 Balatro 没有官方 mod 接口，不装这两样东西，生成出来的 mod 是加载不了的（Lua 里的 SMODS 表根本不存在）。</span>';
+    body.appendChild(need);
   }
   /* ---------- ① 做什么（含：来源与贴图，全在这一段里） ---------- */
   {
@@ -8829,7 +8847,7 @@ function viewMaker (root) {
       const files = await mkBuildFiles();
       const bytes = zipStore(files);
       save(bytes, MKR.modId + '.zip', 'application/zip');
-      status('已生成 ' + MKR.modId + '.zip（' + files.length + ' 个文件 / ' + MKR.items.length + ' 个条目 / ' + Math.round(bytes.length / 1024) + ' KB）—— 直接丢进 %AppData%/Balatro/Mods/ 就行。', 'ok');
+      status('已生成 ' + MKR.modId + '.zip（' + files.length + ' 个文件 / ' + MKR.items.length + ' 个条目 / ' + Math.round(bytes.length / 1024) + ' KB）—— 注意：**先解压**，把解压出来的文件夹整个放进 %AppData%/Balatro/Mods/ 再重启游戏。Steamodded 不读 zip（放 zip 进去游戏里不会有任何反应）。', 'ok');
     } catch (e) { status('打包失败：' + e.message) }
   };
   const ck = q('#mkCheck');

@@ -1,6 +1,6 @@
 /* 素材工具箱 — offline cache for the whole site (homepage + every tool page).
    The cache name carries the build id, so a rebuilt site never serves a stale page. */
-const BUILD = '164c41cbdc'
+const BUILD = 'eb7c7aebc4'
 const CACHE = 'toolbox-' + BUILD
 const CORE = [
   "./",
