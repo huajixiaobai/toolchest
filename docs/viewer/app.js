@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "4f076120";
+window.__APP_BUILD__ = "7cce27d4";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -8658,6 +8658,10 @@ function mkItemAtCell (atlas, x, y) {
       row2.appendChild(field(f[1], '<input type="checkbox" data-mkflag="' + f[0] + '"' + (MK[f[0]] ? ' checked' : '') + '>', 'mkck'));
     });
     body.appendChild(row2);
+    if (MK.type !== 'Joker') {
+      /* 静态核对过生成代码：稀有度/权重/排序/三个兼容性开关只写进小丑牌的注册里 */
+      body.insertAdjacentHTML('beforeend', '<div class="hint">注意：上面这几项里，<b>稀有度 / 出现权重 / 排序 / 三个兼容性开关</b>只对<b>小丑牌</b>有意义 —— 生成 Lua 时只有小丑牌那段会写它们。当前类型是「' + esc(mkType()[1]) + '」，填了也不会进 Lua（价格 cost 是有用的，多数类型都会写）。</div>');
+    }
   }
 
   /* ---------- ⑤ 高级 ---------- */
