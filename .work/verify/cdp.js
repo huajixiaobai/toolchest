@@ -3462,6 +3462,17 @@ const SCENARIOS = {
       if (afterSig === beforeSig) r.deadControls.push(labelOf(el));
     }
     r.deadControlsSummary = r.deadControls.length ? r.deadControls.join(" ; ") : "没有死的控件";
+    /* 定点探针：工程字段（modId）为什么被算成"没反应" */
+    {
+      const mB=B.maker.manifest();
+      const el=q('[data-mkp="modId"]');
+      const vb=el?el.value:null;
+      if(el){ el.value="zzzprobe"; el.dispatchEvent(new Event("input",{bubbles:true})); await __V.wait(500) }
+      const mA=B.maker.manifest();
+      r.projProbe={ found:!!el, valBefore:vb, valAfterEl:el?el.value:null,
+        stateValue:B.maker.project.modId, handlerRan:(B.maker.project.modId==="zzzprobe"),
+        manifestChanged:mB!==mA, mBeforeHead:mB.slice(0,70), mAfterHead:mA.slice(0,70) };
+    }
     r.cloneSummary=(r.cloneByType||[]).map(function(x){ return (x.cat||"?")+"→"+(x.typeAfter||"?")+" 专属"+x.tKeys+" 效果"+x.effects+" cost进Lua:"+(x.luaHasCost?"是":"否")+" "+String(x.tSample||"") }).join("  ||  ");
     r.perTypeEdit=[];
     /* ③ 的验证：每种类型改一个专属字段，Lua 必须跟着变 */
