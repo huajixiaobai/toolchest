@@ -3121,7 +3121,7 @@ const SCENARIOS = {
     const h1=hash(); await __V.wait(400); const h2=hash(); await __V.wait(400); const h3=hash();
     r.previewChanges=(h1!==h2)||(h2!==h3); r.hashes=[h1,h2,h3];
     const files=await B.maker.files();
-    const png=files.filter(function(f){return f.name==="assets/2x/sheet.png"})[0];
+    const png=files.filter(function(f){return f.name.indexOf("assets/2x/sheet")===0})[0];
     r.sheetWidth=png?(png.data[16]*16777216+png.data[17]*65536+png.data[18]*256+png.data[19]):0;
     r.expectWidth=142*Math.max(1,r.frames);
     const lua=B.maker.lua();
@@ -3189,14 +3189,14 @@ const SCENARIOS = {
     const h1=hash(); await __V.wait(450); const h2=hash(); await __V.wait(450); const h3=hash();
     r.previewChanges=(h1!==h2)||(h2!==h3); r.hashes=[h1,h2,h3];
     const files=await B.maker.files();
-    const png=files.filter(function(f){return f.name==="assets/1x/soul.png"})[0];
+    const png=files.filter(function(f){return f.name.indexOf("assets/1x/soul")===0})[0];
     r.soulWidth=png?(png.data[16]*16777216+png.data[17]*65536+png.data[18]*256+png.data[19]):0;
     r.expectWidth=71*Math.max(1,r.frames);
     const lua=B.maker.lua();
-    r.soulInLua=lua.indexOf("key = 'soul'")>=0;
+    r.soulInLua=lua.indexOf("key = 'soul_")>=0;
     r.soulFramesInLua=lua.indexOf("frames = "+r.frames)>=0;
     /* 立绘必须写 soul_atlas：只写 soul_pos 的话游戏会去主体图集里找那层前景精灵 */
-    r.soulAtlasInLua=lua.indexOf("soul_atlas = 'soul'")>=0;
+    r.soulAtlasInLua=lua.indexOf("soul_atlas = 'soul_")>=0;
     r.soulPosStale=lua.indexOf('soul_pos')>=0;
     /* 主体 + 立绘两个图集都要标成动图（ANIMATION_ATLAS），且都要有 fps */
     r.animTables=lua.split("atlas_table = 'ANIMATION_ATLAS'").length-1;
@@ -3228,10 +3228,10 @@ const SCENARIOS = {
       const lua=B.maker.lua();
       const at=checkAtlas(lua);
       const files=await B.maker.files();
-      const rd=(nm)=>{ const f=files.filter(function(x){return x.name===nm})[0]; return f?(f.data[16]*16777216+f.data[17]*65536+f.data[18]*256+f.data[19]):0 };
-      const w1=rd('assets/1x/sheet.png'), w2=rd('assets/2x/sheet.png');
+      const rd2=(nm)=>{ const f=files.filter(function(x){return x.name.indexOf(nm)===0})[0]; return f?(f.data[16]*16777216+f.data[17]*65536+f.data[18]*256+f.data[19]):0 };
+      const w1=rd2('assets/1x/sheet'), w2=rd2('assets/2x/sheet');
       const anim=lua.split("atlas_table = 'ANIMATION_ATLAS'").length-1;
-      const soulAtlas=lua.indexOf("soul_atlas = 'soul'")>=0;
+      const soulAtlas=lua.indexOf("soul_atlas = 'soul_")>=0;
       const soulPos=lua.indexOf('soul_pos')>=0;
       r.types.push({ type:ty, syntax:at.ok, why:at.why||'', anim:anim,
         frames:lua.indexOf('frames = 6')>=0, fps:lua.indexOf('fps = 12')>=0,
@@ -3268,7 +3268,7 @@ const SCENARIOS = {
     const h1=hash(); await __V.wait(300); const h2=hash(); await __V.wait(300); const h3=hash();
     r.previewChanges=(h1!==h2)||(h2!==h3); r.hashes=[h1,h2,h3];
     const files=await B.maker.files();
-    const png=files.filter(function(f){return f.name==='assets/2x/sheet.png'})[0];
+    const png=files.filter(function(f){return f.name.indexOf('assets/2x/sheet')===0})[0];
     r.sheetWidth=png?(png.data[16]*16777216+png.data[17]*65536+png.data[18]*256+png.data[19]):0;
     r.expectWidth=142*8;
     const lua=B.maker.lua();
@@ -3288,6 +3288,55 @@ const SCENARIOS = {
       URL.revokeObjectURL(url);
     } catch(e){ r.cellErr=String(e&&e.message||e) }
     r.hint=(q('#mkMotionHint')||{}).textContent||'';
+    r.errors=window.__V.errors.length;
+    return r })()`,
+  /* 一个工程多个条目：真的点按钮加条目、分组列表、逐条目打包、JSON 往返 */
+  mkProject: `(async()=>{
+    const B=window.__BALATRO__; const S=B.state; const r={}; await __V.wait(1400);
+    const q=(s)=>document.querySelector(s); const qa=(s)=>[].slice.call(document.querySelectorAll(s));
+    S.tab='maker'; B.render(); await __V.wait(900);
+    r.ui={ list:!!q('#mkItems'), add:!!q('#mkAddItem'), dup:!!q('#mkDupItem'), del:!!q('#mkDelItem'), up:!!q('#mkUp'), down:!!q('#mkDown'), exp:!!q('#mkExpJson'), imp:!!q('#mkImpJson'), fields:qa('[data-mkp]').length };
+    r.rowsStart=qa(".mki").length;
+    /* 点「＋ 再加一个条目」三次 → 共 4 条 */
+    for(let i=0;i<3;i++){ q('#mkAddItem').click(); await __V.wait(350) }
+    r.rowsAfterAdd=qa(".mki").length;
+    r.groupHeads=qa(".mkigrp").map(function(x){return x.textContent});
+    /* 四条分别设成 小丑(带立绘+动效) / 消耗品(动图) / 优惠券(逐帧时长) / 盲注 */
+    const setItem=async(i,ty,fn)=>{ B.maker.select(i); B.maker.typeChip(ty); await __V.wait(200); if(fn) fn(); B.render(); await __V.wait(250) };
+    await setItem(0,'Joker',()=>{ B.maker.state.soul.on=true; B.maker.state.soul.gen={kind:'float',n:6,fps:12,amp:3}; B.maker.state.art.gen={kind:'breathe',n:6,fps:12,amp:4} });
+    await setItem(1,'Consumable',()=>{ B.maker.state.art.gen={kind:'float',n:8,fps:10,amp:3} });
+    await setItem(2,'Voucher',()=>{ B.maker.state.art.gen={kind:'blink',n:4,fps:8,amp:4}; B.maker.state.art.weights=[1,1,3,1] });
+    await setItem(3,'Blind',()=>{ B.maker.state.art.gen=null });
+    r.keys=B.maker.project.items.map(function(it){return it.key});
+    r.types=B.maker.project.items.map(function(it){return it.type});
+    /* 打包：每个条目自己的图集，名字唯一 */
+    const files=await B.maker.files();
+    r.fileNames=files.map(function(f){return f.name});
+    r.sheets=files.filter(function(f){return f.name.indexOf("assets/1x/sheet")===0}).map(function(f){return f.name});
+    r.uniqueSheets=new Set(r.sheets).size===r.sheets.length && r.sheets.length===4;
+    r.keysAfterExport=B.maker.project.items.map(function(it){return it.key});
+    r.keysUniqueAfterExport=new Set(r.keysAfterExport).size===r.keysAfterExport.length && r.keysAfterExport.length===4;
+    const lua=B.maker.lua();
+    r.luaBlocks=(lua.match(/SMODS\./g)||[]).length;
+    r.atlasKeys=B.maker.project.items.map(function(it){return "sheet_"+it.key});
+    r.allAtlasDeclared=r.atlasKeys.every(function(k){ return lua.indexOf("key = \u0027"+k+"\u0027")>=0 });
+    r.atlasUnique=new Set(r.atlasKeys).size===4;
+    r.uniqueRefs=r.atlasKeys.every(function(k){ return lua.split("atlas = \u0027"+k+"\u0027").length-1===1 });
+    r.soulAtlas=lua.indexOf("soul_atlas = \u0027soul_")>=0;
+    /* JSON 往返（含图片）+ 存/读 */
+    B.maker.saveProject();
+    const json=B.maker.projectJSON(true);
+    r.jsonItems=json.items.length;
+    r.jsonBytes=JSON.stringify(json).length;
+    const keepKeys=JSON.stringify(B.maker.project.items.map(function(it){return it.key}));
+    const ok=B.maker.applyProject(JSON.parse(JSON.stringify(json)));
+    r.applyOk=ok; r.keysAfter=JSON.stringify(B.maker.project.items.map(function(it){return it.key}));
+    r.roundTripKeys=keepKeys===r.keysAfter;
+    r.loaded=B.maker.loadProject();
+    B.render(); await __V.wait(400);
+    r.rowsAfterReload=qa(".mki").length;
+    r.overview=(q("#mkProjOverview")||{}).textContent||"";
+    r.errText=document.body.innerText.indexOf("出错")>=0;
     r.errors=window.__V.errors.length;
     return r })()`,
   modMaker: `(async()=>{
@@ -3342,7 +3391,7 @@ const SCENARIOS = {
       const sheet=B.maker.sheet(2,'art');
       r.sheet={ w:sheet.width, h:sheet.height, expect:71*2*3 };
       const files2=await B.maker.files();
-      const png=files2.filter(function(f){return f.name==='assets/2x/sheet.png'})[0];
+      const png=files2.filter(function(f){return f.name.indexOf('assets/2x/sheet')===0})[0];
       r.sheetPng={ bytes:png?png.data.length:0, width:png?(png.data[16]*16777216+png.data[17]*65536+png.data[18]*256+png.data[19]):0 };
       const lua2=B.maker.lua();
       r.framesDeclared=lua2.indexOf('frames = 3')>=0;

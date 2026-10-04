@@ -5921,7 +5921,9 @@ function init () {
     mods: MODS, importModZip, importModFiles, importBatch, importZipBuffer, filesFromDrop, removeMod, sourceItems,
     modImport: window.__MODIMPORT__, categoryLabel,
     /* Mod 制作器：状态 / 生成的 Lua / manifest / 要打包的文件（脚本与控制台都能用） */
-    maker: { typeChip: (ty) => { mkSet({ type: ty }) }, state: MK, lua: () => mkLua(), manifest: () => mkManifest(), files: () => mkBuildFiles(), types: MK_TYPES, when: MK_WHEN, eff: MK_EFF, motion: MK_MOTION, delays: () => mkFrameDelays(MK.art), animArgs: () => mkAnimArgs(MK.art),
+    maker: { typeChip: (ty) => { mkSet({ type: ty }) }, get state () { return MK },   /* 必须是 getter：MK 会被重新指向 */ lua: () => mkLua(), manifest: () => mkManifest(), files: () => mkBuildFiles(), types: MK_TYPES, when: MK_WHEN, eff: MK_EFF, motion: MK_MOTION, delays: () => mkFrameDelays(MK.art), animArgs: () => mkAnimArgs(MK.art),
+      project: MKR, addItem: mkAddItem, dupItem: mkDupItem, delItem: mkDelItem, moveItem: mkMoveItem, select: mkSelect, grouped: mkGrouped,
+      projectJSON: mkProjectJSON, applyProject: mkApplyProject, restoreImages: mkRestoreImages, saveProject: mkSaveProject, loadProject: mkLoadProject,
       presets: MK_PRESETS, cond: MK_COND, readImage: mkReadImage, sheet: (scale, which) => mkSheetCanvas(scale, which || "art"),
       atlasLabel: mkAtlasLabel },   /* 脚本/控制台都能用：读图（含动图拆帧）、取帧序列画布 */
     // --- 得分计算器（脚本化测试与自用都方便）---
@@ -6084,7 +6086,7 @@ const MK_TYPE_FIELDS = {
   Edition: [['chips', '固定 +筹码', 'num', 0], ['mult', '固定 +倍率', 'num', 0], ['xmult', '×倍率', 'num', 1.5]],
   Seal: [['seal_note', '蜡封没有数值字段 —— 它的效果由玩家拿它做什么决定', 'text', '']],
 };
-const MK = {
+let MK = {
   type: 'Joker',
   modId: 'mymod', modName: '我的 Mod', author: 'me', version: '1.0.0', desc: '由图鉴 Mod 制作器生成',
   prefix: 'mymod',
@@ -6101,6 +6103,162 @@ const MK = {
   cloneFrom: '',
 };
 
+/** 一个 mod 工程：工程级字段 + 条目列表。MK 永远指向 items[cur]，也就是「正在编辑的那一条」。 */
+const MK_PROJ_KEY = 'balatro.maker.project.v1';
+const MKR = {
+  modId: MK.modId, modName: MK.modName, author: MK.author, version: MK.version, prefix: MK.prefix, desc: MK.desc,
+  items: [MK], cur: 0, v: 1,
+};
+/** 条目在文件名 / 图集 key 里用的 slug */
+function mkSlug (it) { return String((it || MK).key || 'item').replace(/[^A-Za-z0-9_]/g, '_') || 'item' }
+/** 新条目：拿当前条目的图集当默认，名字按类型给 */
+function mkBlankItem (type) {
+  const ty = type || MK.type;
+  const d = MK_DEFAULT_NAME[ty] || ['新条目', 'newitem'];
+  return {
+    type: ty,
+    key: d[1],
+    art: { atlas: MK.art.atlas, pos: { x: 0, y: 0 }, upload: null, uploadName: '', frames: null, animated: false, weights: null, gen: null, delays: null },
+    rarity: 1, cost: 4, order: 100, weight: 1,
+    eternal: true, perishable: true, blueprint: true,
+    nameZh: d[0], nameEn: d[0], textZh: '', textEn: '',
+    effects: [{ when: 'card', cond: 'suit', condVal: 'Hearts', eff: 'chips', val: 50 }],
+    useKind: 'dollars', useVal: 4, set: 'Tarot',
+    soul: { on: false, atlas: MK.soul.atlas, pos: { x: 0, y: 2 }, upload: null, uploadName: '', frames: null, animated: false, weights: null, gen: null, delays: null },
+    advanced: false, lua: null, luaDirty: false, config: '', t: {}, cloneFrom: '',
+  };
+}
+function mkSelect (i) { if (i < 0 || i >= MKR.items.length) return; MKR.cur = i; MK = MKR.items[i] }
+/** 导出/加载前把重名的 key 归一化：同一个 mod 里两条同 key 会互相覆盖 */
+function mkNormalizeKeys () {
+  const used = {};
+  MKR.items.forEach((it) => {
+    let k = String(it.key || 'item').replace(/[^A-Za-z0-9_]/g, '_') || 'item';
+    if (used[k]) { let i = 2; while (used[k + '_' + i]) i++; k = k + '_' + i }
+    used[k] = 1;
+    it.key = k;
+  });
+}
+function mkEnsureItems () { if (!MKR.items.length) MKR.items.push(mkBlankItem()); if (MKR.cur >= MKR.items.length) MKR.cur = MKR.items.length - 1; MK = MKR.items[MKR.cur] }
+function mkUniqueKey (base) {
+  const used = {};
+  MKR.items.forEach((it) => { if (it !== MK) used[it.key] = 1 });
+  const k = String(base || 'item').replace(/[^A-Za-z0-9_]/g, '_') || 'item';
+  if (!used[k]) return k;
+  let i = 2;
+  while (used[k + '_' + i]) i++;
+  return k + '_' + i;
+}
+function mkAddItem (type) {
+  const it = mkBlankItem(type);
+  it.key = mkUniqueKey(it.key);
+  MKR.items.push(it);
+  mkSelect(MKR.items.length - 1);
+  return it;
+}
+/** 复制当前条目：贴图 / 帧序列 / 立绘都跟着来，key 换个不重名的 */
+function mkDupItem () {
+  const keepArt = Object.assign({}, MK.art), keepSoul = Object.assign({}, MK.soul);
+  const it = mkBlankItem(MK.type);
+  for (const k of Object.keys(MK)) { if (k === 'art' || k === 'soul') continue; it[k] = MK[k] }
+  it.art = keepArt; it.soul = keepSoul;
+  it.effects = (MK.effects || []).map((e) => Object.assign({}, e));
+  it.key = mkUniqueKey(MK.key + '_copy');
+  it.nameZh = (MK.nameZh || MK.key) + ' 副本';
+  MKR.items.splice(MKR.cur + 1, 0, it);
+  mkSelect(MKR.cur + 1);
+  return it;
+}
+function mkDelItem () {
+  if (MKR.items.length <= 1) return false;
+  MKR.items.splice(MKR.cur, 1);
+  mkSelect(Math.max(0, MKR.cur - 1));
+  return true;
+}
+function mkMoveItem (d) {
+  const j = MKR.cur + d;
+  if (j < 0 || j >= MKR.items.length) return false;
+  const t = MKR.items[MKR.cur]; MKR.items[MKR.cur] = MKR.items[j]; MKR.items[j] = t;
+  mkSelect(j);
+  return true;
+}
+/** 按类型分组统计（概览与列表都用它） */
+function mkGrouped () {
+  const g = {};
+  MKR.items.forEach((it, i) => { (g[it.type] = g[it.type] || []).push({ it: it, i: i }) });
+  return MK_TYPES.map((t) => ({ type: t[0], name: t[1], rows: g[t[0]] || [] })).filter((x) => x.rows.length);
+}
+/** 工程 → 可序列化对象；withImages=true 时把上传的图与帧编成 dataURL（工程备份用） */
+function mkProjectJSON (withImages) {
+  const img = (cv) => { try { return cv && cv.toDataURL ? cv.toDataURL('image/png') : null } catch (e) { return null } };
+  const one = (it) => {
+    const o = {
+      type: it.type, key: it.key, rarity: it.rarity, cost: it.cost, order: it.order, weight: it.weight,
+      eternal: !!it.eternal, perishable: !!it.perishable, blueprint: !!it.blueprint,
+      nameZh: it.nameZh, nameEn: it.nameEn, textZh: it.textZh, textEn: it.textEn,
+      effects: (it.effects || []).map((e) => ({ when: e.when, cond: e.cond, condVal: e.condVal, eff: e.eff, val: e.val })),
+      useKind: it.useKind, useVal: it.useVal, set: it.set, advanced: !!it.advanced, config: it.config || '', cloneFrom: it.cloneFrom || '',
+      art: { atlas: it.art.atlas, pos: it.art.pos, weights: it.art.weights || null, gen: it.art.gen || null, delays: it.art.delays || null, uploadName: it.art.uploadName || '' },
+      soul: { on: !!it.soul.on, atlas: it.soul.atlas, pos: it.soul.pos, weights: it.soul.weights || null, gen: it.soul.gen || null, delays: it.soul.delays || null, uploadName: it.soul.uploadName || '' },
+    };
+    if (withImages) {
+      o.art.img = img(it.art.upload);
+      o.art.imgs = (it.art.frames || []).map(img).filter(Boolean);
+      o.soul.img = img(it.soul.upload);
+      o.soul.imgs = (it.soul.frames || []).map(img).filter(Boolean);
+    }
+    return o;
+  };
+  return { v: 1, modId: MKR.modId, modName: MKR.modName, author: MKR.author, version: MKR.version, prefix: MKR.prefix, desc: MKR.desc, cur: MKR.cur, items: MKR.items.map(one), at: Date.now() };
+}
+/** 从对象恢复（启动读 localStorage / 导入工程 JSON 都走它） */
+function mkApplyProject (o) {
+  if (!o || !o.items || !o.items.length) return false;
+  MKR.modId = o.modId || MKR.modId; MKR.modName = o.modName || MKR.modName; MKR.author = o.author || MKR.author;
+  MKR.version = o.version || MKR.version; MKR.prefix = o.prefix || MKR.prefix; MKR.desc = o.desc || MKR.desc;
+  MKR.items = o.items.map((x) => {
+    const it = mkBlankItem(x.type);
+    Object.assign(it, {
+      key: x.key || it.key, rarity: x.rarity != null ? x.rarity : it.rarity, cost: x.cost != null ? x.cost : it.cost,
+      order: x.order != null ? x.order : it.order, weight: x.weight != null ? x.weight : it.weight,
+      eternal: !!x.eternal, perishable: !!x.perishable, blueprint: !!x.blueprint,
+      nameZh: x.nameZh || it.nameZh, nameEn: x.nameEn || it.nameEn, textZh: x.textZh || '', textEn: x.textEn || '',
+      effects: (x.effects && x.effects.length ? x.effects : it.effects).map((e) => Object.assign({}, e)),
+      useKind: x.useKind || it.useKind, useVal: x.useVal != null ? x.useVal : it.useVal,
+      set: x.set || it.set, advanced: !!x.advanced, config: x.config || '', cloneFrom: x.cloneFrom || '',
+    });
+    if (x.art) it.art = { atlas: x.art.atlas || it.art.atlas, pos: x.art.pos || { x: 0, y: 0 }, upload: null, uploadName: x.art.uploadName || '', frames: null, animated: false, weights: x.art.weights || null, gen: x.art.gen || null, delays: x.art.delays || null };
+    if (x.soul) it.soul = { on: !!x.soul.on, atlas: x.soul.atlas || it.soul.atlas, pos: x.soul.pos || { x: 0, y: 0 }, upload: null, uploadName: x.soul.uploadName || '', frames: null, animated: false, weights: x.soul.weights || null, gen: x.soul.gen || null, delays: x.soul.delays || null };
+    return it;
+  });
+  MKR.cur = Math.max(0, Math.min(o.cur || 0, MKR.items.length - 1));
+  MK = MKR.items[MKR.cur];
+  mkNormalizeKeys();
+  return true;
+}
+/** 把工程 JSON 里的图片（dataURL）解回来贴到条目上 */
+async function mkRestoreImages (o) {
+  const load = (u) => new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = u });
+  const cnt = Math.min((o.items || []).length, MKR.items.length);
+  for (let i = 0; i < cnt; i++) {
+    const src = o.items[i]; const it = MKR.items[i];
+    if (src.art && src.art.img) { const im = await load(src.art.img); if (im) it.art.upload = im }
+    if (src.art && src.art.imgs && src.art.imgs.length) { const fl = []; for (const u of src.art.imgs) { const im = await load(u); if (im) fl.push(im) } if (fl.length > 1) { it.art.frames = fl; it.art.animated = true; it.art.upload = fl[0] } }
+    if (src.soul && src.soul.img) { const im = await load(src.soul.img); if (im) it.soul.upload = im }
+    if (src.soul && src.soul.imgs && src.soul.imgs.length) { const fl = []; for (const u of src.soul.imgs) { const im = await load(u); if (im) fl.push(im) } if (fl.length > 1) { it.soul.frames = fl; it.soul.upload = fl[0] } }
+  }
+}
+/** 自动保存：只存设置（图片太大） */
+function mkSaveProject () {
+  try { localStorage.setItem(MK_PROJ_KEY, JSON.stringify(mkProjectJSON(false))) } catch (e) { /* 隐私模式/超配额：不影响用 */ }
+}
+function mkLoadProject () {
+  try {
+    const raw = localStorage.getItem(MK_PROJ_KEY);
+    if (!raw) return false;
+    return mkApplyProject(JSON.parse(raw));
+  } catch (e) { return false }
+}
 function mkType () { return MK_TYPES.filter((t) => t[0] === MK.type)[0] || MK_TYPES[0] }
 /** 每种类型的默认名字与默认 key：换类型时若还没自己改过就一起换（不然永远是"阿尔法"） */
 const MK_DEFAULT_NAME = {
@@ -6226,7 +6384,7 @@ function mkTypeDescHtml () {
 /** 顶部那一行实时摘要 */
 function mkSummaryHtml () {
   return '<b>' + esc(mkType()[1]) + '</b> · ' + esc(MK.nameZh || MK.key) +
-    ' <code>' + esc(MK.prefix) + '_' + esc(MK.key) + '</code> · ' + esc(mkShownText() || '还没有效果') +
+    ' <code>' + esc(MKR.prefix) + '_' + esc(MK.key) + '</code> · ' + esc(mkShownText() || '还没有效果') +
     ' · 贴图 ' + (MK.art.upload ? '上传的图' : (MK.art.atlas + ' x' + MK.art.pos.x + ' y' + MK.art.pos.y));
 }
 function mkAtlasName () {
@@ -6253,6 +6411,19 @@ function mkDrawSource (ctx, scale, dx, dy, src) {
   try { ctx.drawImage(im2, sx, sy, sw, sh, dx, dy, w, h) } catch (e) { /* 图还没解码完 */ }
 }
 /** 主体 / 立绘的一帧或整套帧序列（动图时横向铺开，正是原版图集的排法） */
+/** 整个工程的 Lua：逐条目生成（生成时把 MK 临时切到那一条上），条目之间空一行 */
+function mkLua () {
+  mkNormalizeKeys();   /* 生成 Lua 前也归一化一次（两个入口都要） */
+  const keep = MK;
+  const out = [];
+  MKR.items.forEach((it, i) => {
+    MK = it;
+    if (i) out.push('');
+    out.push(mkItemLua());
+  });
+  MK = keep;
+    return out.join('\n');
+}
 /* ---------------------------------------------------------------- 动效（按游戏里的做法）
  * 游戏里的"动"就一件事：图集里横向排 N 帧 + fps（SMODS.Atlas 的 atlas_table = ANIMATION_ATLAS）。
  * 所以这里不依赖"能拆动图文件"：给了帧序列就用帧序列（GIF / APNG / 多选图片），
@@ -7075,14 +7246,14 @@ function mkAutoText (lang) {
   return parts.join(lang === 'zh' ? '；' : '; ');
 }
 /** 生成完整的 mod Lua（含 Atlas 声明与对象声明） */
-function mkLua () {
+function mkItemLua () {
   const t = mkType();
   const L = [];
   const key = String(MK.key || 'thing').replace(/[^A-Za-z0-9_]/g, '_') || 'thing';
   const nameZh = MK.nameZh || key, nameEn = MK.nameEn || nameZh;
   const textZh = MK.textZh || mkAutoText('zh'), textEn = MK.textEn || mkAutoText('en');
-  L.push('-- ' + MK.modName + ' · 由图鉴「Mod 制作器」生成');
-  L.push('-- 直接放：%AppData%/Balatro/Mods/' + MK.modId + '/');
+  L.push('-- ' + MKR.modName + ' · 由图鉴「Mod 制作器」生成');
+  L.push('-- 直接放：%AppData%/Balatro/Mods/' + MKR.modId + '/');
   L.push('');
   /* 图集：动图要写全三样（atlas_table / frames / fps），字段之间的逗号统一在这里拼，避免手写续行漏逗号 */
   const atlasLines = (key, file, anim) => {
@@ -7097,14 +7268,15 @@ function mkLua () {
     return rows.map((r, i) => '    ' + r[0] + ' = ' + r[1] + (i < rows.length - 1 ? ',' : '') + (r[2] ? '   -- ' + r[2] : ''));
   };
   const aAnim = mkAnimArgs(MK.art);
+  const slug = mkSlug(MK);
   L.push('SMODS.Atlas {');
-  for (const line of atlasLines('sheet', 'sheet.png', aAnim)) L.push(line);
+  for (const line of atlasLines('sheet_' + slug, 'sheet_' + slug + '.png', aAnim)) L.push(line);
   L.push('}');
   if (MK.type === 'Joker' && MK.soul.on) {
     L.push('');
     L.push('SMODS.Atlas {');
     const sAnim = mkAnimArgs(MK.soul);
-    for (const line of atlasLines('soul', 'soul.png', sAnim)) L.push(line);
+    for (const line of atlasLines('soul_' + slug, 'soul_' + slug + '.png', sAnim)) L.push(line);
     L.push('}');
   }
   L.push('');
@@ -7132,7 +7304,7 @@ function mkLua () {
     L.push('    },');
     L.push('    rarity = ' + MK.rarity + ',');
     L.push('    cost = ' + MK.cost + ',');
-    L.push("    atlas = 'sheet',");
+    L.push("    atlas = 'sheet_" + slug + "',");
     L.push('    pos = { x = 0, y = 0 },');
     L.push('    order = ' + MK.order + ',');
     L.push('    weight = ' + MK.weight + ',');
@@ -7143,7 +7315,7 @@ function mkLua () {
       /* 立绘是单独一张 soul.png，所以要写 soul_atlas：游戏就是按这个字段去找那层前景精灵的
          （overrides.lua: atlas_key = lc_soul_atlas or soul_atlas or lc_atlas or atlas or set）。
          只写 soul_pos 的话它会去**主体的图集**里找，等于把牌面自己飘一遍，立绘那张图用不上。 */
-      L.push("    soul_atlas = 'soul',");
+      L.push("    soul_atlas = 'soul_" + slug + "',");
     }
     L.push('    calculate_joker = function(self, context)');
     MK.effects.forEach((e, i) => {
@@ -7160,7 +7332,7 @@ function mkLua () {
     L.push.apply(L, loc);
     L.push('    config = { extra = { value = ' + (Number(MK.useVal) || 0) + ' } },');
     L.push('    cost = ' + MK.cost + ',');
-    L.push("    atlas = 'sheet',");
+    L.push("    atlas = 'sheet_" + slug + "',");
     L.push('    pos = { x = 0, y = 0 },');
     L.push('    can_use = function(self, card) return true end,');
     L.push('    use = function(self, card, area, copier)');
@@ -7198,7 +7370,7 @@ function mkLua () {
     L.push("    kind = '" + (t2.kind || 'Arcana') + "',");
     L.push('    config = { choose = ' + (t2.choose || 1) + ', extra = ' + (t2.extra || 3) + ' },');
     L.push('    cost = ' + (t2.cost || 4) + ',');
-    L.push("    atlas = 'sheet',");
+    L.push("    atlas = 'sheet_" + slug + "',");
     L.push('    pos = { x = 0, y = 0 },');
     L.push('    unlocked = true,');
     L.push('    discovered = true');
@@ -7216,7 +7388,7 @@ function mkLua () {
     L.push('        joker_slot = ' + (t2.joker_slot || 5) + ',');
     L.push('        consumable_slot = ' + (t2.consumable_slot || 2));
     L.push('    },');
-    L.push("    atlas = 'sheet',");
+    L.push("    atlas = 'sheet_" + slug + "',");
     L.push('    pos = { x = 0, y = 0 },');
     L.push('    unlocked = true,');
     L.push('    discovered = true');
@@ -7226,7 +7398,7 @@ function mkLua () {
     L.push('SMODS.Tag {');
     L.push("    key = '" + key + "',");
     L.push.apply(L, loc);
-    L.push("    atlas = 'sheet',");
+    L.push("    atlas = 'sheet_" + slug + "',");
     L.push('    pos = { x = 0, y = 0 },');
     L.push('    config = { ' + (t2.tag_kind || 'dollars') + ' = ' + (t2.tag_val || 5) + ' },');
     L.push('    apply = function(self, tag, context)');
@@ -7245,7 +7417,7 @@ function mkLua () {
     L.push("    key = '" + key + "',");
     L.push.apply(L, loc);
     L.push('    config = { ' + ['chips', 'mult', 'xmult'].filter((k) => Number(t2[k])).map((k) => (k === 'xmult' ? 'x_mult' : k) + ' = ' + t2[k]).join(', ') + ' },');
-    L.push("    atlas = 'sheet',");
+    L.push("    atlas = 'sheet_" + slug + "',");
     L.push('    pos = { x = 0, y = 0 },');
     L.push('    unlocked = true,');
     L.push('    discovered = true');
@@ -7255,7 +7427,7 @@ function mkLua () {
     L.push('SMODS.Seal {');
     L.push("    key = '" + key + "',");
     L.push.apply(L, loc);
-    L.push("    atlas = 'sheet',");
+    L.push("    atlas = 'sheet_" + slug + "',");
     L.push('    pos = { x = 0, y = 0 }');
     L.push('}');
   } else {
@@ -7274,7 +7446,7 @@ function mkLua () {
       else L.push('        -- 想做点什么就改这里');
       L.push('    end,');
     }
-    L.push("    atlas = 'sheet',");
+    L.push("    atlas = 'sheet_" + slug + "',");
     L.push('    pos = { x = 0, y = 0 },');
     if (MK.type === 'Booster') L.push('    config = { extra = 3, choose = 1 },');
     if (MK.type === 'Blind') L.push('    boss = { min = 1, max = 10 },');
@@ -7286,43 +7458,50 @@ function mkLua () {
 }
 function mkManifest () {
   return JSON.stringify({
-    id: MK.modId,
-    name: MK.modName,
-    author: MK.author,
-    version: MK.version,
+    id: MKR.modId,
+    name: MKR.modName,
+    author: MKR.author,
+    version: MKR.version,
     description: MK.desc,
-    prefix: MK.prefix,
-    main_file: MK.modId + '.lua',
+    prefix: MKR.prefix,
+    main_file: MKR.modId + '.lua',
     dependencies: ['Steamodded (>=1.0.0~BETA-0706b)', 'Lovely (>=0.6)'],
     provides: ['图鉴 Mod 制作器'],
   }, null, 2) + '\n';
 }
 /** 生成整个 mod 的文件表（名字 → 字节），给 zipStore / 自检用 */
 async function mkBuildFiles () {
+  mkNormalizeKeys();   /* 打包前先保证 key 不重名 */
   const files = [];
   files.push({ name: 'manifest.json', data: TE.encode(mkManifest()) });
-  files.push({ name: MK.modId + '.lua', data: TE.encode(mkLua()) });
-  /* 尺寸自检：动图是横向帧条，宽度必须正好是 帧数×格宽 —— 算错的话后面 toBlob 会直接挂住 */
-  const artList0 = mkSourceFrames(MK.art);
-  const nArt = artList0 ? artList0.length : 1;
-  const s1 = mkSheetCanvas(1, 'art'); const s2 = mkSheetCanvas(2, 'art');
-  if (s1.width !== CARD_W * nArt || s2.width !== CARD_W * 2 * nArt) {
-    throw new Error('帧条宽度不对（1x ' + s1.width + '、2x ' + s2.width + '，按 ' + nArt + ' 帧应该是 ' + (CARD_W * nArt) + ' 和 ' + (CARD_W * 2 * nArt) + '）');
-  }
-  const one = await canvasBytes(s1);
-  const two = await canvasBytes(s2);
-  files.push({ name: 'assets/1x/sheet.png', data: one });
-  files.push({ name: 'assets/2x/sheet.png', data: two });
-  if (MK.type === 'Joker' && MK.soul.on) {
-    const soulList0 = mkSourceFrames(MK.soul);
-    const nSoul = soulList0 ? soulList0.length : 1;
-    const q1 = mkSheetCanvas(1, 'soul'); const q2 = mkSheetCanvas(2, 'soul');
-    if (q1.width !== CARD_W * nSoul || q2.width !== CARD_W * 2 * nSoul) {
-      throw new Error('立绘帧条宽度不对（1x ' + q1.width + '、2x ' + q2.width + '，按 ' + nSoul + ' 帧应该是 ' + (CARD_W * nSoul) + ' 和 ' + (CARD_W * 2 * nSoul) + '）');
+  files.push({ name: MKR.modId + '.lua', data: TE.encode(mkLua()) });
+  /* 逐条目打包：每条自己的帧条文件（sheet_<slug>.png / soul_<slug>.png），和 Lua 里的图集 key 一一对应。
+     生成时把 MK 临时切到那一条上 —— 贴图/帧序列/动效/逐帧时长这些逻辑一行都不用改。 */
+  const keepMK = MK;
+  for (const it of MKR.items) {
+    MK = it;
+    const slug = mkSlug(it);
+    /* 尺寸自检：动图是横向帧条，宽度必须正好是 帧数×格宽 —— 算错的话后面 toBlob 会直接挂住 */
+    const artList0 = mkSourceFrames(MK.art);
+    const nArt = artList0 ? artList0.length : 1;
+    const s1 = mkSheetCanvas(1, 'art'); const s2 = mkSheetCanvas(2, 'art');
+    if (s1.width !== CARD_W * nArt || s2.width !== CARD_W * 2 * nArt) {
+      throw new Error('第 ' + (MKR.items.indexOf(it) + 1) + ' 条（' + (it.nameZh || it.key) + '）帧条宽度不对：1x ' + s1.width + '、2x ' + s2.width + '，按 ' + nArt + ' 帧应该是 ' + (CARD_W * nArt) + ' 和 ' + (CARD_W * 2 * nArt));
     }
-    files.push({ name: 'assets/1x/soul.png', data: await canvasBytes(q1) });
-    files.push({ name: 'assets/2x/soul.png', data: await canvasBytes(q2) });
+    files.push({ name: 'assets/1x/sheet_' + slug + '.png', data: await canvasBytes(s1) });
+    files.push({ name: 'assets/2x/sheet_' + slug + '.png', data: await canvasBytes(s2) });
+    if (MK.type === 'Joker' && MK.soul.on) {
+      const soulList0 = mkSourceFrames(MK.soul);
+      const nSoul = soulList0 ? soulList0.length : 1;
+      const q1 = mkSheetCanvas(1, 'soul'); const q2 = mkSheetCanvas(2, 'soul');
+      if (q1.width !== CARD_W * nSoul || q2.width !== CARD_W * 2 * nSoul) {
+        throw new Error('第 ' + (MKR.items.indexOf(it) + 1) + ' 条立绘帧条宽度不对：1x ' + q1.width + '、2x ' + q2.width + '，按 ' + nSoul + ' 帧应该是 ' + (CARD_W * nSoul) + ' 和 ' + (CARD_W * 2 * nSoul));
+      }
+      files.push({ name: 'assets/1x/soul_' + slug + '.png', data: await canvasBytes(q1) });
+      files.push({ name: 'assets/2x/soul_' + slug + '.png', data: await canvasBytes(q2) });
+    }
   }
+  MK = keepMK;
   return files;
 }
 /** 只刷新 Lua 文本框与预览那行（文本框里打字时用） */
@@ -7345,7 +7524,7 @@ function mkApplyTypeDefaults (prevType) {
 function mkSet (patch) {
   const prevType = MK.type;
   Object.assign(MK, patch);
-  if (patch && patch.type && patch.type !== prevType) mkApplyTypeDefaults(prevType); if (patch && ('type' in patch || 'key' in patch || 'art' in patch || 'effects' in patch)) MK.luaDirty = false; mkRedraw() }
+  if (patch && patch.type && patch.type !== prevType) mkApplyTypeDefaults(prevType); if (patch && ('type' in patch || 'key' in patch || 'art' in patch || 'effects' in patch)) MK.luaDirty = false; mkSaveProject(); mkRedraw() }
 let mkRedraw = () => { render() };
 
 /* ---------------------------------------------------------------- 视图 */
@@ -7356,7 +7535,10 @@ let mkRedraw = () => { render() };
      ① 做什么（类型胶囊 + 来源与贴图：照现成的牌 / 取图集格子 / 上传自己的图 / 悬浮立绘）
      ② 它做什么（预设库 + 句子式效果行 + 游戏内描述预览）
      ③ 名字与描述   ④ 数值与兼容性   ⑤ 高级 */
+let mkProjectLoaded = false;
 function viewMaker (root) {
+  /* 第一次打开：保证至少有一条，并把上次自动保存的工程读回来 */
+  if (!mkProjectLoaded) { mkProjectLoaded = true; mkEnsureItems(); try { mkLoadProject() } catch (e) { /* 读不回来就用默认的 */ } }
   const MKEL = {};
   let artTarget = 'art';        /* 网格在给谁选格子：art / soul */
 
@@ -7424,6 +7606,72 @@ function viewMaker (root) {
     return lab;
   };
 
+  /* ---------- ⓪ 这个 mod 里有什么（工程：多条目、分组、自动保存、JSON 备份） ---------- */
+  {
+    const body = section('⓪ 这个 mod 里有什么（一个工程，多个条目，最后打成一个 mod）');
+    const pbtn = (label, fn, id) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn'; if (id) b.id = id; b.textContent = label; b.onclick = fn; return b };
+    /* 工程级字段：装到 Mods/ 里的 id、游戏里显示的名字、作者、版本、条目 key 前缀 */
+    const prow = document.createElement('div'); prow.className = 'mkrow';
+    prow.appendChild(field('Mod id（Mods/ 下的文件夹名）', '<input class="tbtn" data-mkp="modId" value="' + esc(MKR.modId) + '">'));
+    prow.appendChild(field('Mod 名称', '<input class="tbtn mkwide" data-mkp="modName" value="' + esc(MKR.modName) + '">'));
+    prow.appendChild(field('作者', '<input class="tbtn mkn" data-mkp="author" value="' + esc(MKR.author) + '">'));
+    prow.appendChild(field('版本', '<input class="tbtn mkn" data-mkp="version" value="' + esc(MKR.version) + '">'));
+    prow.appendChild(field('条目 key 前缀', '<input class="tbtn mkn" data-mkp="prefix" value="' + esc(MKR.prefix) + '">'));
+    body.appendChild(prow);
+    body.appendChild(field('Mod 说明', '<input class="tbtn mkwide" data-mkp="desc" value="' + esc(MKR.desc) + '">'));
+    /* 条目列表：按类型分组，点谁就编辑谁 */
+    const list = document.createElement('div'); list.className = 'mkitems'; list.id = 'mkItems';
+    mkGrouped().forEach((g) => {
+      const head = document.createElement('div'); head.className = 'mkigrp';
+      head.textContent = g.name + '（' + g.rows.length + '）';
+      list.appendChild(head);
+      g.rows.forEach((row) => {
+        const el = document.createElement('div');
+        el.className = 'mki' + (row.i === MKR.cur ? ' on' : '');
+        el.title = '点它就开始编辑这一条';
+        el.innerHTML = '<span class="mkin">' + (row.i + 1) + '</span><span class="mkiname">' + esc(row.it.nameZh || row.it.key) + '</span><code>' + esc(row.it.key) + '</code>';
+        el.onclick = () => { mkSelect(row.i); status('现在在编辑第 ' + (row.i + 1) + ' 条：' + (row.it.nameZh || row.it.key)); redraw() };
+        list.appendChild(el);
+      });
+    });
+    body.appendChild(list);
+    const brow = document.createElement('div'); brow.className = 'mkrow';
+    brow.appendChild(pbtn('＋ 再加一个条目（' + mkType()[1] + '）', () => { mkAddItem(MK.type); status('已加一个新条目，现在编辑的就是它。'); redraw() }, 'mkAddItem'));
+    brow.appendChild(pbtn('⧉ 复制这一个', () => { mkDupItem(); status('已复制成新条目：贴图 / 帧序列 / 立绘都带过来了，key 自动换了不重名的。'); redraw() }, 'mkDupItem'));
+    brow.appendChild(pbtn('🗑 删除这一个', () => { if (mkDelItem()) { status('已删除这一条。'); redraw() } else status('只剩一个条目了，不能删。') }, 'mkDelItem'));
+    brow.appendChild(pbtn('↑ 上移', () => { if (mkMoveItem(-1)) redraw() }, 'mkUp'));
+    brow.appendChild(pbtn('↓ 下移', () => { if (mkMoveItem(1)) redraw() }, 'mkDown'));
+    body.appendChild(brow);
+    /* 概览 */
+    const ov = document.createElement('div'); ov.className = 'hint'; ov.id = 'mkProjOverview';
+    ov.textContent = '工程概览：' + MKR.items.length + ' 个条目 —— ' + mkGrouped().map((g) => g.name + ' ' + g.rows.length).join('、') +
+      '；导出时打成一个 mod：一个 manifest.json + 一个 ' + MKR.modId + '.lua（注册全部条目）+ 每个条目自己的图集 sheet_<key>.png。改动会自动存在这台浏览器里。';
+    body.appendChild(ov);
+    /* JSON 备份 / 恢复 */
+    const jrow = document.createElement('div'); jrow.className = 'mkrow';
+    jrow.appendChild(pbtn('💾 导出工程 JSON（连图片，可备份 / 换机器）', () => {
+      try {
+        const o = mkProjectJSON(true);
+        save(TE.encode(JSON.stringify(o)), MKR.modId + '.project.json', 'application/json');
+        status('已导出工程 JSON（' + MKR.items.length + ' 个条目，连图片一起）。下次用「导入工程 JSON」就能接着改。', 'ok');
+      } catch (e) { status('导出工程失败：' + e.message) }
+    }, 'mkExpJson'));
+    jrow.appendChild(pbtn('📂 导入工程 JSON', () => {
+      const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
+      inp.onchange = async () => {
+        const f = inp.files && inp.files[0]; if (!f) return;
+        try {
+          const o = JSON.parse(await f.text());
+          if (!mkApplyProject(o)) { status('这个 JSON 里没有条目，导不进来。'); return }
+          await mkRestoreImages(o);
+          mkSaveProject(); redraw();
+          status('已导入工程：' + MKR.items.length + ' 个条目（图片也一起恢复了）。', 'ok');
+        } catch (e) { status('导入失败：' + e.message) }
+      };
+      inp.click();
+    }, 'mkImpJson'));
+    body.appendChild(jrow);
+  }
   /* ---------- ① 做什么（含：来源与贴图，全在这一段里） ---------- */
   {
     const body = section('① 做什么（也决定预览长什么样）');
@@ -7679,6 +7927,12 @@ function viewMaker (root) {
   };
   MKEL.redraw = redraw;
 
+  /* 工程字段（Mod id / 名称 / 作者 / 版本 / 前缀 / 说明）：改了就存，并刷新 Lua */
+  qa('[data-mkp]').forEach((el) => el.addEventListener('input', () => {
+    MKR[el.dataset.mkp] = el.value;
+    mkSaveProject();
+    refresh();
+  }));
   /* 基本输入 */
   qa('[data-mk]').forEach((el) => {
     const k = el.dataset.mk;
@@ -7883,8 +8137,8 @@ function viewMaker (root) {
     try {
       const files = await mkBuildFiles();
       const bytes = zipStore(files);
-      save(bytes, MK.modId + '.zip', 'application/zip');
-      status('已生成 ' + MK.modId + '.zip（' + files.length + ' 个文件，' + Math.round(bytes.length / 1024) + ' KB）—— 解压到 %AppData%/Balatro/Mods/ 即可。', 'ok');
+      save(bytes, MKR.modId + '.zip', 'application/zip');
+      status('已生成 ' + MKR.modId + '.zip（' + files.length + ' 个文件 / ' + MKR.items.length + ' 个条目 / ' + Math.round(bytes.length / 1024) + ' KB）—— 直接丢进 %AppData%/Balatro/Mods/ 就行。', 'ok');
     } catch (e) { status('打包失败：' + e.message) }
   };
   const ck = q('#mkCheck');
@@ -7892,7 +8146,7 @@ function viewMaker (root) {
     status('正在自检（用图鉴自己的解析器把这份 mod 读一遍）…');
     try {
       const files = await mkBuildFiles();
-      const res = await importZipBuffer(zipStore(files), MK.modId);
+      const res = await importZipBuffer(zipStore(files), MKR.modId);
       const mod = res && res.mod;
       const ok = res && res.ok !== false;
       status((ok ? '自检通过：' : '自检有问题：') + (mod ? (mod.items + ' 个条目 / ' + mod.atlases + ' 个图集 / ' + mod.warnings.length + ' 条警告') : JSON.stringify(res)) +

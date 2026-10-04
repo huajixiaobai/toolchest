@@ -459,6 +459,16 @@ table.data td.id{font-family:var(--mono);font-size:11.5px;color:var(--fg2)}
 .mkweight input{width:46px;min-height:28px;text-align:center;background:#101820;color:#e8eef5;border:1px solid var(--line2);border-radius:6px;padding:2px 4px;font:inherit}
 .mkweight input:focus{outline:none;border-color:var(--accent2,#009dff)}
 .mkweights .hint{flex-basis:100%;margin:0}
+/* 工程：条目列表（按类型分组） */
+.mkitems{display:flex;flex-direction:column;gap:2px;margin:8px 0;max-height:280px;overflow:auto;border:1px solid var(--line2);border-radius:8px;background:#141d26;padding:6px}
+.mkigrp{font-size:11px;letter-spacing:.04em;opacity:.72;padding:6px 6px 2px;position:sticky;top:0;background:#141d26}
+.mki{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:6px;cursor:pointer;font-size:13px;min-height:38px}
+.mki:hover{background:#1c2833}
+.mki.on{background:#123123;box-shadow:inset 0 0 0 1px #4bc29266}
+.mki .mkin{min-width:18px;text-align:right;opacity:.55;font-size:11px}
+.mki .mkiname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mki code{font-size:11px;opacity:.6}
+@media (max-width:720px){.mkitems{max-height:220px}.mki{min-height:42px}}
 /* ---- 表单 ---- */
 .mkrow{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:flex-end;margin-bottom:9px}
 .mkrow label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--fg3)}
