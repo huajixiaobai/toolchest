@@ -7308,7 +7308,7 @@ function mkItemLua () {
     L.push('    rarity = ' + MK.rarity + ',');
     L.push('    cost = ' + MK.cost + ',');
     L.push("    atlas = 'sheet_" + slug + "',");
-    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
     L.push('    order = ' + MK.order + ',');
     L.push('    weight = ' + MK.weight + ',');
     L.push('    eternal_compat = ' + (MK.eternal ? 'true' : 'false') + ',');
@@ -7336,7 +7336,7 @@ function mkItemLua () {
     L.push('    config = { extra = { value = ' + (Number(MK.useVal) || 0) + ' } },');
     L.push('    cost = ' + MK.cost + ',');
     L.push("    atlas = 'sheet_" + slug + "',");
-    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
     L.push('    can_use = function(self, card) return true end,');
     L.push('    use = function(self, card, area, copier)');
     if (MK.useKind === 'dollars') L.push('        ease_dollars(' + (Number(MK.useVal) || 0) + ')');
@@ -7356,7 +7356,7 @@ function mkItemLua () {
     L.push('    mult = ' + (t2.blind_mult || 2) + ',');
     L.push('    dollars = ' + (t2.blind_dollars || 5) + ',');
     L.push('    atlas = \'sheet_' + slug + '\',');
-    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
     const db = [];
     if (t2.debuff_suit) db.push("suit = '" + t2.debuff_suit + "'");
     if (t2.debuff_face) db.push("is_face = 'face'");
@@ -7374,7 +7374,7 @@ function mkItemLua () {
     L.push('    config = { choose = ' + (t2.choose || 1) + ', extra = ' + (t2.extra || 3) + ' },');
     L.push('    cost = ' + (t2.cost || 4) + ',');
     L.push("    atlas = 'sheet_" + slug + "',");
-    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
     L.push('    unlocked = true,');
     L.push('    discovered = true');
     L.push('}');
@@ -7392,7 +7392,7 @@ function mkItemLua () {
     L.push('        consumable_slot = ' + (t2.consumable_slot || 2));
     L.push('    },');
     L.push("    atlas = 'sheet_" + slug + "',");
-    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
     L.push('    unlocked = true,');
     L.push('    discovered = true');
     L.push('}');
@@ -7402,7 +7402,7 @@ function mkItemLua () {
     L.push("    key = '" + key + "',");
     L.push.apply(L, loc);
     L.push("    atlas = 'sheet_" + slug + "',");
-    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
     L.push('    config = { ' + (t2.tag_kind || 'dollars') + ' = ' + (t2.tag_val || 5) + ' },');
     L.push('    apply = function(self, tag, context)');
     L.push('        if context.type == \'immediate\' then');
@@ -7421,7 +7421,7 @@ function mkItemLua () {
     L.push.apply(L, loc);
     L.push('    config = { ' + ['chips', 'mult', 'xmult'].filter((k) => Number(t2[k])).map((k) => (k === 'xmult' ? 'x_mult' : k) + ' = ' + t2[k]).join(', ') + ' },');
     L.push("    atlas = 'sheet_" + slug + "',");
-    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
     L.push('    unlocked = true,');
     L.push('    discovered = true');
     L.push('}');
@@ -7431,7 +7431,7 @@ function mkItemLua () {
     L.push("    key = '" + key + "',");
     L.push.apply(L, loc);
     L.push("    atlas = 'sheet_" + slug + "',");
-    L.push('    pos = { x = 0, y = 0 }');
+    L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
     L.push('}');
   } else {
     const cls = t[2];
@@ -7450,7 +7450,7 @@ function mkItemLua () {
       L.push('    end,');
     }
     L.push("    atlas = 'sheet_" + slug + "',");
-    L.push('    pos = { x = 0, y = 0 },');
+    L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
     if (MK.type === 'Booster') L.push('    config = { extra = 3, choose = 1 },');
     if (MK.type === 'Blind') L.push('    boss = { min = 1, max = 10 },');
     L.push('    unlocked = true,');
