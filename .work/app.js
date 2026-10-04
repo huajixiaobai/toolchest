@@ -8293,46 +8293,6 @@ function mkApplyCloneFrom (id) {
     if (!it) return;
     mkApplyCloneFrom(cs.value);   /* 逻辑在上面的 mkApplyCloneFrom 里，网格格子用的是同一份 */
     return;
-    /* eslint-disable no-unreachable */
-    const cfg = it.config || {};
-    const effects = [];
-    /* 花色 / 点数条件能读出来就带上（贪婪小丑那种「方片才给加成」要带） */
-    const SUIT_CN = { Diamonds: '♦', Hearts: '♥', Spades: '♠', Clubs: '♣' };
-    const suitRaw = (cfg.extra && cfg.extra.suit) || (it.raw && it.raw.suit) || it.suit || '';
-    const cond = SUIT_CN[suitRaw] ? 'suit' : '';
-    const condVal = cond ? SUIT_CN[suitRaw] : '';
-    const push = (when, kind, v) => { if (v) effects.push({ when, cond: cond, condVal: condVal, eff: kind, val: v }) };
-    push('hand', 'chips', cfg.t_chips); push('hand', 'mult', cfg.t_mult); push('hand', 'xmult', cfg.x_mult);
-    if (cfg.extra && typeof cfg.extra === 'object') {
-      push('card', 'chips', cfg.extra.chips); push('card', 'mult', cfg.extra.mult); push('card', 'xmult', cfg.extra.x_mult);
-    }
-    const rule = (typeof JOKER_RULES !== 'undefined' && JOKER_RULES.rules ? JOKER_RULES.rules : []).filter((r) => r.n === it.name)[0];
-    if (rule && rule.e) {
-      const seen = {};
-      rule.e.forEach((ex) => {
-        const f = ex.split('=')[0];
-        const kind = /^x_mult|^Xmult_mod/.test(f) ? 'xmult' : /^mult|^t_mult|^mult_mod/.test(f) ? 'mult' : /^chips|^chip_mod|^t_chips/.test(f) ? 'chips' : /dollars/.test(f) ? 'dollars' : null;
-        if (!kind || seen[kind]) return;
-        seen[kind] = true;
-        /* 只用这张牌数据里**真实存在**的数字；找不到就不编 —— 以前兜底成 4，于是选什么都是「+4 倍率」 */
-        const cand = [(cfg.extra || {})[f], (cfg.extra || {}).chips, (cfg.extra || {}).mult, (cfg.extra || {}).x_mult, cfg[f], cfg.t_chips, cfg.t_mult, cfg.x_mult, cfg.chips, cfg.mult];
-        const num = cand.filter((v) => typeof v === 'number' && isFinite(v))[0];
-        if (typeof num !== 'number') return;   /* 拆不出数值就跳过这条，下面会如实告诉用户 */
-        effects.push({ when: rule.r === 'individual' ? 'card' : (rule.r === 'repetition' ? 'repetition' : 'hand'), cond: '', condVal: '', eff: kind, val: typeof num === 'number' ? num : 4 });
-      });
-    }
-    const zh = (it.text && it.text.zh_CN) || [];
-    mkSet({
-      cloneFrom: it.id,
-      type: it.cat === 'Joker' ? 'Joker' : (it.cat === 'Consumable' ? 'Consumable' : it.cat),
-      key: 'my' + String(it.key || it.id).replace(/^[a-z]+_/, ''),
-      art: { atlas: it.atlas || MK.art.atlas, pos: it.pos || { x: 0, y: 0 }, upload: null, uploadName: '', frames: null, animated: false },
-      nameZh: nm(it, 'zh_CN'), nameEn: nm(it, 'en-us'), textZh: zh.join(' '), textEn: ((it.text && it.text['en-US']) || (it.text && it.text['en-us']) || []).join(' '),
-      rarity: it.rarity || MK.rarity, cost: it.cost || MK.cost, order: it.order || MK.order, weight: it.weight || MK.weight,
-      effects: effects.length ? effects : MK.effects,
-    });
-    if (effects.length) status('已照「' + nm(it, 'zh_CN') + '」复制一份：类型/贴图/数值/文案/效果都进来了（' + effects.length + ' 条效果），改完导出就是你的新条目。', 'ok');
-    else status('已照「' + nm(it, 'zh_CN') + '」复制一份：类型/贴图/数值/原文都进来了，但**这张牌的效果没法从数据里自动拆成数值**（它的逻辑在游戏源码里是代码）—— 描述里已经是你选的这张牌的原文，效果请在下面「它做什么」里自己挑一条，或直接改生成的 Lua。', '');
   };
 
   /* 导出 / 自检 / 复制 */
