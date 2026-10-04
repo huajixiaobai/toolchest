@@ -3139,7 +3139,8 @@ const SCENARIOS = {
       return true })();
     r.framesInLua=lua.indexOf("frames = "+r.frames)>=0;
     /* 这张 APNG 的延时是 60/60/120/60/180 → 基准 60ms → fps = 17，倍数 1,1,2,1,3 */
-    r.fpsFromDelays=lua.indexOf("fps = 17")>=0;
+    r.fpsFromDelays=lua.indexOf("fps = 8")>=0;   /* 60ms 基准 × 默认 2× 慢放 = 120ms → 8fps */
+    r.importSpeed=B.maker.state.art.speed;
     r.frameDurations=lua.indexOf("frame_durations = { 1, 1, 2, 1, 3 }")>=0;
     /* 逐帧延时的绝对值（毫秒）：直接断言时间模型，不靠计时器间接推断 */
     r.delays=B.maker.delays?B.maker.delays().join(','):'';
@@ -3374,6 +3375,19 @@ const SCENARIOS = {
       unzip:nt.indexOf("解压")>=0, noZip:nt.indexOf("别把 zip 直接丢进去")>=0, log:nt.indexOf("lovely")>=0 && nt.indexOf("log")>=0, restart:nt.indexOf("重启游戏")>=0 };
     r.needHrefs=need?[].slice.call(need.querySelectorAll("a")).map(function(a){return a.getAttribute("href")}):[];
     r.needLinksOk=r.needHrefs.indexOf("https://github.com/Steamodded/smods")>=0 && r.needHrefs.indexOf("https://github.com/Steamopollys/Steamodded/wiki")>=0;
+    /* 位置：必须排在所有功能段之后（用户要求别占主要位置） */
+    const opts=qa(".mkright .opt");
+    r.needIsLast=(function(){ if(!need||!opts.length) return false; const last=opts[opts.length-1];
+      return (last.compareDocumentPosition(need) & Node.DOCUMENT_POSITION_FOLLOWING)!==0 })();
+    /* 图格子：带牌名的格子要有，点它 = 照这张牌做 */
+    const withItem=qa(".mkcell.hasitem");
+    r.cellsWithItem=withItem.length;
+    r.cellTitleHasName=withItem.length?withItem[0].title.indexOf("这张图是")>=0:false;
+    const beforeName=(q('[data-mk="nameZh"]')||{}).value;
+    if(withItem.length){ withItem[0].click(); await __V.wait(500) }
+    r.gridClone={ cloneFrom:B.maker.state.cloneFrom, nameChanged:(q('[data-mk="nameZh"]')||{}).value!==beforeName };;
+    /* 播放速度控件 */
+    r.speedControl={ el:!!q("#mkSpeed"), value:B.maker.state.art.speed };
     r.errors=window.__V.errors.length;
     return r })()`,
   modMaker: `(async()=>{

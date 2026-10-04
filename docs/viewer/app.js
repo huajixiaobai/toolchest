@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "d23a9da8";
+window.__APP_BUILD__ = "327e6c90";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -6808,7 +6808,7 @@ function mkBlankItem (type) {
   return {
     type: ty,
     key: d[1],
-    art: { atlas: MK.art.atlas, pos: { x: 0, y: 0 }, upload: null, uploadName: '', frames: null, animated: false, weights: null, gen: null, delays: null },
+    art: { atlas: MK.art.atlas, pos: { x: 0, y: 0 }, upload: null, uploadName: '', frames: null, animated: false, weights: null, gen: null, delays: null, speed: 1 },
     rarity: 1, cost: 4, order: 100, weight: 1,
     eternal: true, perishable: true, blueprint: true,
     nameZh: d[0], nameEn: d[0], textZh: '', textEn: '',
@@ -7184,7 +7184,7 @@ function mkFrameDelays (src) {
   const out = [];
   for (let i = 0; i < n; i++) {
     const d = own ? Math.max(10, own[i] || own[0]) : baseMs;
-    out.push(Math.max(10, Math.round(d * ((w && w[i]) || 1))));
+    out.push(Math.max(10, Math.round(d * ((w && w[i]) || 1) * (src.speed || 1))));   /* speed = 播放速度倍率（越大越慢） */
   }
   return out;
 }
@@ -8229,6 +8229,7 @@ let mkRedraw = () => { render() };
      ② 它做什么（预设库 + 句子式效果行 + 游戏内描述预览）
      ③ 名字与描述   ④ 数值与兼容性   ⑤ 高级 */
 let mkProjectLoaded = false;
+let mkNeedBoxEl = null; let mkSectionParent = null;
 function viewMaker (root) {
   /* 第一次打开：保证至少有一条，并把上次自动保存的工程读回来 */
   if (!mkProjectLoaded) { mkProjectLoaded = true; mkEnsureItems(); try { mkLoadProject() } catch (e) { /* 读不回来就用默认的 */ } }
@@ -8378,7 +8379,7 @@ function viewMaker (root) {
       '常见两条：<code>No mod root found in zip</code> = 你把 zip 放进去没解压；<code>Valid JSON file found</code> = 框架认了这个 mod（正常）。' +
       '<br><b>改完 mod 要重启游戏</b>才会重新加载。' +
       '<br><span class="mkneedtip">说明：原版 Balatro 没有官方 mod 接口，不装这两样东西，生成出来的 mod 是加载不了的（Lua 里的 SMODS 表根本不存在）。</span>';
-    body.appendChild(need);
+    mkNeedBoxEl = need; mkSectionParent = body.parentElement;   /* 放到最底部，别占主要功能的位置（用户要求） */
   }
   /* ---------- ① 做什么（含：来源与贴图，全在这一段里） ---------- */
   {
@@ -8394,7 +8395,7 @@ function viewMaker (root) {
     body.appendChild(chips);
 
     const src = document.createElement('div'); src.className = 'mksrc';
-    src.innerHTML = '<div class="mklabel">来源与贴图 —— 三条路任选：照现成的牌做 / 从图集里取一格 / 上传自己的图</div>';
+    src.innerHTML = '<div class="mklabel">来源与贴图 —— 看下图点一格就是「照这张牌做」（图 + 名字 + 效果 + 数值一起进来）；只想换图按住 Shift 点；也可以按名字在下拉里找，或上传自己的图</div>';
     /* 1) 照现成的牌做（原版 + mod） */
     const clone = document.createElement('label'); clone.className = 'mkwide';
     const pickable = ['Joker', 'Consumable', 'Voucher', 'Booster', 'Deck', 'Enhancement', 'Edition', 'Seal', 'Tag', 'Blind'];
@@ -8402,7 +8403,7 @@ function viewMaker (root) {
     const vanilla = allItems.filter((i) => !i.source);
     const modGroups = {};
     allItems.filter((i) => i.source).forEach((i) => { (modGroups[i.source] = modGroups[i.source] || []).push(i) });
-    clone.innerHTML = '<span>① 照现成的牌做一个（原版 + 已导入的 mod 全都在这里）</span>' +
+    clone.innerHTML = '<span>按名字找现成的牌（原版 + 已导入的 mod 全都在这里）—— 也可以直接在下面的图格子上点</span>' +
       '<select class="tbtn" id="mkClone"><option value="">（不复制，自己从头做）</option>' +
       '<optgroup label="原版 Balatro（' + vanilla.length + '）">' + vanilla.map((i) => '<option value="' + i.id + '">' + esc(i.cat + ' · ' + nm(i)) + '</option>').join('') + '</optgroup>' +
       Object.keys(modGroups).map((k) => '<optgroup label="' + esc(modGroups[k][0].sourceName || k) + '（' + modGroups[k].length + '）">' +
@@ -8424,6 +8425,8 @@ function viewMaker (root) {
     genRow.appendChild(field('帧数', '<select class="tbtn" id="mkMotionN">' + [4, 6, 8, 10, 12, 16, 20].map((k) => '<option value="' + k + '"' + (gen.n === k ? ' selected' : '') + '>' + k + ' 帧</option>').join('') + '</select>'));
     genRow.appendChild(field('帧率（原版默认 10）', '<select class="tbtn" id="mkMotionFps">' + [4, 6, 8, 10, 12, 15, 20, 25].map((k) => '<option value="' + k + '"' + (gen.fps === k ? ' selected' : '') + '>' + k + ' fps</option>').join('') + '</select>'));
     genRow.appendChild(field('幅度', '<input type="range" id="mkMotionAmp" min="1" max="8" value="' + gen.amp + '">'));
+    const spd = MK.art.speed || 1;
+    genRow.appendChild(field('播放速度（越大越慢；导入的动图默认 2×）', '<select class="tbtn" id="mkSpeed">' + [[0.5, '0.5×（更快）'], [1, '1×（按动图本身的时长）'], [1.5, '1.5×'], [2, '2×（默认）'], [3, '3×'], [4, '4×（很慢）']].map((k) => '<option value="' + k[0] + '"' + (spd === k[0] ? ' selected' : '') + '>' + k[1] + '</option>').join('') + '</select>'));
     src.appendChild(genRow);
     /* 逐帧时长：导入的动图如果各帧快慢不一样，这里能一眼看出哪几帧更慢，也能自己调 */
     const frNow = mkSourceFrames(MK.art);
@@ -8458,7 +8461,21 @@ function viewMaker (root) {
     }
     body.appendChild(src);
 
-    /* 网格：滚到才画；点格子给 art 或 soul */
+  /** 图集格子 → 对应的牌（同一个图集同一格的那张）。原版和导入的 mod 都算。 */
+function mkItemAtCell (atlas, x, y) {
+  if (typeof ITEMS === 'undefined') return null;
+  let best = null;
+  for (const it of ITEMS) {
+    const sp = it.sprite || it;
+    if (!sp || !sp.atlas || sp.atlas !== atlas) continue;
+    const ps = sp.pos || it.pos;
+    if (!ps || ps.x !== x || ps.y !== y) continue;
+    if (it.cat === MK.type) return it;          /* 优先同类型的那张 */
+    if (!best) best = it;
+  }
+  return best;
+}
+  /* 网格：滚到才画；点格子给 art 或 soul —— 有对应牌时直接「照这张牌做」 */
     const paintCell = (cell, x, y) => {
       if (cell.__painted) return;
       cell.__painted = true;
@@ -8484,10 +8501,18 @@ function viewMaker (root) {
         const cell = document.createElement('button');
         const cur = artTarget === 'soul' ? MK.soul : MK.art;
         cell.className = 'mkcell' + (!cur.upload && cur.pos.x === x && cur.pos.y === y ? ' on' : '');
-        cell.title = 'x=' + x + ' y=' + y + (artTarget === 'soul' ? '（给立绘）' : '');
-        cell.onclick = () => {
-          if (artTarget === 'soul') mkSet({ soul: Object.assign({}, MK.soul, { atlas: MK.art.atlas, pos: { x, y }, upload: null, uploadName: '', frames: null }) });
-          else mkSet({ art: { atlas: MK.art.atlas, pos: { x, y }, upload: null, uploadName: '', frames: null, animated: false } });
+        const mate = artTarget === 'soul' ? null : mkItemAtCell(MK.art.atlas, x, y);
+        cell.title = 'x=' + x + ' y=' + y + (artTarget === 'soul' ? '（给立绘）' : '') + (mate ? ('\n这张图是「' + nm(mate, 'zh_CN') + '」—— 点它 = 照这张牌做（图 + 名字 + 效果 + 数值）\n按住 Shift 点 = 只换图') : '');
+        if (mate) cell.className += ' hasitem';
+        cell.onclick = (e) => {
+          if (artTarget === 'soul') { mkSet({ soul: Object.assign({}, MK.soul, { atlas: MK.art.atlas, pos: { x, y }, upload: null, uploadName: '', frames: null }) }); return }
+          if (mate && !e.shiftKey) {
+            const cnt = mkApplyCloneFrom(mate.id);
+            status('已照「' + nm(mate, 'zh_CN') + '」做了一份：图、名字、原文、数值都进来了' + (cnt ? '（' + cnt + ' 条效果）' : '（这张牌的效果没法自动拆成数值，原文已放进描述，请自己挑一条效果）') + ' —— 想只换图就按住 Shift 点同一格。', 'ok');
+            return;
+          }
+          mkSet({ art: { atlas: MK.art.atlas, pos: { x, y }, upload: null, uploadName: '', frames: null, animated: false, weights: null, gen: null, delays: null, speed: 1 } });
+          if (mate) status('只换了贴图（这张图对应的「' + nm(mate, 'zh_CN') + '」的设置没动）—— 想连设置一起要，直接点这格（别按 Shift）。');
         };
         grid.appendChild(cell);
         if (IO) { cell._paint = () => paintCell(cell, x, y); IO.observe(cell) } else paintCell(cell, x, y);
@@ -8624,6 +8649,14 @@ function viewMaker (root) {
       '<div class="mkpvfx">' + esc(mkShownText() || mkPlaceholderText()) + '</div>';
     if (!MK.luaDirty) { const ta2 = q('#mkLua'); if (ta2) ta2.value = mkLua() }
   };
+  /* 所有段落都建完了，把「前置要求」那块挂到最底部 */
+  if (mkNeedBoxEl) {
+    /* 插到最后一个功能段后面（后面的段落可能在别的容器里，所以按 DOM 里最后一个 .opt 定位） */
+    const opts2 = document.querySelectorAll('.mkright .opt');
+    const last2 = opts2.length ? opts2[opts2.length - 1] : null;
+    if (last2 && last2.parentElement) last2.parentElement.insertBefore(mkNeedBoxEl, last2.nextSibling);
+    else if (mkSectionParent) mkSectionParent.appendChild(mkNeedBoxEl);
+  }
   MKEL.refresh = refresh;
   refresh();   /* 渲染完先把摘要 / 描述 / 预览那句 / Lua 框填上（以前只定义没调用，Lua 框一开始是空的） */
   /* 重入保护：render() 里如果再触发一次 render（点某些按钮时会发生），直接返回，
@@ -8683,7 +8716,7 @@ function viewMaker (root) {
       for (const one of fl) { const i2 = await mkReadImage(one); if (i2) got.push(i2.frames[0] || i2.cover) }
       if (got.length < 2) { status('这几张图读不出来，换几张试试'); return }
       const fps0 = (MK.art.gen && MK.art.gen.fps) || 10;
-      mkSet({ art: Object.assign({}, MK.art, { upload: got[0], frames: got, animated: true, delay: Math.round(1000 / fps0), uploadName: fl.length + ' 张图（每张一帧）' }) });
+      mkSet({ art: Object.assign({}, MK.art, { upload: got[0], frames: got, animated: true, delay: Math.round(1000 / fps0), weights: null, speed: 2, uploadName: fl.length + ' 张图（每张一帧）' }) });
       status('已用 ' + got.length + ' 张图拼成动图：预览在动，导出铺成横向帧序列，Lua 里写 frames = ' + got.length + '（帧率按当前 ' + fps0 + 'fps）。', 'ok');
       mkStartAnim(Math.round(1000 / fps0));
       return;
@@ -8692,7 +8725,8 @@ function viewMaker (root) {
     const info = await mkReadImage(f);
     if (!info) { status('这张图读不了（格式不支持）'); return }
     const multi = info.frames.length > 1;
-    mkSet({ art: Object.assign({}, MK.art, { upload: info.frames[0] || info.cover, frames: multi ? info.frames : null, animated: multi, delay: info.delay || 0, delays: (multi && info.delays) ? info.delays : null, weights: null, uploadName: f.name }) });
+    /* 导入的动图默认 2× 慢放：原来「就按动图本身的时长」在游戏里显得太短（用户反馈） */
+    mkSet({ art: Object.assign({}, MK.art, { upload: info.frames[0] || info.cover, frames: multi ? info.frames : null, animated: multi, delay: info.delay || 0, delays: (multi && info.delays) ? info.delays : null, weights: null, speed: multi ? 2 : 1, uploadName: f.name }) });
     if (multi) {
       status('已使用「' + f.name + '」：动图拆出 ' + info.frames.length + ' 帧（每帧 ' + (info.delay || '?') + 'ms），预览按这个节奏逐帧播放，导出会铺成横向帧序列、Lua 里写 frames = ' + info.frames.length + '。', 'ok');
       mkStartAnim(info.delay);
@@ -8731,6 +8765,14 @@ function viewMaker (root) {
   const mn = q('#mkMotionN'); if (mn) mn.onchange = () => mkSetGen('art', { n: Number(mn.value) });
   const mf = q('#mkMotionFps'); if (mf) mf.onchange = () => mkSetGen('art', { fps: Number(mf.value) });
   const ma = q('#mkMotionAmp'); if (ma) ma.oninput = () => mkSetGen('art', { amp: Number(ma.value) });
+  const spdEl = q('#mkSpeed');
+  if (spdEl) spdEl.onchange = () => {
+    const v = Number(spdEl.value) || 1;
+    mkSet({ art: Object.assign({}, MK.art, { speed: v }) });
+    const d = mkFrameDelays(MK.art);
+    mkStartAnim(d.length > 1 ? d[0] : 0);
+    status('播放速度：' + v + '×（每帧大约 ' + (d.length > 1 ? d[0] : '?') + 'ms）—— 导出时会换算成 fps 写进 Lua。');
+  };
   const sm2 = q('#mkSoulMotion'); if (sm2) sm2.onchange = () => mkSetGen('soul', { kind: sm2.value });
   const so = q('#mkSoulOn');
   if (so) so.onchange = () => { mkSet({ soul: Object.assign({}, MK.soul, { on: so.checked }) }); if (so.checked && (MK.soul.frames || []).length > 1) mkStartAnim() };
@@ -8794,10 +8836,54 @@ function viewMaker (root) {
   const st2 = q('#mkSet'); if (st2) st2.onchange = () => mkSet({ set: st2.value });
 
   /* 克隆：照现成的牌做一个（原版 + mod） */
+/** 照某张现成的牌做（图 + 名字 + 原文 + 效果 + 数值），下拉和网格格子共用这一份逻辑 */
+function mkApplyCloneFrom (id) {
+  const it = BY_ID[id];
+  if (!it) return false;
+  const cfg = it.config || {};
+  const effects = [];
+  const SUIT_CN2 = { Diamonds: '♦', Hearts: '♥', Spades: '♠', Clubs: '♣' };
+  const suitRaw2 = (cfg.extra && cfg.extra.suit) || (it.raw && it.raw.suit) || it.suit || '';
+  const cond2 = SUIT_CN2[suitRaw2] ? 'suit' : '';
+  const condVal2 = cond2 ? SUIT_CN2[suitRaw2] : '';
+  const push2 = (when, kind, v) => { if (v) effects.push({ when: when, cond: cond2, condVal: condVal2, eff: kind, val: v }) };
+  push2('hand', 'chips', cfg.t_chips); push2('hand', 'mult', cfg.t_mult); push2('hand', 'xmult', cfg.x_mult);
+  if (cfg.extra && typeof cfg.extra === 'object') {
+    push2('card', 'chips', cfg.extra.chips); push2('card', 'mult', cfg.extra.mult); push2('card', 'xmult', cfg.extra.x_mult);
+  }
+  const rule2 = (typeof JOKER_RULES !== 'undefined' && JOKER_RULES.rules ? JOKER_RULES.rules : []).filter((r) => r.n === it.name)[0];
+  if (rule2 && rule2.e) {
+    const seen2 = {};
+    rule2.e.forEach((ex) => {
+      const f2 = ex.split('=')[0];
+      const kind2 = /^x_mult|^Xmult_mod/.test(f2) ? 'xmult' : /^mult|^t_mult|^mult_mod/.test(f2) ? 'mult' : /^chips|^chip_mod|^t_chips/.test(f2) ? 'chips' : /dollars/.test(f2) ? 'dollars' : null;
+      if (!kind2 || seen2[kind2]) return;
+      seen2[kind2] = true;
+      const cand2 = [(cfg.extra || {})[f2], (cfg.extra || {}).chips, (cfg.extra || {}).mult, (cfg.extra || {}).x_mult, cfg[f2], cfg.t_chips, cfg.t_mult, cfg.x_mult, cfg.chips, cfg.mult];
+      const num2 = cand2.filter((v) => typeof v === 'number' && isFinite(v))[0];
+      if (typeof num2 !== 'number') return;
+      effects.push({ when: rule2.r === 'individual' ? 'card' : (rule2.r === 'repetition' ? 'repetition' : 'hand'), cond: cond2, condVal: condVal2, eff: kind2, val: num2 });
+    });
+  }
+  const zh2 = (it.text && it.text.zh_CN) || [];
+  mkSet({
+    cloneFrom: it.id,
+    type: it.cat === 'Joker' ? 'Joker' : (it.cat === 'Consumable' ? 'Consumable' : it.cat),
+    key: mkUniqueKey('my' + String(it.key || it.id).replace(/^[a-z]+_/, '')),
+    art: { atlas: it.atlas || MK.art.atlas, pos: it.pos || { x: 0, y: 0 }, upload: null, uploadName: '', frames: null, animated: false, weights: null, gen: null, delays: null, speed: 1 },
+    nameZh: nm(it, 'zh_CN'), nameEn: nm(it, 'en-us'), textZh: zh2.join(' '), textEn: ((it.text && it.text['en-US']) || (it.text && it.text['en-us']) || []).join(' '),
+    rarity: it.rarity || MK.rarity, cost: it.cost || MK.cost, order: it.order || MK.order, weight: it.weight || MK.weight,
+    effects: effects.length ? effects : MK.effects,
+  });
+  return effects.length ? effects.length : 0;
+}
   const cs = q('#mkClone');
   if (cs) cs.onchange = () => {
     const it = BY_ID[cs.value];
     if (!it) return;
+    mkApplyCloneFrom(cs.value);   /* 逻辑在上面的 mkApplyCloneFrom 里，网格格子用的是同一份 */
+    return;
+    /* eslint-disable no-unreachable */
     const cfg = it.config || {};
     const effects = [];
     /* 花色 / 点数条件能读出来就带上（贪婪小丑那种「方片才给加成」要带） */
