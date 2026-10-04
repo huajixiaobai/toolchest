@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "7af27733";
+window.__APP_BUILD__ = "56b73ae8";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -8510,7 +8510,7 @@ function mkItemAtCell (atlas, x, y) {
           if (artTarget === 'soul') { mkSet({ soul: Object.assign({}, MK.soul, { atlas: MK.art.atlas, pos: { x, y }, upload: null, uploadName: '', frames: null }) }); return }
           if (mate && !e.shiftKey) {
             const rr2 = mkApplyCloneFrom(mate.id);
-            status('已照「' + nm(mate, 'zh_CN') + '」做了一份：图、名字、原文、数值都进来了（' + rr2.effects + ' 条效果 / ' + rr2.tKeys + ' 项专属设置）' + (rr2.effects ? '' : '，这张牌的效果没法自动拆成数值，请在「它做什么」里挑一条') + ' —— 想只换图就按住 Shift 点同一格。', 'ok');
+            status('已照「' + nm(mate, 'zh_CN') + '」做了一份：图、名字、原文、数值都进来了（' + rr2.effects + ' 条效果 / ' + rr2.tKeys + ' 项专属设置）' + (rr2.effectName ? '；原版的效果名是「' + rr2.effectName + '」，但它的具体逻辑在游戏源码里是代码，这里只能给你名字和数值，剩下的在「它做什么」里自己配' : '') + (rr2.effects ? '' : '（另外这张牌没有可拆的数值，请在「它做什么」里挑一条效果）') + ' —— 想只换图就按住 Shift 点同一格。', 'ok');
             return;
           }
           mkSet({ art: { atlas: MK.art.atlas, pos: { x, y }, upload: null, uploadName: '', frames: null, animated: false, weights: null, gen: null, delays: null, speed: 1 } });
@@ -8889,9 +8889,12 @@ function mkApplyCloneFrom (id) {
     const boss = rawx.boss || (it.config && it.config.boss) || {};
     if (typeof boss.min === 'number') t2.boss_min = boss.min;
     if (typeof boss.max === 'number') t2.boss_max = boss.max;
-    if (typeof cfgx.mult === 'number') t2.blind_mult = cfgx.mult;
-    if (typeof cfgx.dollars === 'number') t2.blind_dollars = cfgx.dollars;
-    const db = (it.config && it.config.debuff) || rawx.debuff || {};
+    /* 实测：数字在 raw.mult / raw.dollars（不是 config），削弱在 raw.debuff；BOSS 盲注才可能有 boss 区间 */
+    if (typeof rawx.mult === 'number') t2.blind_mult = rawx.mult;
+    else if (typeof cfgx.mult === 'number') t2.blind_mult = cfgx.mult;
+    if (typeof rawx.dollars === 'number') t2.blind_dollars = rawx.dollars;
+    else if (typeof cfgx.dollars === 'number') t2.blind_dollars = cfgx.dollars;
+    const db = rawx.debuff || (it.config && it.config.debuff) || {};
     if (db && db.suit) t2.debuff_suit = db.suit;
     if (db && db.is_face) t2.debuff_face = true;
   } else if (typeOut === 'Booster') {
@@ -8912,6 +8915,9 @@ function mkApplyCloneFrom (id) {
     const v = cfgx[k];
     if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean') { if (t2[k] === undefined) t2[k] = v }
   });
+  /* 原版给的「效果名」（Mult / Disable Blind Effect…）：它的逻辑在游戏源码里是代码，这里只把名字带上，
+     界面上如实说明，不假装我们已经实现了它 */
+  if (rawx.effect && typeof rawx.effect === 'string') t2.effect = rawx.effect;
   const tCount = Object.keys(t2).length;
   const zh2 = (it.text && it.text.zh_CN) || [];
   mkSet({
@@ -8925,7 +8931,7 @@ function mkApplyCloneFrom (id) {
     set: setOut,
     t: t2,
   });
-  return { effects: effects.length, tKeys: tCount };
+  return { effects: effects.length, tKeys: tCount, effectName: (rawx.effect && typeof rawx.effect === 'string') ? rawx.effect : '' };
 }
   mkApplyCloneImpl = mkApplyCloneFrom;   /* 挂到模块级变量，外部就能调到了 */
   const cs = q('#mkClone');
