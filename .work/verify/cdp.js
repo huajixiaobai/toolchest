@@ -3427,8 +3427,8 @@ const SCENARIOS = {
     /* ③ 的验证：每种类型改一个专属字段，Lua 必须跟着变 */
     const TEDIT=[["Blind","blind_mult","9",null],["Booster","choose","3",null],["Back","hand_size","9",null],
       ["Voucher","voucher_val","42",["voucher_kind","dollars"]],["Tag","tag_val","7",null],
-      ["Enhanced","chips","33",null],["Edition","xmult","2.5",null],["Seal","seal_val","5",null],
-      ["Consumable","max_highlighted","3",null],["Joker","weight","2",null]];
+      ["Enhanced","chips","33",null],["Edition","xmult","2.5",null],
+      ["Consumable","max_highlighted","3",null]];
     for (const te of TEDIT) {
       const ty=te[0], key=te[1], val=te[2];
       B.maker.select(0); B.maker.typeChip(ty); await __V.wait(250);
@@ -3441,7 +3441,13 @@ const SCENARIOS = {
       const after=B.maker.lua();
       r.perTypeEdit.push({ type:ty, key:key, changed:after!==before, inLua:after.indexOf(val)>=0, inState:(JSON.stringify(B.maker.state.t||{}).indexOf('"'+key+'":"')>=0||JSON.stringify(B.maker.state.t||{}).indexOf('"'+key+'":')>=0) });
     }
+    /* 补充：小丑的权重走的是 data-mk（在 ④ 数值区），单独按它自己的键验一次 */
+    B.maker.select(0); B.maker.typeChip("Joker"); await __V.wait(250);
+    const wEl=q('[data-mk="weight"]');
+    if (wEl) { const before2=B.maker.lua(); wEl.value="2"; fire(wEl,"input"); await __V.wait(400);
+      r.perTypeEdit.push({ type:"Joker", key:"weight(data-mk)", changed:B.maker.lua()!==before2, inLua:B.maker.lua().indexOf("weight = 2")>=0 }); }
     r.perTypeEditSummary=(r.perTypeEdit||[]).map(function(x){ return x.type+"."+x.key+(x.noInput?"(没有这个输入框)":(x.changed?" 改了":" 没变")+(x.inLua?" 进Lua":" 没进Lua")) }).join("  ||  ");
+    r.sealFieldIsText=(function(){ B.maker.typeChip("Seal"); const el=q('[data-mkt="seal_note"]'); return !!el })();
     r.errText=document.body.innerText.indexOf("出错")>=0;
     /* 前置要求说明块：必须在，而且链接 / 关键提醒都得在 */
     const need=q("#mkNeedLoader");

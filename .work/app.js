@@ -6085,6 +6085,10 @@ const MK_TYPE_FIELDS = {
   Tag: [['tag_kind', '触发时', 'sel', [['dollars', '给一笔钱'], ['tarot', '给一张塔罗'], ['planet', '给一张星球'], ['reroll', '免费重掷']]], ['tag_val', '数值', 'num', 5]],
   Enhanced: [['chips', '固定 +筹码', 'num', 30], ['mult', '固定 +倍率', 'num', 4]],
   Edition: [['chips', '固定 +筹码', 'num', 0], ['mult', '固定 +倍率', 'num', 0], ['xmult', '×倍率', 'num', 1.5]],
+  Consumable: [['max_highlighted', '最多选几张牌', 'num', 1], ['min_highlighted', '至少选几张牌', 'num', 0],
+    ['hand_type', '升级哪个牌型（星球牌用）', 'sel', [['', '不升级'], ['High Card', '高牌'], ['Pair', '对子'], ['Two Pair', '两对'],
+      ['Three of a Kind', '三条'], ['Straight', '顺子'], ['Flush', '同花'], ['Full House', '葫芦'], ['Four of a Kind', '四条'],
+      ['Straight Flush', '同花顺'], ['Five of a Kind', '五条'], ['Flush House', '同花葫芦'], ['Flush Five', '同花五条']]]],
   Seal: [['seal_note', '蜡封没有数值字段 —— 它的效果由玩家拿它做什么决定', 'text', '']],
 };
 let MK = {
@@ -7334,13 +7338,22 @@ function mkItemLua () {
     L.push("    key = '" + key + "',");
     L.push("    set = '" + (MK.set || 'Tarot') + "',");
     L.push.apply(L, loc);
-    L.push('    config = { extra = { value = ' + (Number(MK.useVal) || 0) + ' } },');
+    const mh2 = Number(MK.t.max_highlighted || 1) || 1;
+    const nh2 = Number(MK.t.min_highlighted || 0) || 0;
+    const planetHand = (MK.set === 'Planet' && MK.t.hand_type) ? MK.t.hand_type : '';
+    const cfgBits = [];
+    if (mh2 > 0) cfgBits.push('max_highlighted = ' + mh2);
+    if (nh2 > 0) cfgBits.push('min_highlighted = ' + nh2);
+    if (planetHand) cfgBits.push("hand_type = '" + planetHand + "'");
+    cfgBits.push('extra = { value = ' + (Number(MK.useVal) || 0) + ' }');
+    L.push('    config = { ' + cfgBits.join(', ') + ' },');
     L.push('    cost = ' + MK.cost + ',');
     L.push("    atlas = 'sheet_" + slug + "',");
     L.push('    pos = { x = ' + (MK.art.pos.x || 0) + ', y = ' + (MK.art.pos.y || 0) + ' },');
-    L.push('    can_use = function(self, card) return true end,');
+    L.push('    can_use = function(self, card) return #G.hand.highlighted >= ' + nh2 + ' and #G.hand.highlighted <= ' + mh2 + ' end,');
     L.push('    use = function(self, card, area, copier)');
-    if (MK.useKind === 'dollars') L.push('        ease_dollars(' + (Number(MK.useVal) || 0) + ')');
+    if (planetHand) L.push("        local h = G.GAME.hands['" + planetHand + "']; if h then h.level = h.level + 1; update_hand_text({ immediate = true }, { level = h.level, mult = h.mult, chips = h.chips }) end");
+    else if (MK.useKind === 'dollars') L.push('        ease_dollars(' + (Number(MK.useVal) || 0) + ')');
     else if (MK.useKind === 'chips') L.push('        update_hand_text({ immediate = true }, { chips = G.GAME.chips + ' + (Number(MK.useVal) || 0) + ' })');
     else if (MK.useKind === 'mult') L.push('        update_hand_text({ immediate = true }, { mult = ' + (Number(MK.useVal) || 0) + ' })');
     else if (MK.useKind === 'handsize') L.push('        G.hand:change_size(' + (Number(MK.useVal) || 1) + ')');
