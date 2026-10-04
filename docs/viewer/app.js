@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "cddae1ad";
+window.__APP_BUILD__ = "7af27733";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -6609,7 +6609,8 @@ function init () {
     modImport: window.__MODIMPORT__, categoryLabel,
     /* Mod 制作器：状态 / 生成的 Lua / manifest / 要打包的文件（脚本与控制台都能用） */
     maker: { typeChip: (ty) => { mkSet({ type: ty }) }, get state () { return MK },   /* 必须是 getter：MK 会被重新指向 */ lua: () => mkLua(), manifest: () => mkManifest(), files: () => mkBuildFiles(), types: MK_TYPES, when: MK_WHEN, eff: MK_EFF, motion: MK_MOTION, delays: () => mkFrameDelays(MK.art), animArgs: () => mkAnimArgs(MK.art),
-      project: MKR, addItem: mkAddItem, applyClone: (id) => (mkApplyCloneImpl ? mkApplyCloneImpl(id) : null), itemsByCat: (cat) => ITEMS.filter((i) => i.cat === cat).map((i) => i.id), dupItem: mkDupItem, delItem: mkDelItem, moveItem: mkMoveItem, select: mkSelect, grouped: mkGrouped,
+      project: MKR, addItem: mkAddItem, applyClone: (id) => (mkApplyCloneImpl ? mkApplyCloneImpl(id) : null),
+      itemData: (id) => { const it = BY_ID[id]; if (!it) return null; return { cat: it.cat, set: it.set, keys: Object.keys(it), configKeys: Object.keys(it.config || {}), rawKeys: Object.keys(it.raw || {}), config: JSON.stringify(it.config || {}).slice(0, 300), raw: JSON.stringify(it.raw || {}).slice(0, 300) } }, itemsByCat: (cat) => ITEMS.filter((i) => i.cat === cat).map((i) => i.id), dupItem: mkDupItem, delItem: mkDelItem, moveItem: mkMoveItem, select: mkSelect, grouped: mkGrouped,
       projectJSON: mkProjectJSON, applyProject: mkApplyProject, restoreImages: mkRestoreImages, saveProject: mkSaveProject, loadProject: mkLoadProject,
       presets: MK_PRESETS, cond: MK_COND, readImage: mkReadImage, sheet: (scale, which) => mkSheetCanvas(scale, which || "art"),
       atlasLabel: mkAtlasLabel },   /* 脚本/控制台都能用：读图（含动图拆帧）、取帧序列画布 */
@@ -8857,7 +8858,9 @@ function mkApplyCloneFrom (id) {
   const condVal2 = cond2 ? SUIT_CN2[suitRaw2] : '';
   const push2 = (when, kind, v) => { if (v) effects.push({ when: when, cond: cond2, condVal: condVal2, eff: kind, val: v }) };
   /* 图鉴里牌组的 cat 是 Deck，制作器里这个类型叫 Back —— 不映射的话会设成一个不存在的类型，专属设置整块不显示 */
-  const typeOut = it.cat === 'Deck' ? 'Back' : (it.cat === 'Joker' ? 'Joker' : (it.cat === 'Consumable' ? 'Consumable' : it.cat));
+  /* 图鉴里的 cat 和制作器的类型名不是一套：Deck→Back、Tarot/Planet/Spectral→Consumable。
+     不映射的话类型会落空，专属设置不显示、连 cost 都不会写进 Lua（实测过）。 */
+  const typeOut = it.cat === 'Deck' ? 'Back' : (it.cat === 'Joker' ? 'Joker' : ((['Tarot', 'Planet', 'Spectral', 'Consumable'].indexOf(it.cat) >= 0) ? 'Consumable' : it.cat));
   push2('hand', 'chips', cfg.t_chips); push2('hand', 'mult', cfg.t_mult); push2('hand', 'xmult', cfg.x_mult);
   if (cfg.extra && typeof cfg.extra === 'object') {
     push2('card', 'chips', cfg.extra.chips); push2('card', 'mult', cfg.extra.mult); push2('card', 'xmult', cfg.extra.x_mult);

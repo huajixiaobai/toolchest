@@ -3418,6 +3418,7 @@ const SCENARIOS = {
       const lua=B.maker.lua();
       r.cloneByType.push({ type:ty, cat:cat, id:ids[0], effects:res?res.effects:null, tKeys:res?res.tKeys:null,
         typeAfter:st.type,
+        data: B.maker.itemData(ids[0]),
         tSample:JSON.stringify(st.t).slice(0,120), nameZh:st.nameZh, cost:st.cost,
         luaHasCost:lua.indexOf("cost = "+st.cost)>=0 });
     }
