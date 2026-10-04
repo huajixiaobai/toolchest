@@ -3492,6 +3492,19 @@ const SCENARIOS = {
         }
       }
     }
+    /* sig 打桩 */
+    {
+      const snap=()=>({ luaLen:B.maker.lua().length, manLen:B.maker.manifest().length, pv:pvHash() });
+      const els=qa('[data-mkp="modId"]');
+      const s1=snap();
+      let v0=null, v1=null;
+      if(els.length){ v0=els[0].value; els[0].value=v0+"Q"; els[0].dispatchEvent(new Event("input",{bubbles:true})); await __V.wait(450); v1=els[0].value }
+      const s2=snap();
+      r.sigTrace={ elCount:els.length, v0:v0, v1:v1,
+        luaChanged:s1.luaLen!==s2.luaLen, manChanged:s1.manLen!==s2.manLen, pvChanged:s1.pv!==s2.pv,
+        s1:s1, s2:s2, stateNow:B.maker.project.modId,
+        manHead:B.maker.manifest().slice(0,50), luaHead:B.maker.lua().slice(0,50) };
+    }
     r.deadControlsSummary = r.deadControls.length ? r.deadControls.join(" ; ") : "没有死的控件";
     r.controlsUntestedSummary = r.controlsUntested.length ? r.controlsUntested.join(" ; ") : "全部测到了";
     /* 定点探针：工程字段（modId）为什么被算成"没反应" */
