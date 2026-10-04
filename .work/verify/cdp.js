@@ -3336,6 +3336,29 @@ const SCENARIOS = {
     B.render(); await __V.wait(400);
     r.rowsAfterReload=qa(".mki").length;
     r.overview=(q("#mkProjOverview")||{}).textContent||"";
+    /* 每个图集 key 被引用了几次（诊断用：应当都是 1） */
+    r.refCounts=r.atlasKeys.map(function(k){ return k+":"+(lua.split("atlas = '"+k+"'").length-1) });
+    /* 把导出的 zip 直接喂回图鉴的导入器：识别出来的条目数应当等于工程条目数 */
+    let reimp=null;
+    try { reimp=await B.importZipBuffer(B.zipStore(files), B.maker.project.modId) } catch(e) { r.reimportErr=String(e&&e.message||e) }
+    r.reimportCount=reimp&&reimp.mod&&reimp.mod.items?reimp.mod.items.length:null;
+    r.reimportMatches=r.reimportCount===4;
+    r.reimportOk=reimp&&reimp.ok!==false;
+    r.reimportWarn=reimp&&reimp.mod&&reimp.mod.warnings?reimp.mod.warnings.length:0;
+    /* 窄屏安全：这两块都不能横向溢出 */
+    const wrap=q(".maker")||q("#content")||document.body;
+    const itm=q("#mkItems");
+    r.wrapOverflow={ scroll:wrap.scrollWidth, client:wrap.clientWidth, ok:wrap.scrollWidth<=wrap.clientWidth+2 };
+    r.itemsOverflow=itm?{ scroll:itm.scrollWidth, client:itm.clientWidth, ok:itm.scrollWidth<=itm.clientWidth+2 }:null;
+    /* 切换条目：预览与 Lua 必须立刻跟着换 */
+    const luaBefore=B.maker.lua();
+    const nameBefore=(q('[data-mk="nameZh"]')||{}).value;
+    const pvBefore=(q(".mkpvline")||{}).innerText||"";
+    r.luaBoxHasAllItems=(q("#mkLua")?((q("#mkLua").value||"").split("SMODS.").length-1):-1);
+    const rows=qa(".mki");
+    if(rows.length>1){ rows[1].click(); await __V.wait(500) }
+    r.switch={ cur:B.maker.project.cur, luaChanged:B.maker.lua()!==luaBefore, nameChanged:(q('[data-mk="nameZh"]')||{}).value!==nameBefore,
+      nameNow:(q('[data-mk="nameZh"]')||{}).value, pvLine:(q(".mkpvline")||{}).innerText||"", pvChanged:((q(".mkpvline")||{}).innerText||"")!==pvBefore };
     r.errText=document.body.innerText.indexOf("出错")>=0;
     r.errors=window.__V.errors.length;
     return r })()`,
@@ -4202,6 +4225,7 @@ async function main () {
   if (SCENARIOS.blindPick && !SCENARIOS.blindPickMobile) { SCENARIOS.blindPickMobile = SCENARIOS.blindPick; SCENARIOS.blindPickTablet = SCENARIOS.blindPick }
   if (SCENARIOS.playStep && !SCENARIOS.playStepMobile) { SCENARIOS.playStepMobile = SCENARIOS.playStep; SCENARIOS.playStepTablet = SCENARIOS.playStep }
   if (SCENARIOS.modMaker && !SCENARIOS.modMakerMobile) { SCENARIOS.modMakerMobile = SCENARIOS.modMaker; SCENARIOS.modMakerTablet = SCENARIOS.modMaker }
+  if (SCENARIOS.mkProject && !SCENARIOS.mkProjectMobile) { SCENARIOS.mkProjectMobile = SCENARIOS.mkProject; SCENARIOS.mkProjectTablet = SCENARIOS.mkProject }
   if (SCENARIOS.demoLayout && !SCENARIOS.demoLayoutMobile) SCENARIOS.demoLayoutMobile = SCENARIOS.demoLayout
   if (SCENARIOS.scoreCalc && !SCENARIOS.scoreCalcMobile) SCENARIOS.scoreCalcMobile = SCENARIOS.scoreCalc
   if (SCENARIOS.scoreNewPreset && !SCENARIOS.scoreNewPresetMobile) SCENARIOS.scoreNewPresetMobile = SCENARIOS.scoreNewPreset

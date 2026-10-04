@@ -7352,7 +7352,7 @@ function mkItemLua () {
     L.push('    boss = { min = ' + (t2.boss_min || 1) + ', max = ' + (t2.boss_max || 10) + ' },');
     L.push('    mult = ' + (t2.blind_mult || 2) + ',');
     L.push('    dollars = ' + (t2.blind_dollars || 5) + ',');
-    L.push('    atlas = \'sheet\',');
+    L.push('    atlas = \'sheet_' + slug + '\',');
     L.push('    pos = { x = 0, y = 0 },');
     const db = [];
     if (t2.debuff_suit) db.push("suit = '" + t2.debuff_suit + "'");
@@ -7917,6 +7917,7 @@ function viewMaker (root) {
     if (!MK.luaDirty) { const ta2 = q('#mkLua'); if (ta2) ta2.value = mkLua() }
   };
   MKEL.refresh = refresh;
+  refresh();   /* 渲染完先把摘要 / 描述 / 预览那句 / Lua 框填上（以前只定义没调用，Lua 框一开始是空的） */
   /* 重入保护：render() 里如果再触发一次 render（点某些按钮时会发生），直接返回，
      否则会一路递归到爆栈（用户报告：点第一条效果的 ✕ 就 Maximum call stack size exceeded） */
   let redrawing = false;
