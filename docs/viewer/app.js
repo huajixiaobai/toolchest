@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "a45b21fd";
+window.__APP_BUILD__ = "f8b4ce81";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -8668,7 +8668,7 @@ function mkItemAtCell (atlas, x, y) {
     row.appendChild(field('mod 名称', '<input class="tbtn" data-mk="modName">'));
     body.appendChild(row);
     const row2 = document.createElement('div'); row2.className = 'mkrow';
-    row2.appendChild(field('config 覆盖（JSON，可留空）', '<input class="tbtn mono" data-mk="config" placeholder="（不用填）">', 'mkwide'));
+    row2.appendChild(field('config 覆盖（JSON，可留空）—— 填完要点右边「把 config JSON 写进 Lua」，点了才进 Lua', '<input class="tbtn mono" data-mk="config" placeholder="（不用填）">', 'mkwide'));
     body.appendChild(row2);
     body.insertAdjacentHTML('beforeend', '<div class="hint">生成的 Lua（可以直接改；改了就不再被上面的选项覆盖，点「重新生成」会覆盖你的改动）：</div>');
     const ta = document.createElement('textarea'); ta.id = 'mkLua'; ta.className = 'mklua'; ta.spellcheck = false;
