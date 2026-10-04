@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "d88feda7";
+window.__APP_BUILD__ = "a45b21fd";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -6776,7 +6776,7 @@ const MK_TYPE_FIELDS = {
     ['hand_type', '升级哪个牌型（星球牌用）', 'sel', [['', '不升级'], ['High Card', '高牌'], ['Pair', '对子'], ['Two Pair', '两对'],
       ['Three of a Kind', '三条'], ['Straight', '顺子'], ['Flush', '同花'], ['Full House', '葫芦'], ['Four of a Kind', '四条'],
       ['Straight Flush', '同花顺'], ['Five of a Kind', '五条'], ['Flush House', '同花葫芦'], ['Flush Five', '同花五条']]]],
-  Seal: [['seal_note', '蜡封没有数值字段 —— 它的效果由玩家拿它做什么决定', 'text', '']],
+  Seal: [['seal_note', '你想让它做什么（只会作为注释写进 Lua，不会自动实现）', 'str', '']],
 };
 let MK = {
   type: 'Joker',
@@ -8559,7 +8559,12 @@ function mkItemAtCell (atlas, x, y) {
     /* 类型专属设置（盲注/补充包/牌组/标签/优惠券/强化/版本/蜡封） */
     if (MK_TYPE_FIELDS[MK.type]) {
       const tf = document.createElement('div'); tf.className = 'mktfields';
-      tf.innerHTML = '<div class="mklabel">这个类型专属的设置</div>';
+      tf.innerHTML = '<div class="mklabel">这个类型专属的设置（上面「名字/价格/稀有度」是所有类型通用的，这里只影响「' + mkType()[1] + '」）</div>';
+      if (MK.type === 'Seal') {
+        /* 蜡封的诚实说明：原版蜡封的效果是代码，制作器不假装能配置它 */
+        tf.insertAdjacentHTML('beforeend', '<div class="hint">蜡封在原版里没有数值参数 —— 它的行为取决于「玩家拿它做什么」（计分时再触发一次、生成一张牌、给钱…），这段逻辑在游戏源码里是代码。' +
+          '所以这个类型在这里只能做<b>贴图 / 名字 / 描述</b>；效果请写下面的备注（会作为注释带进 Lua），或直接在「高级」里改生成的 Lua。</div>');
+      }
       const rowT = document.createElement('div'); rowT.className = 'mkrow';
       MK_TYPE_FIELDS[MK.type].forEach((f) => {
         const key = f[0], label = f[1], kind = f[2], opt = f[3];
@@ -8570,6 +8575,8 @@ function mkItemAtCell (atlas, x, y) {
           rowT.appendChild(field(label, '<input type="checkbox" data-mkt="' + key + '"' + (cur ? ' checked' : '') + '>', 'mkck'));
         } else if (kind === 'sel') {
           rowT.appendChild(field(label, '<select class="tbtn" data-mkt="' + key + '">' + opt.map((o) => '<option value="' + o[0] + '"' + (cur === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>'));
+        } else if (kind === 'str') {
+          rowT.appendChild(field(label, '<input class="tbtn mkwide" data-mkt="' + key + '" value="' + esc(cur == null ? '' : cur) + '">'));
         } else {
           rowT.appendChild(field(label, '<span class="hint">' + opt + '</span>', 'mkwide'));
         }

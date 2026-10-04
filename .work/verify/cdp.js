@@ -3424,6 +3424,18 @@ const SCENARIOS = {
         tSample:JSON.stringify(st.t).slice(0,120), nameZh:st.nameZh, cost:st.cost,
         luaHasCost:lua.indexOf("cost = "+st.cost)>=0 });
     }
+    /* ④ 预览是否真的跟着类型/选的牌变：依次克隆不同类型，抓预览画布哈希，必须互不相同 */
+    r.previewByType=[];
+    for (const cat2 of ["Joker","Tarot","Booster","Blind"]) {
+      const ids2=B.maker.itemsByCat(cat2); if(!ids2.length) continue;
+      B.maker.select(0); B.maker.applyClone(ids2[0]); B.render(); await __V.wait(500);
+      const cv2=q(".mkpvbox canvas");
+      let h2=null;
+      if(cv2){ const d2=cv2.getContext("2d").getImageData(0,0,cv2.width,cv2.height).data; h2=0; for(let i2=0;i2<d2.length;i2+=97) h2=(h2*31+d2[i2])>>>0 }
+      r.previewByType.push({ cat:cat2, hash:h2, atlas:B.maker.state.art.atlas, pos:B.maker.state.art.pos.x+","+B.maker.state.art.pos.y });
+    }
+    r.previewDistinct=new Set(r.previewByType.map(function(x){return x.hash})).size;
+    r.previewByTypeSummary=r.previewByType.map(function(x){ return x.cat+"@"+x.atlas+" "+x.pos }).join("  ||  ");
     r.cloneSummary=(r.cloneByType||[]).map(function(x){ return (x.cat||"?")+"→"+(x.typeAfter||"?")+" 专属"+x.tKeys+" 效果"+x.effects+" cost进Lua:"+(x.luaHasCost?"是":"否")+" "+String(x.tSample||"") }).join("  ||  ");
     r.perTypeEdit=[];
     /* ③ 的验证：每种类型改一个专属字段，Lua 必须跟着变 */
