@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "62da157a";
+window.__APP_BUILD__ = "d88feda7";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -6610,7 +6610,7 @@ function init () {
     /* Mod 制作器：状态 / 生成的 Lua / manifest / 要打包的文件（脚本与控制台都能用） */
     maker: { typeChip: (ty) => { mkSet({ type: ty }) }, get state () { return MK },   /* 必须是 getter：MK 会被重新指向 */ lua: () => mkLua(), manifest: () => mkManifest(), files: () => mkBuildFiles(), types: MK_TYPES, when: MK_WHEN, eff: MK_EFF, motion: MK_MOTION, delays: () => mkFrameDelays(MK.art), animArgs: () => mkAnimArgs(MK.art),
       project: MKR, addItem: mkAddItem, applyClone: (id) => (mkApplyCloneImpl ? mkApplyCloneImpl(id) : null),
-      itemData: (id) => { const it = BY_ID[id]; if (!it) return null; return { cat: it.cat, set: it.set, keys: Object.keys(it), configKeys: Object.keys(it.config || {}), rawKeys: Object.keys(it.raw || {}), config: JSON.stringify(it.config || {}).slice(0, 300), raw: JSON.stringify(it.raw || {}).slice(0, 300) } }, itemsByCat: (cat) => ITEMS.filter((i) => i.cat === cat).map((i) => i.id), dupItem: mkDupItem, delItem: mkDelItem, moveItem: mkMoveItem, select: mkSelect, grouped: mkGrouped,
+      itemData: (id) => { const it = BY_ID[id]; if (!it) return null; return { art: mkItemArt(it), cat: it.cat, set: it.set, keys: Object.keys(it), configKeys: Object.keys(it.config || {}), rawKeys: Object.keys(it.raw || {}), config: JSON.stringify(it.config || {}).slice(0, 300), raw: JSON.stringify(it.raw || {}).slice(0, 300) } }, itemsByCat: (cat) => ITEMS.filter((i) => i.cat === cat).map((i) => i.id), dupItem: mkDupItem, delItem: mkDelItem, moveItem: mkMoveItem, select: mkSelect, grouped: mkGrouped,
       projectJSON: mkProjectJSON, applyProject: mkApplyProject, restoreImages: mkRestoreImages, saveProject: mkSaveProject, loadProject: mkLoadProject,
       presets: MK_PRESETS, cond: MK_COND, readImage: mkReadImage, sheet: (scale, which) => mkSheetCanvas(scale, which || "art"),
       atlasLabel: mkAtlasLabel },   /* 脚本/控制台都能用：读图（含动图拆帧）、取帧序列画布 */
@@ -6805,15 +6805,35 @@ const MKR = {
   items: [MK], cur: 0, v: 1,
 };
 /** 条目在文件名 / 图集 key 里用的 slug */
+/** 图鉴条目的贴图信息：有的在 it.atlas/it.pos，有的在 it.sprite 里 —— 统一从这里取 */
+function mkItemArt (it) {
+  if (!it) return null;
+  const sp = it.sprite || {};
+  const atlas = sp.atlas || it.atlas || '';
+  if (!atlas) return null;
+  const p = sp.pos || it.pos || {};
+  return { atlas: atlas, pos: { x: Number(p.x) || 0, y: Number(p.y) || 0 } };
+}
+/** 新条目的默认图集：按类型找一张原版同类条目用它 —— 不能沿用上一条的（新建盲注却拿到小丑图集就没道理） */
+function mkDefaultArtForType (type) {
+  const want = (type === 'Consumable') ? ['Tarot', 'Planet', 'Spectral'] : (type === 'Back' ? ['Deck', 'Back'] : [type]);
+  for (const it of ITEMS) {
+    if (want.indexOf(it.cat) < 0) continue;
+    const a = mkItemArt(it);
+    if (a) return a;
+  }
+  return null;
+}
 function mkSlug (it) { return String((it || MK).key || 'item').replace(/[^A-Za-z0-9_]/g, '_') || 'item' }
 /** 新条目：拿当前条目的图集当默认，名字按类型给 */
 function mkBlankItem (type) {
   const ty = type || MK.type;
   const d = MK_DEFAULT_NAME[ty] || ['新条目', 'newitem'];
+  const defArt = mkDefaultArtForType(ty) || { atlas: MK.art.atlas, pos: { x: 0, y: 0 } };
   return {
     type: ty,
     key: d[1],
-    art: { atlas: MK.art.atlas, pos: { x: 0, y: 0 }, upload: null, uploadName: '', frames: null, animated: false, weights: null, gen: null, delays: null, speed: 1 },
+    art: { atlas: defArt.atlas, pos: { x: defArt.pos.x, y: defArt.pos.y }, upload: null, uploadName: '', frames: null, animated: false, weights: null, gen: null, delays: null, speed: 1 },
     rarity: 1, cost: 4, order: 100, weight: 1,
     eternal: true, perishable: true, blueprint: true,
     nameZh: d[0], nameEn: d[0], textZh: '', textEn: '',
@@ -8937,7 +8957,7 @@ function mkApplyCloneFrom (id) {
     cloneFrom: it.id,
     type: typeOut,
     key: mkUniqueKey('my' + String(it.key || it.id).replace(/^[a-z]+_/, '')),
-    art: { atlas: it.atlas || MK.art.atlas, pos: it.pos || { x: 0, y: 0 }, upload: null, uploadName: '', frames: null, animated: false, weights: null, gen: null, delays: null, speed: 1 },
+    art: { atlas: (mkItemArt(it) || { atlas: MK.art.atlas, pos: { x: 0, y: 0 } }).atlas, pos: Object.assign({ x: 0, y: 0 }, (mkItemArt(it) || {}).pos || {}), upload: null, uploadName: '', frames: null, animated: false, weights: null, gen: null, delays: null, speed: 1 },
     nameZh: nm(it, 'zh_CN'), nameEn: nm(it, 'en-us'), textZh: zh2.join(' '), textEn: ((it.text && it.text['en-US']) || (it.text && it.text['en-us']) || []).join(' '),
     rarity: it.rarity || MK.rarity, cost: it.cost || MK.cost, order: it.order || MK.order, weight: it.weight || MK.weight,
     effects: effects.length ? effects : MK.effects,

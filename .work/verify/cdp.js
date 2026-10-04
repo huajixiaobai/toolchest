@@ -3419,6 +3419,8 @@ const SCENARIOS = {
       r.cloneByType.push({ type:ty, cat:cat, id:ids[0], effects:res?res.effects:null, tKeys:res?res.tKeys:null,
         typeAfter:st.type,
         data: B.maker.itemData(ids[0]),
+        artOk: (function(){ const d2=B.maker.itemData(ids[0]); if(!d2||!d2.art) return "条目本身没有图集信息";
+          const a2=B.maker.state.art; return (a2.atlas===d2.art.atlas && a2.pos.x===d2.art.pos.x && a2.pos.y===d2.art.pos.y) ? "一致" : ("不一致 用了 "+a2.atlas+" "+a2.pos.x+","+a2.pos.y+" 应为 "+d2.art.atlas+" "+d2.art.pos.x+","+d2.art.pos.y) })(),
         tSample:JSON.stringify(st.t).slice(0,120), nameZh:st.nameZh, cost:st.cost,
         luaHasCost:lua.indexOf("cost = "+st.cost)>=0 });
     }
