@@ -5922,7 +5922,7 @@ function init () {
     modImport: window.__MODIMPORT__, categoryLabel,
     /* Mod 制作器：状态 / 生成的 Lua / manifest / 要打包的文件（脚本与控制台都能用） */
     maker: { typeChip: (ty) => { mkSet({ type: ty }) }, get state () { return MK },   /* 必须是 getter：MK 会被重新指向 */ lua: () => mkLua(), manifest: () => mkManifest(), files: () => mkBuildFiles(), types: MK_TYPES, when: MK_WHEN, eff: MK_EFF, motion: MK_MOTION, delays: () => mkFrameDelays(MK.art), animArgs: () => mkAnimArgs(MK.art),
-      project: MKR, addItem: mkAddItem, applyClone: (id) => (typeof MKEL !== 'undefined' && MKEL && MKEL.applyClone) ? MKEL.applyClone(id) : null,   /* 暴露管道未接通时返回 null，不抛异常 */ itemsByCat: (cat) => ITEMS.filter((i) => i.cat === cat).map((i) => i.id), dupItem: mkDupItem, delItem: mkDelItem, moveItem: mkMoveItem, select: mkSelect, grouped: mkGrouped,
+      project: MKR, addItem: mkAddItem, applyClone: (id) => (mkApplyCloneImpl ? mkApplyCloneImpl(id) : null), itemsByCat: (cat) => ITEMS.filter((i) => i.cat === cat).map((i) => i.id), dupItem: mkDupItem, delItem: mkDelItem, moveItem: mkMoveItem, select: mkSelect, grouped: mkGrouped,
       projectJSON: mkProjectJSON, applyProject: mkApplyProject, restoreImages: mkRestoreImages, saveProject: mkSaveProject, loadProject: mkLoadProject,
       presets: MK_PRESETS, cond: MK_COND, readImage: mkReadImage, sheet: (scale, which) => mkSheetCanvas(scale, which || "art"),
       atlasLabel: mkAtlasLabel },   /* 脚本/控制台都能用：读图（含动图拆帧）、取帧序列画布 */
@@ -7543,6 +7543,7 @@ let mkRedraw = () => { render() };
      ③ 名字与描述   ④ 数值与兼容性   ⑤ 高级 */
 let mkProjectLoaded = false;
 let mkNeedBoxEl = null; let mkSectionParent = null;
+let mkApplyCloneImpl = null;   /* viewMaker 内部的「照某张牌做」函数挂在这里，供模块级暴露给测试调用 */
 function viewMaker (root) {
   /* 第一次打开：保证至少有一条，并把上次自动保存的工程读回来 */
   if (!mkProjectLoaded) { mkProjectLoaded = true; mkEnsureItems(); try { mkLoadProject() } catch (e) { /* 读不回来就用默认的 */ } }
@@ -8168,7 +8169,8 @@ function mkApplyCloneFrom (id) {
   const cond2 = SUIT_CN2[suitRaw2] ? 'suit' : '';
   const condVal2 = cond2 ? SUIT_CN2[suitRaw2] : '';
   const push2 = (when, kind, v) => { if (v) effects.push({ when: when, cond: cond2, condVal: condVal2, eff: kind, val: v }) };
-  const typeOut = it.cat === 'Joker' ? 'Joker' : (it.cat === 'Consumable' ? 'Consumable' : it.cat);
+  /* 图鉴里牌组的 cat 是 Deck，制作器里这个类型叫 Back —— 不映射的话会设成一个不存在的类型，专属设置整块不显示 */
+  const typeOut = it.cat === 'Deck' ? 'Back' : (it.cat === 'Joker' ? 'Joker' : (it.cat === 'Consumable' ? 'Consumable' : it.cat));
   push2('hand', 'chips', cfg.t_chips); push2('hand', 'mult', cfg.t_mult); push2('hand', 'xmult', cfg.x_mult);
   if (cfg.extra && typeof cfg.extra === 'object') {
     push2('card', 'chips', cfg.extra.chips); push2('card', 'mult', cfg.extra.mult); push2('card', 'xmult', cfg.extra.x_mult);
@@ -8188,7 +8190,7 @@ function mkApplyCloneFrom (id) {
     });
   }
   /* ② 把这张牌的专属内容搬进 MK.t（该类型的字段组直接读它）—— 能读到才搬，读不到留默认，不编 */
-  const t2 = Object.assign({}, MK.t);
+  const t2 = {};   /* 从空开始：照一张新牌做就以它为准，别把上一张牌的专属值留下（实测克隆塔罗后残留过小丑的 mult/chips） */
   const cfgx = Object.assign({}, (it.config || {}), ((it.config && it.config.extra) || {}));
   const rawx = it.raw || {};
   let setOut = MK.set;
@@ -8235,7 +8237,7 @@ function mkApplyCloneFrom (id) {
   });
   return { effects: effects.length, tKeys: tCount };
 }
-  MKEL.applyClone = mkApplyCloneFrom;   /* 函数定义在 viewMaker 里，从这里挂到模块级对象上给外部用 */
+  mkApplyCloneImpl = mkApplyCloneFrom;   /* 挂到模块级变量，外部就能调到了 */
   const cs = q('#mkClone');
   if (cs) cs.onchange = () => {
     const it = BY_ID[cs.value];

@@ -3407,7 +3407,7 @@ const SCENARIOS = {
     r.stillCloned=B.maker.state.cloneFrom;
     /* ② 克隆要把专属内容搬过来：每种类型都真的选一张原版牌试 */
     r.cloneByType=[];
-    const TYPES2=[["Joker","Joker"],["Consumable","Tarot"],["Consumable","Planet"],["Voucher","Voucher"],["Booster","Booster"],["Back","Back"],["Blind","Blind"],["Tag","Tag"]];
+    const TYPES2=[["Joker","Joker"],["Consumable","Tarot"],["Consumable","Planet"],["Voucher","Voucher"],["Booster","Booster"],["Back","Deck"],["Blind","Blind"],["Tag","Tag"]];
     for (const pair of TYPES2) {
       const ty=pair[0], cat=pair[1];
       const ids=B.maker.itemsByCat(cat);
@@ -3417,6 +3417,7 @@ const SCENARIOS = {
       const st=B.maker.state;
       const lua=B.maker.lua();
       r.cloneByType.push({ type:ty, cat:cat, id:ids[0], effects:res?res.effects:null, tKeys:res?res.tKeys:null,
+        typeAfter:st.type,
         tSample:JSON.stringify(st.t).slice(0,120), nameZh:st.nameZh, cost:st.cost,
         luaHasCost:lua.indexOf("cost = "+st.cost)>=0 });
     }
