@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "327e6c90";
+window.__APP_BUILD__ = "23410828";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -8438,7 +8438,7 @@ function viewMaker (root) {
         '<div class="hint" id="mkWeightHint">' + mkWeightHintText() + '</div>';
       src.appendChild(wRow);
     }
-    src.insertAdjacentHTML('beforeend', '<div class="hint">' + MK_IMG_TIP + '</div><div class="hint" id="mkMotionHint">' + mkMotionHintText() + '</div><div class="hint" id="mkArtHint"></div>');
+    src.insertAdjacentHTML('beforeend', '<div class="hint" id="mkCloneHint"></div><div class="hint">' + MK_IMG_TIP + '</div><div class="hint" id="mkMotionHint">' + mkMotionHintText() + '</div><div class="hint" id="mkArtHint"></div>');
     const grid = document.createElement('div'); grid.className = 'mkartgrid'; grid.id = 'mkArtGrid';
     src.appendChild(grid);
     /* 3) 悬浮立绘：自己的图集 / 自己的文件 */
@@ -8647,6 +8647,14 @@ function mkItemAtCell (atlas, x, y) {
     const line = q('.mkpvline');
     if (line) line.innerHTML = '<div class="mkpvname"><b>' + esc(MK.nameZh || MK.key) + '</b>' + mkTag() + '</div>' +
       '<div class="mkpvfx">' + esc(mkShownText() || mkPlaceholderText()) + '</div>';
+    /* 「照谁做的」只是备注：下面所有字段都能继续改 */
+    const ch = q('#mkCloneHint');
+    if (ch) {
+      const src = MK.cloneFrom ? BY_ID[MK.cloneFrom] : null;
+      ch.innerHTML = src
+        ? ('已照「' + esc(nm(src, 'zh_CN')) + '」复制了一份 —— <b>下面所有内容都能继续改</b>（贴图 / 名字 / 原文 / 效果 / 价格 / 稀有度 / 权重 / 这个类型的专属设置），这个标记只是备注，不是锁。想换个起点就再选一张或点别的图格子。')
+        : '';
+    }
     if (!MK.luaDirty) { const ta2 = q('#mkLua'); if (ta2) ta2.value = mkLua() }
   };
   /* 所有段落都建完了，把「前置要求」那块挂到最底部 */

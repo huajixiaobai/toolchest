@@ -3365,6 +3365,25 @@ const SCENARIOS = {
     if(rows.length>1){ rows[1].click(); await __V.wait(500) }
     r.switch={ cur:B.maker.project.cur, luaChanged:B.maker.lua()!==luaBefore, nameChanged:(q('[data-mk="nameZh"]')||{}).value!==nameBefore,
       nameNow:(q('[data-mk="nameZh"]')||{}).value, pvLine:(q(".mkpvline")||{}).innerText||"", pvChanged:((q(".mkpvline")||{}).innerText||"")!==pvBefore };
+    /* 预设即起点：照一张原版小丑做，然后逐项改，每一步 Lua 都要跟着变 */
+    B.maker.select(0); B.maker.typeChip("Joker"); await __V.wait(300);
+    const fire=(el,ev)=>{ el.dispatchEvent(new Event(ev,{bubbles:true})) };
+    const cs2=q("#mkClone"); cs2.value="j_joker"; fire(cs2,"change"); await __V.wait(500);
+    r.cloneHint=(q("#mkCloneHint")||{}).textContent||"";
+    r.cloneHintSays= r.cloneHint.indexOf("都能继续改")>=0;
+    const lua0=B.maker.lua();
+    const nmEl=q('[data-mk="nameZh"]'); nmEl.value="我自己改的名字"; fire(nmEl,"input"); await __V.wait(350);
+    const lua1=B.maker.lua(); r.editName=lua1.indexOf("我自己改的名字")>=0 && lua1!==lua0;
+    const costEl=q('[data-mk="cost"]'); costEl.value="7"; fire(costEl,"input"); await __V.wait(400);
+    const lua2=B.maker.lua(); r.editCost=lua2.indexOf("cost = 7")>=0;
+    const rarEl=q('[data-mk="rarity"]'); rarEl.value="3"; fire(rarEl,"change"); await __V.wait(350);
+    const lua3=B.maker.lua(); r.editRarity=lua3.indexOf("rarity = 3")>=0;
+    const cells2=qa(".mkcell:not(.on)");
+    const posBefore=JSON.stringify(B.maker.state.art.pos);
+    if(cells2.length){ cells2[cells2.length-1].dispatchEvent(new MouseEvent("click",{bubbles:true,shiftKey:true})); await __V.wait(400) }
+    const luaArt=B.maker.lua();
+    r.editArt=(JSON.stringify(B.maker.state.art.pos)!==posBefore) && (luaArt.indexOf("pos = { x = "+B.maker.state.art.pos.x)>=0);
+    r.stillCloned=B.maker.state.cloneFrom;
     r.errText=document.body.innerText.indexOf("出错")>=0;
     /* 前置要求说明块：必须在，而且链接 / 关键提醒都得在 */
     const need=q("#mkNeedLoader");
