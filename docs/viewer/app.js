@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "e5201b20";
+window.__APP_BUILD__ = "92082ac4";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -6795,6 +6795,9 @@ const MK_DEFAULT_NAME = {
   Booster: ['测试补充包', 'testpack'], Back: ['测试牌组', 'testdeck'], Enhanced: ['测试强化', 'testenh'],
   Edition: ['测试版本', 'testedition'], Seal: ['测试蜡封', 'testseal'], Tag: ['测试标签', 'testtag'], Blind: ['测试盲注', 'testblind'],
 };
+/** 预览卡片上显示的那句话：**优先用原文**（用户自己写的 / 从现成的牌复制来的），
+ *  没有原文才按「它做什么」里的效果自动生成 —— 以前这里只认自动生成的，导致"选什么都显示同一段内容"。 */
+function mkShownText () { return MK.textZh || mkAutoText('zh') || '' }
 /** 预览里那句占位文案：小丑牌提示去选预设，其它类型提示专属设置还没填 */
 function mkPlaceholderText () {
   return MK.type === 'Joker' ? mkPlaceholderText() : '（这个类型还有专属设置没填）';
@@ -6910,7 +6913,7 @@ function mkTypeDescHtml () {
 /** 顶部那一行实时摘要 */
 function mkSummaryHtml () {
   return '<b>' + esc(mkType()[1]) + '</b> · ' + esc(MK.nameZh || MK.key) +
-    ' <code>' + esc(MK.prefix) + '_' + esc(MK.key) + '</code> · ' + esc(mkAutoText('zh') || '还没有效果') +
+    ' <code>' + esc(MK.prefix) + '_' + esc(MK.key) + '</code> · ' + esc(mkShownText() || '还没有效果') +
     ' · 贴图 ' + (MK.art.upload ? '上传的图' : (MK.art.atlas + ' x' + MK.art.pos.x + ' y' + MK.art.pos.y));
 }
 function mkAtlasName () {
@@ -8015,7 +8018,7 @@ function mkRefreshLuaAndPreview () {
   if (lua && !MK.luaDirty) lua.value = mkLua();
   const line = document.querySelector('.mkpvline');
   if (line) line.innerHTML = '<b>' + esc(MK.nameZh || MK.key) + '</b> · ' + esc(mkType()[1]) +
-    '<br>' + esc(mkAutoText('zh') || '（还没有效果）');
+    '<br>' + esc(mkShownText() || '（还没有效果）');
 }
 /** 换类型时：名字 / key 若还是"上一个类型的默认值"，就一起换成新类型的默认值 */
 function mkApplyTypeDefaults (prevType) {
@@ -8072,7 +8075,7 @@ function viewMaker (root) {
   pv.appendChild(pvBox);
   const pvLine = document.createElement('div'); pvLine.className = 'mkpvline';
   pvLine.innerHTML = '<div class="mkpvname"><b>' + esc(MK.nameZh || MK.key) + '</b>' + mkTag() + '</div>' +
-    '<div class="mkpvfx">' + esc(mkAutoText('zh') || mkPlaceholderText()) + '</div>';
+    '<div class="mkpvfx">' + esc(mkShownText() || mkPlaceholderText()) + '</div>';
   pv.appendChild(pvLine);
   left.appendChild(pv);
 
@@ -8349,7 +8352,7 @@ function viewMaker (root) {
     const d = q('#mkDesc'); if (d) d.innerHTML = mkDescHtml();
     const line = q('.mkpvline');
     if (line) line.innerHTML = '<div class="mkpvname"><b>' + esc(MK.nameZh || MK.key) + '</b>' + mkTag() + '</div>' +
-      '<div class="mkpvfx">' + esc(mkAutoText('zh') || mkPlaceholderText()) + '</div>';
+      '<div class="mkpvfx">' + esc(mkShownText() || mkPlaceholderText()) + '</div>';
     if (!MK.luaDirty) { const ta2 = q('#mkLua'); if (ta2) ta2.value = mkLua() }
   };
   MKEL.refresh = refresh;
@@ -8521,7 +8524,12 @@ function viewMaker (root) {
     if (!it) return;
     const cfg = it.config || {};
     const effects = [];
-    const push = (when, kind, v) => { if (v) effects.push({ when, cond: '', condVal: '', eff: kind, val: v }) };
+    /* 花色 / 点数条件能读出来就带上（贪婪小丑那种「方片才给加成」要带） */
+    const SUIT_CN = { Diamonds: '♦', Hearts: '♥', Spades: '♠', Clubs: '♣' };
+    const suitRaw = (cfg.extra && cfg.extra.suit) || (it.raw && it.raw.suit) || it.suit || '';
+    const cond = SUIT_CN[suitRaw] ? 'suit' : '';
+    const condVal = cond ? SUIT_CN[suitRaw] : '';
+    const push = (when, kind, v) => { if (v) effects.push({ when, cond: cond, condVal: condVal, eff: kind, val: v }) };
     push('hand', 'chips', cfg.t_chips); push('hand', 'mult', cfg.t_mult); push('hand', 'xmult', cfg.x_mult);
     if (cfg.extra && typeof cfg.extra === 'object') {
       push('card', 'chips', cfg.extra.chips); push('card', 'mult', cfg.extra.mult); push('card', 'xmult', cfg.extra.x_mult);
@@ -8534,7 +8542,10 @@ function viewMaker (root) {
         const kind = /^x_mult|^Xmult_mod/.test(f) ? 'xmult' : /^mult|^t_mult|^mult_mod/.test(f) ? 'mult' : /^chips|^chip_mod|^t_chips/.test(f) ? 'chips' : /dollars/.test(f) ? 'dollars' : null;
         if (!kind || seen[kind]) return;
         seen[kind] = true;
-        const num = (cfg.extra && (cfg.extra[f] || cfg.extra.chips || cfg.extra.mult || cfg.extra.x_mult)) || cfg[f] || (kind === 'xmult' ? 1.5 : 4);
+        /* 只用这张牌数据里**真实存在**的数字；找不到就不编 —— 以前兜底成 4，于是选什么都是「+4 倍率」 */
+        const cand = [(cfg.extra || {})[f], (cfg.extra || {}).chips, (cfg.extra || {}).mult, (cfg.extra || {}).x_mult, cfg[f], cfg.t_chips, cfg.t_mult, cfg.x_mult, cfg.chips, cfg.mult];
+        const num = cand.filter((v) => typeof v === 'number' && isFinite(v))[0];
+        if (typeof num !== 'number') return;   /* 拆不出数值就跳过这条，下面会如实告诉用户 */
         effects.push({ when: rule.r === 'individual' ? 'card' : (rule.r === 'repetition' ? 'repetition' : 'hand'), cond: '', condVal: '', eff: kind, val: typeof num === 'number' ? num : 4 });
       });
     }
@@ -8548,7 +8559,8 @@ function viewMaker (root) {
       rarity: it.rarity || MK.rarity, cost: it.cost || MK.cost, order: it.order || MK.order, weight: it.weight || MK.weight,
       effects: effects.length ? effects : MK.effects,
     });
-    status('已照「' + nm(it, 'zh_CN') + '」复制一份（类型/贴图/数值/文案/效果都进来了），改完导出就是你的新条目。', 'ok');
+    if (effects.length) status('已照「' + nm(it, 'zh_CN') + '」复制一份：类型/贴图/数值/文案/效果都进来了（' + effects.length + ' 条效果），改完导出就是你的新条目。', 'ok');
+    else status('已照「' + nm(it, 'zh_CN') + '」复制一份：类型/贴图/数值/原文都进来了，但**这张牌的效果没法从数据里自动拆成数值**（它的逻辑在游戏源码里是代码）—— 描述里已经是你选的这张牌的原文，效果请在下面「它做什么」里自己挑一条，或直接改生成的 Lua。', '');
   };
 
   /* 导出 / 自检 / 复制 */
