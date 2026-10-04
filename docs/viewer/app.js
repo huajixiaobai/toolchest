@@ -1,4 +1,4 @@
-window.__APP_BUILD__ = "048687b4";
+window.__APP_BUILD__ = "2cbebb0e";
 /* ============================================================================
  * Compile the game's own shaders — vanilla and mod — for WebGL.
  *
@@ -8147,7 +8147,10 @@ function mkManifest () {
   return JSON.stringify({
     id: MKR.modId,
     name: MKR.modName,
-    author: MKR.author,
+    /* 注意：Steamodded 的 manifest 校验里 author 必须是**字符串数组**（loader.lua: type = 'table'），
+       写成一个字符串会被判为不合法、整包加载失败。 */
+    author: [MKR.author || 'unknown'],
+    priority: 0,
     version: MKR.version,
     description: MK.desc,
     prefix: MKR.prefix,
