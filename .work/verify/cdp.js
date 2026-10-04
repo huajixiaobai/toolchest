@@ -3345,6 +3345,11 @@ const SCENARIOS = {
     r.reimportMatches=r.reimportCount===4;
     r.reimportOk=reimp&&reimp.ok!==false;
     r.reimportWarn=reimp&&reimp.mod&&reimp.mod.warnings?reimp.mod.warnings.length:0;
+    /* 逐条目能力没退化：小丑(主体+立绘) + 消耗品 + 优惠券 = 4 段动图图集；立绘 1 段；逐帧时长至少 1 段 */
+    r.animAtlases=lua.split("atlas_table = 'ANIMATION_ATLAS'").length-1;
+    r.soulAtlases=lua.split("soul_atlas = 'soul_").length-1;
+    r.frameDurationsInLua=lua.split("frame_durations").length-1;
+    r.perItemAbilities=r.animAtlases>=4 && r.soulAtlases>=1 && r.frameDurationsInLua>=1;
     /* 窄屏安全：这两块都不能横向溢出 */
     const wrap=q(".maker")||q("#content")||document.body;
     const itm=q("#mkItems");
